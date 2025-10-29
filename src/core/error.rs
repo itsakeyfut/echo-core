@@ -47,6 +47,14 @@ pub enum EmulatorError {
         /// Error message
         message: String,
     },
+
+    /// BIOS has an unexpected size
+    InvalidBiosSize {
+        /// Expected size in bytes
+        expected: usize,
+        /// Actual size in bytes
+        got: usize,
+    },
 }
 
 impl fmt::Display for EmulatorError {
@@ -68,6 +76,13 @@ impl fmt::Display for EmulatorError {
             }
             EmulatorError::BiosError { message } => {
                 write!(f, "BIOS error: {}", message)
+            }
+            EmulatorError::InvalidBiosSize { expected, got } => {
+                write!(
+                    f,
+                    "Invalid BIOS size: expected {} bytes, got {} bytes",
+                    expected, got
+                )
             }
         }
     }

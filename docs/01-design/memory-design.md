@@ -115,7 +115,10 @@ impl Bus {
         let data = std::fs::read(path)?;
 
         if data.len() != 512 * 1024 {
-            return Err(EmulatorError::InvalidBiosSize(data.len()));
+            return Err(EmulatorError::InvalidBiosSize {
+                expected: 512 * 1024,
+                got: data.len(),
+            });
         }
 
         self.bios.copy_from_slice(&data);
@@ -203,8 +206,7 @@ impl Bus {
 
             // Unmapped
             _ => {
-                log::warn!("Unmapped memory read8 at 0x{:08X}", vaddr);
-                Ok(0xFF)  // Open bus value
+                Err(EmulatorError::InvalidAddress { address: vaddr })
             }
         }
     }
@@ -249,8 +251,7 @@ impl Bus {
             }
 
             _ => {
-                log::warn!("Unmapped memory read16 at 0x{:08X}", vaddr);
-                Ok(0xFFFF)
+                Err(EmulatorError::InvalidAddress { address: vaddr })
             }
         }
     }
@@ -305,8 +306,7 @@ impl Bus {
             }
 
             _ => {
-                log::warn!("Unmapped memory read32 at 0x{:08X}", vaddr);
-                Ok(0xFFFFFFFF)
+                Err(EmulatorError::InvalidAddress { address: vaddr })
             }
         }
     }
@@ -347,8 +347,7 @@ impl Bus {
             }
 
             _ => {
-                log::warn!("Unmapped memory write8 at 0x{:08X}", vaddr);
-                Ok(())
+                Err(EmulatorError::InvalidAddress { address: vaddr })
             }
         }
     }
@@ -390,8 +389,7 @@ impl Bus {
             }
 
             _ => {
-                log::warn!("Unmapped memory write16 at 0x{:08X}", vaddr);
-                Ok(())
+                Err(EmulatorError::InvalidAddress { address: vaddr })
             }
         }
     }
@@ -432,8 +430,7 @@ impl Bus {
             }
 
             _ => {
-                log::warn!("Unmapped memory write32 at 0x{:08X}", vaddr);
-                Ok(())
+                Err(EmulatorError::InvalidAddress { address: vaddr })
             }
         }
     }

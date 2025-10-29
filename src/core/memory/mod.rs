@@ -183,12 +183,9 @@ impl Bus {
         })?;
 
         if metadata.len() != Self::BIOS_SIZE as u64 {
-            return Err(EmulatorError::BiosError {
-                message: format!(
-                    "Invalid BIOS size: expected {} bytes, got {} bytes",
-                    Self::BIOS_SIZE,
-                    metadata.len()
-                ),
+            return Err(EmulatorError::InvalidBiosSize {
+                expected: Self::BIOS_SIZE,
+                got: metadata.len() as usize,
             });
         }
 
