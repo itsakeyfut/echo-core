@@ -6,3 +6,4 @@ license = "Apache-2.0"
 authors = ["itsakeyfut"]
 
 [dependencies]
+log = "0.4.28"
