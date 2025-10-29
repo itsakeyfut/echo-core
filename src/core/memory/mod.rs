@@ -174,13 +174,10 @@ impl Bus {
     /// bus.load_bios("SCPH1001.BIN").unwrap();
     /// ```
     pub fn load_bios(&mut self, path: &str) -> Result<()> {
-        let mut file = File::open(path).map_err(|e| EmulatorError::BiosError {
-            message: format!("Failed to open BIOS file '{}': {}", path, e),
-        })?;
+        let mut file =
+            File::open(path).map_err(|_| EmulatorError::BiosNotFound(path.to_string()))?;
 
-        let metadata = file.metadata().map_err(|e| EmulatorError::BiosError {
-            message: format!("Failed to read BIOS file metadata: {}", e),
-        })?;
+        let metadata = file.metadata()?;
 
         if metadata.len() != Self::BIOS_SIZE as u64 {
             return Err(EmulatorError::InvalidBiosSize {
@@ -189,10 +186,7 @@ impl Bus {
             });
         }
 
-        file.read_exact(&mut self.bios)
-            .map_err(|e| EmulatorError::BiosError {
-                message: format!("Failed to read BIOS file: {}", e),
-            })?;
+        file.read_exact(&mut self.bios)?;
 
         Ok(())
     }
@@ -212,18 +206,12 @@ impl Bus {
     ///
     /// Physical address after translation
     ///
-    /// # Example
+    /// # Implementation
     ///
-    /// ```
-    /// use echo_core::core::memory::Bus;
-    ///
-    /// let bus = Bus::new();
-    ///
-    /// // These all map to physical address 0x00001234
-    /// assert_eq!(bus.translate_address(0x00001234), 0x00001234);  // KUSEG
-    /// assert_eq!(bus.translate_address(0x80001234), 0x00001234);  // KSEG0
-    /// assert_eq!(bus.translate_address(0xA0001234), 0x00001234);  // KSEG1
-    /// ```
+    /// All segments map to the same 512MB physical address space:
+    /// - 0x00001234 (KUSEG) → 0x00001234
+    /// - 0x80001234 (KSEG0) → 0x00001234
+    /// - 0xA0001234 (KSEG1) → 0x00001234
     #[inline(always)]
     fn translate_address(&self, vaddr: u32) -> u32 {
         // Mask upper 3 bits to get physical address
@@ -317,7 +305,7 @@ impl Bus {
                 log::trace!("I/O port read8 at 0x{:08X}", paddr);
                 Ok(0)
             }
-            MemoryRegion::Unmapped => Err(EmulatorError::InvalidAddress { address: vaddr }),
+            MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
         }
     }
 
@@ -380,7 +368,7 @@ impl Bus {
                 log::trace!("I/O port read16 at 0x{:08X}", paddr);
                 Ok(0)
             }
-            MemoryRegion::Unmapped => Err(EmulatorError::InvalidAddress { address: vaddr }),
+            MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
         }
     }
 
@@ -457,7 +445,7 @@ impl Bus {
                 // I/O port stub for Phase 1 Week 1
                 self.read_io_port32(paddr)
             }
-            MemoryRegion::Unmapped => Err(EmulatorError::InvalidAddress { address: vaddr }),
+            MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
         }
     }
 
@@ -509,7 +497,7 @@ impl Bus {
                 log::trace!("I/O port write8 at 0x{:08X} = 0x{:02X}", paddr, value);
                 Ok(())
             }
-            MemoryRegion::Unmapped => Err(EmulatorError::InvalidAddress { address: vaddr }),
+            MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
         }
     }
 
@@ -576,7 +564,7 @@ impl Bus {
                 log::trace!("I/O port write16 at 0x{:08X} = 0x{:04X}", paddr, value);
                 Ok(())
             }
-            MemoryRegion::Unmapped => Err(EmulatorError::InvalidAddress { address: vaddr }),
+            MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
         }
     }
 
@@ -646,7 +634,7 @@ impl Bus {
                 // I/O port stub for Phase 1 Week 1
                 self.write_io_port32(paddr, value)
             }
-            MemoryRegion::Unmapped => Err(EmulatorError::InvalidAddress { address: vaddr }),
+            MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
         }
     }
 

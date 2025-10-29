@@ -13,26 +13,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Core emulation components
-//!
-//! This module contains all hardware emulation components:
-//! - CPU (MIPS R3000A)
-//! - Memory bus
-//! - GPU (Graphics Processing Unit)
-//! - SPU (Sound Processing Unit)
-//! - System integration
+use echo_core::core::error::Result;
+use echo_core::core::system::System;
 
-pub mod cpu;
-pub mod error;
-pub mod gpu;
-pub mod memory;
-pub mod spu;
-pub mod system;
+#[test]
+fn test_basic_initialization() -> Result<()> {
+    // Basic smoke test
+    let system = System::new();
+    assert_eq!(system.total_cycles(), 0);
+    Ok(())
+}
 
-// Re-export commonly used types
-pub use cpu::CPU;
-pub use error::{EmulatorError, Result};
-pub use gpu::GPU;
-pub use memory::Bus;
-pub use spu::SPU;
-pub use system::System;
+#[test]
+fn test_system_reset() {
+    let mut system = System::new();
+    system.reset();
+    assert_eq!(system.total_cycles(), 0);
+}
+
+#[test]
+fn test_cpu_initialization() {
+    let system = System::new();
+    // PC should start at BIOS entry point
+    assert_eq!(system.cpu().pc(), 0xBFC00000);
+}
