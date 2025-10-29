@@ -144,6 +144,32 @@ impl Bus {
         }
     }
 
+    /// Reset the bus to initial state
+    ///
+    /// Clears RAM and scratchpad to zero, simulating a power-cycle.
+    /// BIOS contents are preserved as they represent read-only ROM.
+    ///
+    /// This ensures that system reset properly clears volatile memory
+    /// while maintaining the loaded BIOS image.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use echo_core::core::memory::Bus;
+    ///
+    /// let mut bus = Bus::new();
+    /// bus.write32(0x80000000, 0x12345678).unwrap();
+    /// bus.reset();
+    /// assert_eq!(bus.read32(0x80000000).unwrap(), 0x00000000);
+    /// ```
+    pub fn reset(&mut self) {
+        // Clear RAM (volatile memory)
+        self.ram.fill(0);
+        // Clear scratchpad (volatile memory)
+        self.scratchpad.fill(0);
+        // BIOS is read-only ROM, so it is not cleared
+    }
+
     /// Load BIOS from file
     ///
     /// Loads a BIOS ROM file into the BIOS region. The file must be

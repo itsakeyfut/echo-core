@@ -75,9 +75,10 @@ impl System {
     /// Reset the system to initial state
     ///
     /// Resets all components as if the console was power-cycled.
+    /// This clears RAM/scratchpad but preserves loaded BIOS.
     pub fn reset(&mut self) {
         self.cpu.reset();
-        // Bus reset will be implemented when we add BIOS loading
+        self.bus.reset();
         self.gpu = GPU::new();
         self.spu = SPU::new();
         self.cycles = 0;
