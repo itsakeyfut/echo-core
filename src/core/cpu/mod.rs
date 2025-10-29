@@ -535,6 +535,7 @@ impl CPU {
     ///
     /// The offset is added to next_pc, which already points to the delay slot + 4.
     /// This correctly implements the MIPS branch semantics.
+    #[allow(dead_code)]
     fn branch(&mut self, offset: i32) {
         // next_pc already points to delay slot + 4, so add offset from there
         self.next_pc = self.next_pc.wrapping_add(offset as u32);

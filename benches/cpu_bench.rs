@@ -13,9 +13,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use echo_core::core::cpu::CPU;
 use echo_core::core::memory::Bus;
+use std::hint::black_box;
 
 fn cpu_step_benchmark(c: &mut Criterion) {
     c.bench_function("cpu_step", |b| {
