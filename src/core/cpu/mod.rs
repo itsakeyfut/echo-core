@@ -396,6 +396,9 @@ impl CPU {
             0x09 => self.op_addiu(instruction), // ADDIU
             0x0A => self.op_slti(instruction),  // SLTI
             0x0B => self.op_sltiu(instruction), // SLTIU
+            0x0C => self.op_andi(instruction),  // ANDI
+            0x0D => self.op_ori(instruction),   // ORI
+            0x0E => self.op_xori(instruction),  // XORI
             0x0F => self.op_lui(instruction),   // LUI
             _ => {
                 log::warn!(
@@ -426,10 +429,19 @@ impl CPU {
 
         match funct {
             0x00 => self.op_sll(rt, rd, shamt), // SLL
+            0x02 => self.op_srl(rt, rd, shamt), // SRL
+            0x03 => self.op_sra(rt, rd, shamt), // SRA
+            0x04 => self.op_sllv(rs, rt, rd),   // SLLV
+            0x06 => self.op_srlv(rs, rt, rd),   // SRLV
+            0x07 => self.op_srav(rs, rt, rd),   // SRAV
             0x20 => self.op_add(rs, rt, rd),    // ADD
             0x21 => self.op_addu(rs, rt, rd),   // ADDU
             0x22 => self.op_sub(rs, rt, rd),    // SUB
             0x23 => self.op_subu(rs, rt, rd),   // SUBU
+            0x24 => self.op_and(rs, rt, rd),    // AND
+            0x25 => self.op_or(rs, rt, rd),     // OR
+            0x26 => self.op_xor(rs, rt, rd),    // XOR
+            0x27 => self.op_nor(rs, rt, rd),    // NOR
             0x2A => self.op_slt(rs, rt, rd),    // SLT
             0x2B => self.op_sltu(rs, rt, rd),   // SLTU
             _ => {
@@ -823,6 +835,278 @@ impl CPU {
         let a = self.reg(rs);
         let result = if a < imm { 1 } else { 0 };
         self.set_reg(rt, result);
+        Ok(())
+    }
+
+    // === Logical Instructions ===
+
+    /// AND: Bitwise AND
+    ///
+    /// Performs bitwise AND operation on two registers.
+    ///
+    /// Format: and rd, rs, rt
+    /// Operation: rd = rs & rt
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - First source register
+    /// * `rt` - Second source register
+    /// * `rd` - Destination register
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_and(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+        let result = self.reg(rs) & self.reg(rt);
+        self.set_reg(rd, result);
+        Ok(())
+    }
+
+    /// ANDI: AND Immediate (zero-extended)
+    ///
+    /// Performs bitwise AND operation with a zero-extended immediate value.
+    /// Note: Unlike ADDI, the immediate is ZERO-extended, not sign-extended.
+    ///
+    /// Format: andi rt, rs, imm
+    /// Operation: rt = rs & zero_extend(imm)
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_andi(&mut self, instruction: u32) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let result = self.reg(rs) & (imm as u32); // Zero extend
+        self.set_reg(rt, result);
+        Ok(())
+    }
+
+    /// OR: Bitwise OR
+    ///
+    /// Performs bitwise OR operation on two registers.
+    ///
+    /// Format: or rd, rs, rt
+    /// Operation: rd = rs | rt
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - First source register
+    /// * `rt` - Second source register
+    /// * `rd` - Destination register
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_or(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+        let result = self.reg(rs) | self.reg(rt);
+        self.set_reg(rd, result);
+        Ok(())
+    }
+
+    /// ORI: OR Immediate (zero-extended)
+    ///
+    /// Performs bitwise OR operation with a zero-extended immediate value.
+    ///
+    /// Format: ori rt, rs, imm
+    /// Operation: rt = rs | zero_extend(imm)
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_ori(&mut self, instruction: u32) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let result = self.reg(rs) | (imm as u32);
+        self.set_reg(rt, result);
+        Ok(())
+    }
+
+    /// XOR: Bitwise XOR
+    ///
+    /// Performs bitwise XOR operation on two registers.
+    ///
+    /// Format: xor rd, rs, rt
+    /// Operation: rd = rs ^ rt
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - First source register
+    /// * `rt` - Second source register
+    /// * `rd` - Destination register
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_xor(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+        let result = self.reg(rs) ^ self.reg(rt);
+        self.set_reg(rd, result);
+        Ok(())
+    }
+
+    /// XORI: XOR Immediate (zero-extended)
+    ///
+    /// Performs bitwise XOR operation with a zero-extended immediate value.
+    ///
+    /// Format: xori rt, rs, imm
+    /// Operation: rt = rs ^ zero_extend(imm)
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_xori(&mut self, instruction: u32) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let result = self.reg(rs) ^ (imm as u32);
+        self.set_reg(rt, result);
+        Ok(())
+    }
+
+    /// NOR: Bitwise NOR (NOT OR)
+    ///
+    /// Performs bitwise NOR operation on two registers.
+    /// This is equivalent to NOT(rs OR rt).
+    ///
+    /// Format: nor rd, rs, rt
+    /// Operation: rd = ~(rs | rt)
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - First source register
+    /// * `rt` - Second source register
+    /// * `rd` - Destination register
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_nor(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+        let result = !(self.reg(rs) | self.reg(rt));
+        self.set_reg(rd, result);
+        Ok(())
+    }
+
+    // === Shift Instructions ===
+
+    /// SRL: Shift Right Logical (zero-fill)
+    ///
+    /// Shifts the value in rt right by shamt bits, filling with zeros.
+    ///
+    /// Format: srl rd, rt, shamt
+    /// Operation: rd = rt >> shamt (zero-fill)
+    ///
+    /// # Arguments
+    ///
+    /// * `rt` - Source register
+    /// * `rd` - Destination register
+    /// * `shamt` - Shift amount (0-31)
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_srl(&mut self, rt: u8, rd: u8, shamt: u8) -> Result<()> {
+        let result = self.reg(rt) >> shamt;
+        self.set_reg(rd, result);
+        Ok(())
+    }
+
+    /// SRA: Shift Right Arithmetic (sign-extend)
+    ///
+    /// Shifts the value in rt right by shamt bits, preserving the sign bit.
+    ///
+    /// Format: sra rd, rt, shamt
+    /// Operation: rd = rt >> shamt (sign-extend)
+    ///
+    /// # Arguments
+    ///
+    /// * `rt` - Source register
+    /// * `rd` - Destination register
+    /// * `shamt` - Shift amount (0-31)
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_sra(&mut self, rt: u8, rd: u8, shamt: u8) -> Result<()> {
+        let result = ((self.reg(rt) as i32) >> shamt) as u32;
+        self.set_reg(rd, result);
+        Ok(())
+    }
+
+    /// SLLV: Shift Left Logical Variable
+    ///
+    /// Shifts the value in rt left by the amount specified in the lower 5 bits of rs.
+    ///
+    /// Format: sllv rd, rt, rs
+    /// Operation: rd = rt << (rs & 0x1F)
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - Register containing shift amount (lower 5 bits used)
+    /// * `rt` - Source register
+    /// * `rd` - Destination register
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_sllv(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+        let shamt = self.reg(rs) & 0x1F; // Only lower 5 bits
+        let result = self.reg(rt) << shamt;
+        self.set_reg(rd, result);
+        Ok(())
+    }
+
+    /// SRLV: Shift Right Logical Variable
+    ///
+    /// Shifts the value in rt right by the amount specified in the lower 5 bits of rs,
+    /// filling with zeros.
+    ///
+    /// Format: srlv rd, rt, rs
+    /// Operation: rd = rt >> (rs & 0x1F)
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - Register containing shift amount (lower 5 bits used)
+    /// * `rt` - Source register
+    /// * `rd` - Destination register
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_srlv(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+        let shamt = self.reg(rs) & 0x1F;
+        let result = self.reg(rt) >> shamt;
+        self.set_reg(rd, result);
+        Ok(())
+    }
+
+    /// SRAV: Shift Right Arithmetic Variable
+    ///
+    /// Shifts the value in rt right by the amount specified in the lower 5 bits of rs,
+    /// preserving the sign bit.
+    ///
+    /// Format: srav rd, rt, rs
+    /// Operation: rd = rt >> (rs & 0x1F) (sign-extend)
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - Register containing shift amount (lower 5 bits used)
+    /// * `rt` - Source register
+    /// * `rd` - Destination register
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_srav(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+        let shamt = self.reg(rs) & 0x1F;
+        let result = ((self.reg(rt) as i32) >> shamt) as u32;
+        self.set_reg(rd, result);
         Ok(())
     }
 
@@ -1815,5 +2099,269 @@ mod tests {
         // EPC must point to branch instruction; BD must be set.
         assert_eq!(cpu.cop0.regs[COP0::EPC], 0x80001000);
         assert_ne!(cpu.cop0.regs[COP0::CAUSE] & (1 << 31), 0);
+    }
+
+    // === Logical Instruction Tests ===
+
+    #[test]
+    fn test_and() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0b11110000);
+        cpu.set_reg(2, 0b10101010);
+        cpu.op_and(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 0b10100000);
+    }
+
+    #[test]
+    fn test_and_all_bits() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0xFFFFFFFF);
+        cpu.set_reg(2, 0x12345678);
+        cpu.op_and(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 0x12345678);
+    }
+
+    #[test]
+    fn test_andi_zero_extension() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0xFFFFFFFF);
+        // ANDI r3, r1, 0xFFFF -> 0x3023FFFF
+        let instr = 0x3023FFFF;
+        cpu.op_andi(instr).unwrap();
+        assert_eq!(cpu.reg(3), 0x0000FFFF);
+    }
+
+    #[test]
+    fn test_andi_basic() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x12345678);
+        // ANDI r3, r1, 0x00FF -> 0x302300FF
+        let instr = 0x302300FF;
+        cpu.op_andi(instr).unwrap();
+        assert_eq!(cpu.reg(3), 0x00000078);
+    }
+
+    #[test]
+    fn test_or() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0b11110000);
+        cpu.set_reg(2, 0b00001111);
+        cpu.op_or(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 0b11111111);
+    }
+
+    #[test]
+    fn test_or_identity() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x12345678);
+        cpu.set_reg(2, 0x00000000);
+        cpu.op_or(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 0x12345678);
+    }
+
+    #[test]
+    fn test_ori_basic() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x12340000);
+        // ORI r3, r1, 0x5678 -> 0x34235678
+        let instr = 0x34235678;
+        cpu.op_ori(instr).unwrap();
+        assert_eq!(cpu.reg(3), 0x12345678);
+    }
+
+    #[test]
+    fn test_ori_zero_extension() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x00000000);
+        // ORI r3, r1, 0xFFFF -> 0x3423FFFF
+        let instr = 0x3423FFFF;
+        cpu.op_ori(instr).unwrap();
+        assert_eq!(cpu.reg(3), 0x0000FFFF);
+    }
+
+    #[test]
+    fn test_xor() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0b11110000);
+        cpu.set_reg(2, 0b10101010);
+        cpu.op_xor(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 0b01011010);
+    }
+
+    #[test]
+    fn test_xor_same_value() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x12345678);
+        cpu.set_reg(2, 0x12345678);
+        cpu.op_xor(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 0x00000000);
+    }
+
+    #[test]
+    fn test_xori_basic() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0xFFFF0000);
+        // XORI r3, r1, 0xFFFF -> 0x3823FFFF
+        let instr = 0x3823FFFF;
+        cpu.op_xori(instr).unwrap();
+        assert_eq!(cpu.reg(3), 0xFFFFFFFF);
+    }
+
+    #[test]
+    fn test_xori_toggle_bits() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x000000FF);
+        // XORI r3, r1, 0x00FF -> 0x382300FF
+        let instr = 0x382300FF;
+        cpu.op_xori(instr).unwrap();
+        assert_eq!(cpu.reg(3), 0x00000000);
+    }
+
+    #[test]
+    fn test_nor() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x00000000);
+        cpu.set_reg(2, 0x00000000);
+        cpu.op_nor(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 0xFFFFFFFF);
+    }
+
+    #[test]
+    fn test_nor_with_values() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x0F0F0F0F);
+        cpu.set_reg(2, 0xF0F0F0F0);
+        cpu.op_nor(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 0x00000000);
+    }
+
+    // === Shift Instruction Tests ===
+
+    #[test]
+    fn test_sll_basic() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x00000001);
+        cpu.op_sll(1, 2, 4).unwrap();
+        assert_eq!(cpu.reg(2), 0x00000010);
+    }
+
+    #[test]
+    fn test_sll_overflow() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x80000000);
+        cpu.op_sll(1, 2, 1).unwrap();
+        assert_eq!(cpu.reg(2), 0x00000000);
+    }
+
+    #[test]
+    fn test_srl_basic() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0xF0000000);
+        cpu.op_srl(1, 2, 4).unwrap();
+        assert_eq!(cpu.reg(2), 0x0F000000);
+    }
+
+    #[test]
+    fn test_srl_zero_fill() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0xFFFFFFFF);
+        cpu.op_srl(1, 2, 1).unwrap();
+        assert_eq!(cpu.reg(2), 0x7FFFFFFF);
+    }
+
+    #[test]
+    fn test_sra_positive() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x70000000);
+        cpu.op_sra(1, 2, 4).unwrap();
+        assert_eq!(cpu.reg(2), 0x07000000);
+    }
+
+    #[test]
+    fn test_sra_negative() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0xF0000000); // Negative number
+        cpu.op_sra(1, 2, 4).unwrap();
+        assert_eq!(cpu.reg(2), 0xFF000000); // Sign-extended
+    }
+
+    #[test]
+    fn test_sra_negative_shift_one() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x80000000); // Most negative i32
+        cpu.op_sra(1, 2, 1).unwrap();
+        assert_eq!(cpu.reg(2), 0xC0000000); // Sign-extended
+    }
+
+    #[test]
+    fn test_sllv_basic() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 4); // Shift amount
+        cpu.set_reg(2, 1);
+        cpu.op_sllv(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 16);
+    }
+
+    #[test]
+    fn test_sllv_mask() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x100); // Only lower 5 bits used (0)
+        cpu.set_reg(2, 1);
+        cpu.op_sllv(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 1); // Shift by 0
+    }
+
+    #[test]
+    fn test_sllv_max_shift() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 31); // Maximum shift
+        cpu.set_reg(2, 1);
+        cpu.op_sllv(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 0x80000000);
+    }
+
+    #[test]
+    fn test_srlv_basic() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 4); // Shift amount
+        cpu.set_reg(2, 0x00000100);
+        cpu.op_srlv(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 0x00000010);
+    }
+
+    #[test]
+    fn test_srlv_mask() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x120); // Only lower 5 bits used (0)
+        cpu.set_reg(2, 0x12345678);
+        cpu.op_srlv(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 0x12345678); // No shift
+    }
+
+    #[test]
+    fn test_srav_positive() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 4); // Shift amount
+        cpu.set_reg(2, 0x70000000);
+        cpu.op_srav(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 0x07000000);
+    }
+
+    #[test]
+    fn test_srav_negative() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 4); // Shift amount
+        cpu.set_reg(2, 0xF0000000); // Negative
+        cpu.op_srav(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 0xFF000000); // Sign-extended
+    }
+
+    #[test]
+    fn test_srav_mask() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x104); // Only lower 5 bits used (4)
+        cpu.set_reg(2, 0x80000000); // Negative
+        cpu.op_srav(1, 2, 3).unwrap();
+        assert_eq!(cpu.reg(3), 0xF8000000); // Sign-extended
     }
 }
