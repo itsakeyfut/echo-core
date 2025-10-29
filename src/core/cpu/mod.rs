@@ -867,17 +867,22 @@ impl CPU {
         // Save current status (push exception level)
         let sr = self.cop0.regs[COP0::SR];
         let mode = sr & 0x3F;
-        self.cop0.regs[COP0::SR] = (sr & !0x3F) | ((mode << 2) & 0x3F);
+        // Push KU/IE (c→p, p→o) and enter kernel with interrupts disabled.
+        let mut new_sr = (sr & !0x3F) | ((mode << 2) & 0x3F);
+        new_sr &= !0b11; // IEc=0 (bit 0), KUc=0 (bit 1)
+        self.cop0.regs[COP0::SR] = new_sr;
 
         // Set exception cause
         let cause_reg = self.cop0.regs[COP0::CAUSE];
         self.cop0.regs[COP0::CAUSE] = (cause_reg & !0x7C) | ((cause as u32) << 2);
 
         // Save exception PC
+        // self.pc currently points to (faulting_pc + 4). Adjust accordingly.
+        let current_pc = self.pc.wrapping_sub(4);
         self.cop0.regs[COP0::EPC] = if self.in_branch_delay {
-            self.pc.wrapping_sub(4)
+            current_pc.wrapping_sub(4) // branch instruction address
         } else {
-            self.pc
+            current_pc // faulting instruction address
         };
 
         // Set branch delay flag in CAUSE if in delay slot
@@ -897,6 +902,7 @@ impl CPU {
         self.pc = handler;
         self.next_pc = handler.wrapping_add(4);
         self.in_branch_delay = false;
+        self.load_delay = None;
     }
 
     /// Check if currently in branch delay slot
@@ -1790,11 +1796,24 @@ mod tests {
     #[test]
     fn test_exception_epc_saved() {
         let mut cpu = CPU::new();
-        cpu.pc = 0x80001000;
+        // In this core, self.pc points to (current_pc + 4) during execution.
+        cpu.pc = 0x80001004;
 
         cpu.exception(ExceptionCause::Syscall);
 
         // Check EPC saved correctly
         assert_eq!(cpu.cop0.regs[COP0::EPC], 0x80001000);
+    }
+
+    #[test]
+    fn test_exception_epc_and_bd_in_delay_slot() {
+        let mut cpu = CPU::new();
+        // Simulate executing a delay-slot instruction: pc = branch_pc + 8
+        cpu.pc = 0x80001008;
+        cpu.in_branch_delay = true;
+        cpu.exception(ExceptionCause::Overflow);
+        // EPC must point to branch instruction; BD must be set.
+        assert_eq!(cpu.cop0.regs[COP0::EPC], 0x80001000);
+        assert_ne!(cpu.cop0.regs[COP0::CAUSE] & (1 << 31), 0);
     }
 }
