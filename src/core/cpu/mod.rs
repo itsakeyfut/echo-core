@@ -390,16 +390,28 @@ impl CPU {
         match opcode {
             0x00 => self.execute_special(instruction, bus),
             0x01 => self.execute_bcondz(instruction),
-            0x02 => self.op_j(instruction),     // J
-            0x03 => self.op_jal(instruction),   // JAL
-            0x08 => self.op_addi(instruction),  // ADDI
-            0x09 => self.op_addiu(instruction), // ADDIU
-            0x0A => self.op_slti(instruction),  // SLTI
-            0x0B => self.op_sltiu(instruction), // SLTIU
-            0x0C => self.op_andi(instruction),  // ANDI
-            0x0D => self.op_ori(instruction),   // ORI
-            0x0E => self.op_xori(instruction),  // XORI
-            0x0F => self.op_lui(instruction),   // LUI
+            0x02 => self.op_j(instruction),        // J
+            0x03 => self.op_jal(instruction),      // JAL
+            0x08 => self.op_addi(instruction),     // ADDI
+            0x09 => self.op_addiu(instruction),    // ADDIU
+            0x0A => self.op_slti(instruction),     // SLTI
+            0x0B => self.op_sltiu(instruction),    // SLTIU
+            0x0C => self.op_andi(instruction),     // ANDI
+            0x0D => self.op_ori(instruction),      // ORI
+            0x0E => self.op_xori(instruction),     // XORI
+            0x0F => self.op_lui(instruction),      // LUI
+            0x20 => self.op_lb(instruction, bus),  // LB
+            0x21 => self.op_lh(instruction, bus),  // LH
+            0x22 => self.op_lwl(instruction, bus), // LWL
+            0x23 => self.op_lw(instruction, bus),  // LW
+            0x24 => self.op_lbu(instruction, bus), // LBU
+            0x25 => self.op_lhu(instruction, bus), // LHU
+            0x26 => self.op_lwr(instruction, bus), // LWR
+            0x28 => self.op_sb(instruction, bus),  // SB
+            0x29 => self.op_sh(instruction, bus),  // SH
+            0x2A => self.op_swl(instruction, bus), // SWL
+            0x2B => self.op_sw(instruction, bus),  // SW
+            0x2E => self.op_swr(instruction, bus), // SWR
             _ => {
                 log::warn!(
                     "Unimplemented opcode: 0x{:02X} at PC=0x{:08X}",
@@ -1107,6 +1119,341 @@ impl CPU {
         let shamt = self.reg(rs) & 0x1F;
         let result = ((self.reg(rt) as i32) >> shamt) as u32;
         self.set_reg(rd, result);
+        Ok(())
+    }
+
+    // === Load Instructions ===
+
+    /// LW: Load Word (32-bit)
+    ///
+    /// Loads a 32-bit word from memory with load delay slot.
+    /// The address must be 4-byte aligned.
+    ///
+    /// Format: lw rt, offset(rs)
+    /// Operation: rt = memory[rs + sign_extend(offset)]
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    /// * `bus` - Memory bus for reading
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success, triggers AddressErrorLoad exception on misalignment
+    fn op_lw(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let offset = (imm as i16) as i32; // Sign extend
+        let addr = self.reg(rs).wrapping_add(offset as u32);
+
+        // Check alignment
+        if addr & 0x3 != 0 {
+            self.exception(ExceptionCause::AddressErrorLoad);
+            return Ok(());
+        }
+
+        let value = bus.read32(addr)?;
+        self.set_reg_delayed(rt, value); // Load delay slot
+        Ok(())
+    }
+
+    /// LH: Load Halfword (16-bit, sign-extended)
+    ///
+    /// Loads a 16-bit halfword from memory and sign-extends it to 32 bits.
+    /// The address must be 2-byte aligned.
+    ///
+    /// Format: lh rt, offset(rs)
+    /// Operation: rt = sign_extend(memory[rs + sign_extend(offset)])
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    /// * `bus` - Memory bus for reading
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success, triggers AddressErrorLoad exception on misalignment
+    fn op_lh(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let offset = (imm as i16) as i32; // Sign extend
+        let addr = self.reg(rs).wrapping_add(offset as u32);
+
+        // Check alignment
+        if addr & 0x1 != 0 {
+            self.exception(ExceptionCause::AddressErrorLoad);
+            return Ok(());
+        }
+
+        let value = bus.read16(addr)? as i16 as i32 as u32; // Sign extend
+        self.set_reg_delayed(rt, value); // Load delay slot
+        Ok(())
+    }
+
+    /// LHU: Load Halfword Unsigned (16-bit, zero-extended)
+    ///
+    /// Loads a 16-bit halfword from memory and zero-extends it to 32 bits.
+    /// The address must be 2-byte aligned.
+    ///
+    /// Format: lhu rt, offset(rs)
+    /// Operation: rt = zero_extend(memory[rs + sign_extend(offset)])
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    /// * `bus` - Memory bus for reading
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success, triggers AddressErrorLoad exception on misalignment
+    fn op_lhu(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let offset = (imm as i16) as i32; // Sign extend
+        let addr = self.reg(rs).wrapping_add(offset as u32);
+
+        // Check alignment
+        if addr & 0x1 != 0 {
+            self.exception(ExceptionCause::AddressErrorLoad);
+            return Ok(());
+        }
+
+        let value = bus.read16(addr)? as u32; // Zero extend
+        self.set_reg_delayed(rt, value); // Load delay slot
+        Ok(())
+    }
+
+    /// LB: Load Byte (8-bit, sign-extended)
+    ///
+    /// Loads an 8-bit byte from memory and sign-extends it to 32 bits.
+    /// No alignment restrictions.
+    ///
+    /// Format: lb rt, offset(rs)
+    /// Operation: rt = sign_extend(memory[rs + sign_extend(offset)])
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    /// * `bus` - Memory bus for reading
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_lb(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let offset = (imm as i16) as i32; // Sign extend
+        let addr = self.reg(rs).wrapping_add(offset as u32);
+
+        let value = bus.read8(addr)? as i8 as i32 as u32; // Sign extend
+        self.set_reg_delayed(rt, value); // Load delay slot
+        Ok(())
+    }
+
+    /// LBU: Load Byte Unsigned (8-bit, zero-extended)
+    ///
+    /// Loads an 8-bit byte from memory and zero-extends it to 32 bits.
+    /// No alignment restrictions.
+    ///
+    /// Format: lbu rt, offset(rs)
+    /// Operation: rt = zero_extend(memory[rs + sign_extend(offset)])
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    /// * `bus` - Memory bus for reading
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_lbu(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let offset = (imm as i16) as i32; // Sign extend
+        let addr = self.reg(rs).wrapping_add(offset as u32);
+
+        let value = bus.read8(addr)? as u32; // Zero extend
+        self.set_reg_delayed(rt, value); // Load delay slot
+        Ok(())
+    }
+
+    /// LWL: Load Word Left (unaligned load support)
+    ///
+    /// Stub implementation for Phase 1 Week 2.
+    /// Full implementation will be added in Week 3.
+    ///
+    /// Format: lwl rt, offset(rs)
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    /// * `bus` - Memory bus for reading
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) - stub implementation
+    fn op_lwl(&mut self, _instruction: u32, _bus: &mut Bus) -> Result<()> {
+        // TODO: Implement LWL based on PSX-SPX documentation (Week 3)
+        log::warn!(
+            "LWL instruction not yet implemented at PC=0x{:08X}",
+            self.pc
+        );
+        Ok(())
+    }
+
+    /// LWR: Load Word Right (unaligned load support)
+    ///
+    /// Stub implementation for Phase 1 Week 2.
+    /// Full implementation will be added in Week 3.
+    ///
+    /// Format: lwr rt, offset(rs)
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    /// * `bus` - Memory bus for reading
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) - stub implementation
+    fn op_lwr(&mut self, _instruction: u32, _bus: &mut Bus) -> Result<()> {
+        // TODO: Implement LWR based on PSX-SPX documentation (Week 3)
+        log::warn!(
+            "LWR instruction not yet implemented at PC=0x{:08X}",
+            self.pc
+        );
+        Ok(())
+    }
+
+    // === Store Instructions ===
+
+    /// SW: Store Word (32-bit)
+    ///
+    /// Stores a 32-bit word to memory.
+    /// The address must be 4-byte aligned.
+    ///
+    /// Format: sw rt, offset(rs)
+    /// Operation: memory[rs + sign_extend(offset)] = rt
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    /// * `bus` - Memory bus for writing
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success, triggers AddressErrorStore exception on misalignment
+    fn op_sw(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let offset = (imm as i16) as i32; // Sign extend
+        let addr = self.reg(rs).wrapping_add(offset as u32);
+
+        // Check alignment
+        if addr & 0x3 != 0 {
+            self.exception(ExceptionCause::AddressErrorStore);
+            return Ok(());
+        }
+
+        bus.write32(addr, self.reg(rt))?;
+        Ok(())
+    }
+
+    /// SH: Store Halfword (16-bit)
+    ///
+    /// Stores the lower 16 bits of a register to memory.
+    /// The address must be 2-byte aligned.
+    ///
+    /// Format: sh rt, offset(rs)
+    /// Operation: memory[rs + sign_extend(offset)] = rt[15:0]
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    /// * `bus` - Memory bus for writing
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success, triggers AddressErrorStore exception on misalignment
+    fn op_sh(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let offset = (imm as i16) as i32; // Sign extend
+        let addr = self.reg(rs).wrapping_add(offset as u32);
+
+        // Check alignment
+        if addr & 0x1 != 0 {
+            self.exception(ExceptionCause::AddressErrorStore);
+            return Ok(());
+        }
+
+        bus.write16(addr, self.reg(rt) as u16)?;
+        Ok(())
+    }
+
+    /// SB: Store Byte (8-bit)
+    ///
+    /// Stores the lower 8 bits of a register to memory.
+    /// No alignment restrictions.
+    ///
+    /// Format: sb rt, offset(rs)
+    /// Operation: memory[rs + sign_extend(offset)] = rt[7:0]
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    /// * `bus` - Memory bus for writing
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_sb(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let offset = (imm as i16) as i32; // Sign extend
+        let addr = self.reg(rs).wrapping_add(offset as u32);
+
+        bus.write8(addr, self.reg(rt) as u8)?;
+        Ok(())
+    }
+
+    /// SWL: Store Word Left (unaligned store support)
+    ///
+    /// Stub implementation for Phase 1 Week 2.
+    /// Full implementation will be added in Week 3.
+    ///
+    /// Format: swl rt, offset(rs)
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    /// * `bus` - Memory bus for writing
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) - stub implementation
+    fn op_swl(&mut self, _instruction: u32, _bus: &mut Bus) -> Result<()> {
+        // TODO: Implement SWL (Week 3)
+        log::warn!(
+            "SWL instruction not yet implemented at PC=0x{:08X}",
+            self.pc
+        );
+        Ok(())
+    }
+
+    /// SWR: Store Word Right (unaligned store support)
+    ///
+    /// Stub implementation for Phase 1 Week 2.
+    /// Full implementation will be added in Week 3.
+    ///
+    /// Format: swr rt, offset(rs)
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    /// * `bus` - Memory bus for writing
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) - stub implementation
+    fn op_swr(&mut self, _instruction: u32, _bus: &mut Bus) -> Result<()> {
+        // TODO: Implement SWR (Week 3)
+        log::warn!(
+            "SWR instruction not yet implemented at PC=0x{:08X}",
+            self.pc
+        );
         Ok(())
     }
 
@@ -2363,5 +2710,457 @@ mod tests {
         cpu.set_reg(2, 0x80000000); // Negative
         cpu.op_srav(1, 2, 3).unwrap();
         assert_eq!(cpu.reg(3), 0xF8000000); // Sign-extended
+    }
+
+    // === Load/Store Instruction Tests ===
+
+    #[test]
+    fn test_lw_basic() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        // Set up base address
+        cpu.set_reg(1, 0x80000000);
+
+        // Store value in memory
+        bus.write32(0x80000000, 0x12345678).unwrap();
+
+        // LW r2, 0(r1) -> load from 0x80000000 into r2
+        let instr = 0x8C220000; // opcode=0x23, rs=1, rt=2, offset=0
+        cpu.op_lw(instr, &mut bus).unwrap();
+
+        // Value not yet visible due to load delay
+        assert_eq!(cpu.reg(2), 0);
+
+        // Execute another load to flush the delay
+        cpu.set_reg_delayed(3, 0);
+        assert_eq!(cpu.reg(2), 0x12345678);
+    }
+
+    #[test]
+    fn test_lw_with_offset() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        // Set up base address
+        cpu.set_reg(1, 0x80000000);
+
+        // Store value in memory
+        bus.write32(0x80000010, 0xAABBCCDD).unwrap();
+
+        // LW r2, 16(r1) -> load from 0x80000010 into r2
+        let instr = 0x8C220010; // opcode=0x23, rs=1, rt=2, offset=16
+        cpu.op_lw(instr, &mut bus).unwrap();
+
+        // Flush delay
+        cpu.set_reg_delayed(3, 0);
+        assert_eq!(cpu.reg(2), 0xAABBCCDD);
+    }
+
+    #[test]
+    fn test_lw_negative_offset() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        // Set up base address
+        cpu.set_reg(1, 0x80000020);
+
+        // Store value in memory
+        bus.write32(0x80000010, 0xDEADBEEF).unwrap();
+
+        // LW r2, -16(r1) -> load from 0x80000010 into r2
+        let instr = 0x8C22FFF0; // opcode=0x23, rs=1, rt=2, offset=-16 (0xFFF0)
+        cpu.op_lw(instr, &mut bus).unwrap();
+
+        // Flush delay
+        cpu.set_reg_delayed(3, 0);
+        assert_eq!(cpu.reg(2), 0xDEADBEEF);
+    }
+
+    #[test]
+    fn test_lw_unaligned() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        // Set up base address (misaligned)
+        cpu.set_reg(1, 0x80000001);
+
+        // LW r2, 0(r1) -> should trigger exception
+        let instr = 0x8C220000;
+        cpu.op_lw(instr, &mut bus).unwrap();
+
+        // Check exception was raised
+        let cause = cpu.cop0.regs[COP0::CAUSE];
+        let exception_code = (cause >> 2) & 0x1F;
+        assert_eq!(exception_code, ExceptionCause::AddressErrorLoad as u32);
+    }
+
+    #[test]
+    fn test_lh_sign_extension() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000000);
+
+        // Store negative halfword
+        bus.write16(0x80000000, 0x8000).unwrap(); // -32768 as i16
+
+        // LH r2, 0(r1)
+        let instr = 0x84220000; // opcode=0x21, rs=1, rt=2, offset=0
+        cpu.op_lh(instr, &mut bus).unwrap();
+
+        // Flush delay
+        cpu.set_reg_delayed(3, 0);
+        assert_eq!(cpu.reg(2), 0xFFFF8000); // Sign-extended
+    }
+
+    #[test]
+    fn test_lh_positive() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000000);
+
+        // Store positive halfword
+        bus.write16(0x80000000, 0x1234).unwrap();
+
+        // LH r2, 0(r1)
+        let instr = 0x84220000;
+        cpu.op_lh(instr, &mut bus).unwrap();
+
+        // Flush delay
+        cpu.set_reg_delayed(3, 0);
+        assert_eq!(cpu.reg(2), 0x00001234); // Zero upper bits
+    }
+
+    #[test]
+    fn test_lh_unaligned() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000001); // Misaligned
+
+        // LH r2, 0(r1) -> should trigger exception
+        let instr = 0x84220000;
+        cpu.op_lh(instr, &mut bus).unwrap();
+
+        // Check exception was raised
+        let cause = cpu.cop0.regs[COP0::CAUSE];
+        let exception_code = (cause >> 2) & 0x1F;
+        assert_eq!(exception_code, ExceptionCause::AddressErrorLoad as u32);
+    }
+
+    #[test]
+    fn test_lhu_zero_extension() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000000);
+
+        // Store halfword with high bit set
+        bus.write16(0x80000000, 0x8000).unwrap();
+
+        // LHU r2, 0(r1)
+        let instr = 0x94220000; // opcode=0x25, rs=1, rt=2, offset=0
+        cpu.op_lhu(instr, &mut bus).unwrap();
+
+        // Flush delay
+        cpu.set_reg_delayed(3, 0);
+        assert_eq!(cpu.reg(2), 0x00008000); // Zero-extended, not sign-extended
+    }
+
+    #[test]
+    fn test_lhu_max_value() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000000);
+
+        bus.write16(0x80000000, 0xFFFF).unwrap();
+
+        // LHU r2, 0(r1)
+        let instr = 0x94220000;
+        cpu.op_lhu(instr, &mut bus).unwrap();
+
+        // Flush delay
+        cpu.set_reg_delayed(3, 0);
+        assert_eq!(cpu.reg(2), 0x0000FFFF); // Zero-extended
+    }
+
+    #[test]
+    fn test_lb_sign_extension() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000000);
+
+        // Store negative byte
+        bus.write8(0x80000000, 0x80).unwrap(); // -128 as i8
+
+        // LB r2, 0(r1)
+        let instr = 0x80220000; // opcode=0x20, rs=1, rt=2, offset=0
+        cpu.op_lb(instr, &mut bus).unwrap();
+
+        // Flush delay
+        cpu.set_reg_delayed(3, 0);
+        assert_eq!(cpu.reg(2), 0xFFFFFF80); // Sign-extended
+    }
+
+    #[test]
+    fn test_lb_positive() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000000);
+
+        // Store positive byte
+        bus.write8(0x80000000, 0x42).unwrap();
+
+        // LB r2, 0(r1)
+        let instr = 0x80220000;
+        cpu.op_lb(instr, &mut bus).unwrap();
+
+        // Flush delay
+        cpu.set_reg_delayed(3, 0);
+        assert_eq!(cpu.reg(2), 0x00000042);
+    }
+
+    #[test]
+    fn test_lbu_zero_extension() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000000);
+
+        // Store byte with high bit set
+        bus.write8(0x80000000, 0xFF).unwrap();
+
+        // LBU r2, 0(r1)
+        let instr = 0x90220000; // opcode=0x24, rs=1, rt=2, offset=0
+        cpu.op_lbu(instr, &mut bus).unwrap();
+
+        // Flush delay
+        cpu.set_reg_delayed(3, 0);
+        assert_eq!(cpu.reg(2), 0x000000FF); // Zero-extended, not sign-extended
+    }
+
+    #[test]
+    fn test_lbu_unaligned() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        // Byte loads can be unaligned
+        cpu.set_reg(1, 0x80000001);
+        bus.write8(0x80000001, 0xAB).unwrap();
+
+        // LBU r2, 0(r1)
+        let instr = 0x90220000;
+        cpu.op_lbu(instr, &mut bus).unwrap();
+
+        // Flush delay
+        cpu.set_reg_delayed(3, 0);
+        assert_eq!(cpu.reg(2), 0x000000AB);
+    }
+
+    #[test]
+    fn test_sw_basic() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000000);
+        cpu.set_reg(2, 0x12345678);
+
+        // SW r2, 0(r1) -> store to 0x80000000
+        let instr = 0xAC220000; // opcode=0x2B, rs=1, rt=2, offset=0
+        cpu.op_sw(instr, &mut bus).unwrap();
+
+        // Verify value was written
+        assert_eq!(bus.read32(0x80000000).unwrap(), 0x12345678);
+    }
+
+    #[test]
+    fn test_sw_with_offset() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000000);
+        cpu.set_reg(2, 0xDEADBEEF);
+
+        // SW r2, 16(r1) -> store to 0x80000010
+        let instr = 0xAC220010; // opcode=0x2B, rs=1, rt=2, offset=16
+        cpu.op_sw(instr, &mut bus).unwrap();
+
+        // Verify value was written
+        assert_eq!(bus.read32(0x80000010).unwrap(), 0xDEADBEEF);
+    }
+
+    #[test]
+    fn test_sw_unaligned() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000001); // Misaligned
+        cpu.set_reg(2, 0x12345678);
+
+        // SW r2, 0(r1) -> should trigger exception
+        let instr = 0xAC220000;
+        cpu.op_sw(instr, &mut bus).unwrap();
+
+        // Check exception was raised
+        let cause = cpu.cop0.regs[COP0::CAUSE];
+        let exception_code = (cause >> 2) & 0x1F;
+        assert_eq!(exception_code, ExceptionCause::AddressErrorStore as u32);
+    }
+
+    #[test]
+    fn test_sh_basic() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000000);
+        cpu.set_reg(2, 0x12345678);
+
+        // SH r2, 0(r1) -> store lower 16 bits to 0x80000000
+        let instr = 0xA4220000; // opcode=0x29, rs=1, rt=2, offset=0
+        cpu.op_sh(instr, &mut bus).unwrap();
+
+        // Verify value was written (only lower 16 bits)
+        assert_eq!(bus.read16(0x80000000).unwrap(), 0x5678);
+    }
+
+    #[test]
+    fn test_sh_unaligned() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000001); // Misaligned
+        cpu.set_reg(2, 0x1234);
+
+        // SH r2, 0(r1) -> should trigger exception
+        let instr = 0xA4220000;
+        cpu.op_sh(instr, &mut bus).unwrap();
+
+        // Check exception was raised
+        let cause = cpu.cop0.regs[COP0::CAUSE];
+        let exception_code = (cause >> 2) & 0x1F;
+        assert_eq!(exception_code, ExceptionCause::AddressErrorStore as u32);
+    }
+
+    #[test]
+    fn test_sb_basic() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000000);
+        cpu.set_reg(2, 0x12345678);
+
+        // SB r2, 0(r1) -> store lower 8 bits to 0x80000000
+        let instr = 0xA0220000; // opcode=0x28, rs=1, rt=2, offset=0
+        cpu.op_sb(instr, &mut bus).unwrap();
+
+        // Verify value was written (only lower 8 bits)
+        assert_eq!(bus.read8(0x80000000).unwrap(), 0x78);
+    }
+
+    #[test]
+    fn test_sb_unaligned() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        // Byte stores can be unaligned
+        cpu.set_reg(1, 0x80000001);
+        cpu.set_reg(2, 0xAB);
+
+        // SB r2, 0(r1)
+        let instr = 0xA0220000;
+        cpu.op_sb(instr, &mut bus).unwrap();
+
+        // Verify value was written
+        assert_eq!(bus.read8(0x80000001).unwrap(), 0xAB);
+    }
+
+    #[test]
+    fn test_load_delay_slot_interaction() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        // Set up memory
+        bus.write32(0x80000000, 0x11111111).unwrap();
+        bus.write32(0x80000004, 0x22222222).unwrap();
+
+        cpu.set_reg(1, 0x80000000);
+        cpu.set_reg(2, 0x80000004);
+
+        // LW r3, 0(r1) - Load first value
+        let instr1 = 0x8C230000;
+        cpu.op_lw(instr1, &mut bus).unwrap();
+
+        // r3 not yet available
+        assert_eq!(cpu.reg(3), 0);
+
+        // LW r4, 0(r2) - Load second value, flushes first delay
+        let instr2 = 0x8C440000;
+        cpu.op_lw(instr2, &mut bus).unwrap();
+
+        // Now r3 has first value, r4 still waiting
+        assert_eq!(cpu.reg(3), 0x11111111);
+        assert_eq!(cpu.reg(4), 0);
+
+        // Another instruction flushes second delay
+        cpu.set_reg_delayed(5, 0);
+        assert_eq!(cpu.reg(4), 0x22222222);
+    }
+
+    #[test]
+    fn test_load_store_round_trip() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000000);
+
+        // Store sequence
+        cpu.set_reg(2, 0x12345678);
+        let sw_instr = 0xAC220000;
+        cpu.op_sw(sw_instr, &mut bus).unwrap();
+
+        // Load back
+        let lw_instr = 0x8C230000;
+        cpu.op_lw(lw_instr, &mut bus).unwrap();
+
+        // Flush delay
+        cpu.set_reg_delayed(4, 0);
+
+        // Verify round trip
+        assert_eq!(cpu.reg(3), 0x12345678);
+    }
+
+    #[test]
+    fn test_mixed_size_load_store() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.set_reg(1, 0x80000000);
+
+        // Store a word
+        cpu.set_reg(2, 0x12345678);
+        let sw_instr = 0xAC220000;
+        cpu.op_sw(sw_instr, &mut bus).unwrap();
+
+        // Load individual bytes
+        let lb_instr0 = 0x80230000; // LB r3, 0(r1)
+        cpu.op_lb(lb_instr0, &mut bus).unwrap();
+        cpu.set_reg_delayed(0, 0); // Flush
+        assert_eq!(cpu.reg(3), 0x00000078); // Little-endian, byte 0
+
+        let lb_instr1 = 0x80230001; // LB r3, 1(r1)
+        cpu.op_lb(lb_instr1, &mut bus).unwrap();
+        cpu.set_reg_delayed(0, 0); // Flush
+        assert_eq!(cpu.reg(3), 0x00000056); // Byte 1
+
+        // Load halfword
+        let lh_instr = 0x84230000; // LH r3, 0(r1)
+        cpu.op_lh(lh_instr, &mut bus).unwrap();
+        cpu.set_reg_delayed(0, 0); // Flush
+        assert_eq!(cpu.reg(3), 0x00005678); // Lower halfword
     }
 }
