@@ -428,22 +428,22 @@ impl CPU {
         let (rs, rt, rd, shamt, funct) = decode_r_type(instruction);
 
         match funct {
-            0x00 => self.op_sll(rt, rd, shamt),  // SLL
-            0x02 => self.op_srl(rt, rd, shamt),  // SRL
-            0x03 => self.op_sra(rt, rd, shamt),  // SRA
-            0x04 => self.op_sllv(rs, rt, rd),    // SLLV
-            0x06 => self.op_srlv(rs, rt, rd),    // SRLV
-            0x07 => self.op_srav(rs, rt, rd),    // SRAV
-            0x20 => self.op_add(rs, rt, rd),     // ADD
-            0x21 => self.op_addu(rs, rt, rd),    // ADDU
-            0x22 => self.op_sub(rs, rt, rd),     // SUB
-            0x23 => self.op_subu(rs, rt, rd),    // SUBU
-            0x24 => self.op_and(rs, rt, rd),     // AND
-            0x25 => self.op_or(rs, rt, rd),      // OR
-            0x26 => self.op_xor(rs, rt, rd),     // XOR
-            0x27 => self.op_nor(rs, rt, rd),     // NOR
-            0x2A => self.op_slt(rs, rt, rd),     // SLT
-            0x2B => self.op_sltu(rs, rt, rd),    // SLTU
+            0x00 => self.op_sll(rt, rd, shamt), // SLL
+            0x02 => self.op_srl(rt, rd, shamt), // SRL
+            0x03 => self.op_sra(rt, rd, shamt), // SRA
+            0x04 => self.op_sllv(rs, rt, rd),   // SLLV
+            0x06 => self.op_srlv(rs, rt, rd),   // SRLV
+            0x07 => self.op_srav(rs, rt, rd),   // SRAV
+            0x20 => self.op_add(rs, rt, rd),    // ADD
+            0x21 => self.op_addu(rs, rt, rd),   // ADDU
+            0x22 => self.op_sub(rs, rt, rd),    // SUB
+            0x23 => self.op_subu(rs, rt, rd),   // SUBU
+            0x24 => self.op_and(rs, rt, rd),    // AND
+            0x25 => self.op_or(rs, rt, rd),     // OR
+            0x26 => self.op_xor(rs, rt, rd),    // XOR
+            0x27 => self.op_nor(rs, rt, rd),    // NOR
+            0x2A => self.op_slt(rs, rt, rd),    // SLT
+            0x2B => self.op_sltu(rs, rt, rd),   // SLTU
             _ => {
                 log::warn!(
                     "Unimplemented SPECIAL function: 0x{:02X} at PC=0x{:08X}",
