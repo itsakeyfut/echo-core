@@ -316,6 +316,10 @@ impl CPU {
     /// assert_eq!(cycles, 1);
     /// ```
     pub fn step(&mut self, bus: &mut Bus) -> Result<u32> {
+        // The instruction fetched below will execute now. If we were in a delay slot,
+        // clear the flag; any branch/jump executed in this step will set it again.
+        let _was_in_delay = self.in_branch_delay;
+        self.in_branch_delay = false;
         // Resolve load delay from previous instruction
         if let Some(delay) = self.load_delay.take() {
             self.set_reg(delay.reg, delay.value);
@@ -415,7 +419,10 @@ impl CPU {
     fn execute_bcondz(&mut self, _instruction: u32) -> Result<()> {
         // Stub implementation for Week 1
         // Will be implemented in future issues
-        log::warn!("BCONDZ instruction not yet implemented at PC=0x{:08X}", self.pc);
+        log::warn!(
+            "BCONDZ instruction not yet implemented at PC=0x{:08X}",
+            self.pc
+        );
         Ok(())
     }
 
@@ -485,6 +492,7 @@ impl CPU {
         // Upper 4 bits of PC + target << 2
         let pc_high = self.pc & 0xF0000000;
         self.next_pc = pc_high | (target << 2);
+        self.in_branch_delay = true;
         Ok(())
     }
 
@@ -510,6 +518,7 @@ impl CPU {
 
         let pc_high = self.pc & 0xF0000000;
         self.next_pc = pc_high | (target << 2);
+        self.in_branch_delay = true;
         Ok(())
     }
 
