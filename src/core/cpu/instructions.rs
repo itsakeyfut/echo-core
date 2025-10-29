@@ -13,10 +13,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::decode::{decode_i_type, decode_j_type, decode_r_type};
+use super::{ExceptionCause, CPU};
 use crate::core::error::Result;
 use crate::core::memory::Bus;
-use super::{CPU, ExceptionCause};
-use super::decode::{decode_r_type, decode_i_type, decode_j_type};
 
 impl CPU {
     /// Decode and execute the current instruction

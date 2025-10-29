@@ -360,4 +360,3 @@ impl Default for CPU {
         Self::new()
     }
 }
-
