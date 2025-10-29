@@ -13,8 +13,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod core;
+//! GPU (Graphics Processing Unit) implementation
+//!
+//! This module will contain the PSX GPU emulation in Phase 2.
+//! For now, it's a stub implementation.
 
-fn main() {
-    println!("Hello, world!");
+/// GPU (Graphics Processing Unit)
+///
+/// # TODO
+/// - Implement in Phase 2
+/// - VRAM management
+/// - GP0/GP1 command processing
+/// - Rasterization
+pub struct GPU {
+    // TODO: implement in Phase 2
+}
+
+impl GPU {
+    /// Create a new GPU instance
+    ///
+    /// # Returns
+    /// Initialized GPU instance
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Default for GPU {
+    fn default() -> Self {
+        Self::new()
+    }
 }

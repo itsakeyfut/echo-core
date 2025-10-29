@@ -13,22 +13,49 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! PlayStation 1 emulator core library
+//! echo-core: A PlayStation (PSX) emulator
 //!
-//! This library provides the core emulation components for a PlayStation 1 emulator,
-//! including CPU (MIPS R3000A), memory bus, and other hardware components.
+//! This crate provides a complete PSX emulator implementation.
+//!
+//! # Architecture
+//!
+//! The emulator is organized into the following modules:
+//!
+//! - [`core`]: Core emulation components (CPU, Memory, GPU, SPU, System)
+//! - [`frontend`]: User interface (to be implemented with Slint)
 //!
 //! # Example
 //!
-//! ```
-//! use echo_core::core::cpu::CPU;
-//! use echo_core::core::memory::Bus;
+//! ```no_run
+//! use echo_core::core::system::System;
 //!
-//! let mut cpu = CPU::new();
-//! let mut bus = Bus::new();
-//!
-//! // Execute one instruction
-//! // let cycles = cpu.step(&mut bus).unwrap();
+//! let mut system = System::new();
+//! // system.load_bios("path/to/bios.bin")?;
+//! // system.run()?;
+//! # Ok::<(), echo_core::core::error::EmulatorError>(())
 //! ```
+//!
+//! # Getting Started
+//!
+//! 1. Create a [`core::system::System`] instance
+//! 2. Load a BIOS file
+//! 3. Run the emulation loop
+//!
+//! # Modules
+//!
+//! - [`core::cpu`]: MIPS R3000A CPU emulation
+//! - [`core::memory`]: Memory bus and address translation
+//! - [`core::gpu`]: Graphics processing unit (stub, Phase 2)
+//! - [`core::spu`]: Sound processing unit (stub, Phase 4)
+//! - [`core::system`]: System integration and main loop
+//!
+//! # Error Handling
+//!
+//! All fallible operations return [`core::error::Result<T>`] which is an alias for
+//! `Result<T, EmulatorError>`.
 
 pub mod core;
+pub mod frontend;
+
+// Re-export commonly used types
+pub use core::error::{EmulatorError, Result};

@@ -14,86 +14,35 @@
 // limitations under the License.
 
 /// Emulator error types
-use std::fmt;
+use thiserror::Error;
 
 /// Result type for emulator operations
 pub type Result<T> = std::result::Result<T, EmulatorError>;
 
-/// Emulator error types
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Main error type for the emulator
+#[derive(Error, Debug)]
 pub enum EmulatorError {
-    /// Unaligned memory access error
-    UnalignedAccess {
-        /// The address that was accessed
-        address: u32,
-        /// The size of the access (2 for 16-bit, 4 for 32-bit)
-        size: u32,
-    },
+    #[error("BIOS file not found: {0}")]
+    BiosNotFound(String),
 
-    /// Invalid memory access (unmapped region)
-    InvalidAddress {
-        /// The address that was accessed
-        address: u32,
-    },
+    #[error("Invalid BIOS size: {got} bytes (expected {expected})")]
+    InvalidBiosSize { expected: usize, got: usize },
 
-    /// I/O error (file operations)
-    IoError {
-        /// Error message
-        message: String,
-    },
+    #[error("Invalid memory access at 0x{address:08X}")]
+    InvalidMemoryAccess { address: u32 },
 
-    /// BIOS file error
-    BiosError {
-        /// Error message
-        message: String,
-    },
+    #[error("Unaligned memory access: {size}-byte access at 0x{address:08X}")]
+    UnalignedAccess { address: u32, size: u8 },
 
-    /// BIOS has an unexpected size
-    InvalidBiosSize {
-        /// Expected size in bytes
-        expected: usize,
-        /// Actual size in bytes
-        got: usize,
-    },
-}
+    #[error("Unsupported instruction: 0x{0:08X}")]
+    UnsupportedInstruction(u32),
 
-impl fmt::Display for EmulatorError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EmulatorError::UnalignedAccess { address, size } => {
-                write!(
-                    f,
-                    "Unaligned {}-bit access at address 0x{:08X}",
-                    size * 8,
-                    address
-                )
-            }
-            EmulatorError::InvalidAddress { address } => {
-                write!(f, "Invalid memory access at address 0x{:08X}", address)
-            }
-            EmulatorError::IoError { message } => {
-                write!(f, "I/O error: {}", message)
-            }
-            EmulatorError::BiosError { message } => {
-                write!(f, "BIOS error: {}", message)
-            }
-            EmulatorError::InvalidBiosSize { expected, got } => {
-                write!(
-                    f,
-                    "Invalid BIOS size: expected {} bytes, got {} bytes",
-                    expected, got
-                )
-            }
-        }
-    }
-}
+    #[error("CPU exception: {0}")]
+    CpuException(String),
 
-impl std::error::Error for EmulatorError {}
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
 
-impl From<std::io::Error> for EmulatorError {
-    fn from(err: std::io::Error) -> Self {
-        EmulatorError::IoError {
-            message: err.to_string(),
-        }
-    }
+    #[error("Parse error: {0}")]
+    Parse(String),
 }

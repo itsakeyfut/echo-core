@@ -13,26 +13,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Core emulation components
-//!
-//! This module contains all hardware emulation components:
-//! - CPU (MIPS R3000A)
-//! - Memory bus
-//! - GPU (Graphics Processing Unit)
-//! - SPU (Sound Processing Unit)
-//! - System integration
+use echo_core::core::error::Result;
+use log::info;
 
-pub mod cpu;
-pub mod error;
-pub mod gpu;
-pub mod memory;
-pub mod spu;
-pub mod system;
+fn main() -> Result<()> {
+    // Initialize logger
+    env_logger::init();
 
-// Re-export commonly used types
-pub use cpu::CPU;
-pub use error::{EmulatorError, Result};
-pub use gpu::GPU;
-pub use memory::Bus;
-pub use spu::SPU;
-pub use system::System;
+    info!("echo-core v{}", env!("CARGO_PKG_VERSION"));
+    info!("PlayStation emulator");
+
+    // TODO: Add CLI argument parsing and emulation loop
+    // TODO: Load BIOS
+    // TODO: Start emulation
+
+    Ok(())
+}
