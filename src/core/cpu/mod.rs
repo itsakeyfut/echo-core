@@ -392,6 +392,10 @@ impl CPU {
             0x01 => self.execute_bcondz(instruction),
             0x02 => self.op_j(instruction),        // J
             0x03 => self.op_jal(instruction),      // JAL
+            0x04 => self.op_beq(instruction),      // BEQ
+            0x05 => self.op_bne(instruction),      // BNE
+            0x06 => self.op_blez(instruction),     // BLEZ
+            0x07 => self.op_bgtz(instruction),     // BGTZ
             0x08 => self.op_addi(instruction),     // ADDI
             0x09 => self.op_addiu(instruction),    // ADDIU
             0x0A => self.op_slti(instruction),     // SLTI
@@ -446,6 +450,8 @@ impl CPU {
             0x04 => self.op_sllv(rs, rt, rd),   // SLLV
             0x06 => self.op_srlv(rs, rt, rd),   // SRLV
             0x07 => self.op_srav(rs, rt, rd),   // SRAV
+            0x08 => self.op_jr(rs),             // JR
+            0x09 => self.op_jalr(rs, rd),       // JALR
             0x20 => self.op_add(rs, rt, rd),    // ADD
             0x21 => self.op_addu(rs, rt, rd),   // ADDU
             0x22 => self.op_sub(rs, rt, rd),    // SUB
@@ -479,13 +485,28 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    fn execute_bcondz(&mut self, _instruction: u32) -> Result<()> {
-        // Stub implementation for Week 1
-        // Will be implemented in future issues
-        log::warn!(
-            "BCONDZ instruction not yet implemented at PC=0x{:08X}",
-            self.pc
-        );
+    fn execute_bcondz(&mut self, instruction: u32) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let offset = ((imm as i16) as i32) << 2;
+
+        // rt field determines the specific instruction
+        // Bit 0: BGEZ (1) vs BLTZ (0)
+        // Bit 4: link (1) vs no link (0)
+        let is_bgez = (rt & 0x01) != 0;
+        let is_link = (rt & 0x10) != 0;
+
+        let test = (self.reg(rs) as i32) >= 0;
+        let should_branch = if is_bgez { test } else { !test };
+
+        if is_link {
+            // Save return address (BLTZAL or BGEZAL)
+            self.set_reg(31, self.next_pc);
+        }
+
+        if should_branch {
+            self.branch(offset);
+        }
+
         Ok(())
     }
 
@@ -582,6 +603,151 @@ impl CPU {
         let pc_high = self.pc & 0xF0000000;
         self.next_pc = pc_high | (target << 2);
         self.in_branch_delay = true;
+        Ok(())
+    }
+
+    /// JR: Jump Register
+    ///
+    /// Unconditional jump to address in register.
+    /// Used for function returns and indirect jumps.
+    ///
+    /// Format: jr rs
+    /// Operation: PC = rs
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - Source register containing target address
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_jr(&mut self, rs: u8) -> Result<()> {
+        self.next_pc = self.reg(rs);
+        self.in_branch_delay = true;
+        Ok(())
+    }
+
+    /// JALR: Jump And Link Register
+    ///
+    /// Unconditional jump to address in register, saving return address.
+    /// The return address is saved to register rd (typically r31).
+    ///
+    /// Format: jalr rs, rd
+    /// Operation: rd = PC + 8; PC = rs
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - Source register containing target address
+    /// * `rd` - Destination register for return address (default r31 if 0)
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_jalr(&mut self, rs: u8, rd: u8) -> Result<()> {
+        // Save return address (next_pc already points to delay slot + 4)
+        self.set_reg(rd, self.next_pc);
+        // Jump to address in rs
+        self.next_pc = self.reg(rs);
+        self.in_branch_delay = true;
+        Ok(())
+    }
+
+    // === Branch Instructions ===
+
+    /// BEQ: Branch on Equal
+    ///
+    /// Conditional branch if two registers are equal.
+    /// The branch target is PC + 4 + (offset << 2).
+    ///
+    /// Format: beq rs, rt, offset
+    /// Operation: if (rs == rt) PC = PC + 4 + (sign_extend(offset) << 2)
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_beq(&mut self, instruction: u32) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let offset = ((imm as i16) as i32) << 2;
+
+        if self.reg(rs) == self.reg(rt) {
+            self.branch(offset);
+        }
+        Ok(())
+    }
+
+    /// BNE: Branch on Not Equal
+    ///
+    /// Conditional branch if two registers are not equal.
+    ///
+    /// Format: bne rs, rt, offset
+    /// Operation: if (rs != rt) PC = PC + 4 + (sign_extend(offset) << 2)
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_bne(&mut self, instruction: u32) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let offset = ((imm as i16) as i32) << 2;
+
+        if self.reg(rs) != self.reg(rt) {
+            self.branch(offset);
+        }
+        Ok(())
+    }
+
+    /// BLEZ: Branch on Less Than or Equal to Zero
+    ///
+    /// Conditional branch if register is less than or equal to zero (signed).
+    ///
+    /// Format: blez rs, offset
+    /// Operation: if (rs <= 0) PC = PC + 4 + (sign_extend(offset) << 2)
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_blez(&mut self, instruction: u32) -> Result<()> {
+        let (_, rs, _, imm) = decode_i_type(instruction);
+        let offset = ((imm as i16) as i32) << 2;
+
+        if (self.reg(rs) as i32) <= 0 {
+            self.branch(offset);
+        }
+        Ok(())
+    }
+
+    /// BGTZ: Branch on Greater Than Zero
+    ///
+    /// Conditional branch if register is greater than zero (signed).
+    ///
+    /// Format: bgtz rs, offset
+    /// Operation: if (rs > 0) PC = PC + 4 + (sign_extend(offset) << 2)
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_bgtz(&mut self, instruction: u32) -> Result<()> {
+        let (_, rs, _, imm) = decode_i_type(instruction);
+        let offset = ((imm as i16) as i32) << 2;
+
+        if (self.reg(rs) as i32) > 0 {
+            self.branch(offset);
+        }
         Ok(())
     }
 
@@ -3162,5 +3328,362 @@ mod tests {
         cpu.op_lh(lh_instr, &mut bus).unwrap();
         cpu.set_reg_delayed(0, 0); // Flush
         assert_eq!(cpu.reg(3), 0x00005678); // Lower halfword
+    }
+
+    // === Branch and Jump Instruction Tests ===
+
+    #[test]
+    fn test_jr_instruction() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(31, 0x80001234);
+
+        // JR r31
+        cpu.op_jr(31).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80001234);
+        assert!(cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_jalr_instruction() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 0x80005678);
+
+        // JALR r1, r31
+        cpu.op_jalr(1, 31).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80005678);
+        assert_eq!(cpu.reg(31), 0x80000004); // Return address
+        assert!(cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_beq_taken() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 100);
+        cpu.set_reg(2, 100);
+
+        // BEQ r1, r2, 8 (branch offset = 8)
+        let beq_instr = 0x10220002; // offset = 2 words
+        cpu.op_beq(beq_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+        assert!(cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_beq_not_taken() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 100);
+        cpu.set_reg(2, 200);
+
+        // BEQ r1, r2, 8
+        let beq_instr = 0x10220002;
+        cpu.op_beq(beq_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+        assert!(!cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_bne_taken() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 100);
+        cpu.set_reg(2, 200);
+
+        // BNE r1, r2, 8
+        let bne_instr = 0x14220002;
+        cpu.op_bne(bne_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+        assert!(cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_bne_not_taken() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 100);
+        cpu.set_reg(2, 100);
+
+        // BNE r1, r2, 8
+        let bne_instr = 0x14220002;
+        cpu.op_bne(bne_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+        assert!(!cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_blez_taken_zero() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 0);
+
+        // BLEZ r1, 8
+        let blez_instr = 0x18200002;
+        cpu.op_blez(blez_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+        assert!(cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_blez_taken_negative() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, (-10i32) as u32);
+
+        // BLEZ r1, 8
+        let blez_instr = 0x18200002;
+        cpu.op_blez(blez_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+        assert!(cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_blez_not_taken() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 10);
+
+        // BLEZ r1, 8
+        let blez_instr = 0x18200002;
+        cpu.op_blez(blez_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+        assert!(!cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_bgtz_taken() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 10);
+
+        // BGTZ r1, 8
+        let bgtz_instr = 0x1C200002;
+        cpu.op_bgtz(bgtz_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+        assert!(cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_bgtz_not_taken_zero() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 0);
+
+        // BGTZ r1, 8
+        let bgtz_instr = 0x1C200002;
+        cpu.op_bgtz(bgtz_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+        assert!(!cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_bgtz_not_taken_negative() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, (-10i32) as u32);
+
+        // BGTZ r1, 8
+        let bgtz_instr = 0x1C200002;
+        cpu.op_bgtz(bgtz_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+        assert!(!cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_bltz_taken() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, (-10i32) as u32);
+
+        // BLTZ r1, 8 (rt=0x00 for BLTZ)
+        let bltz_instr = 0x04200002;
+        cpu.execute_bcondz(bltz_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+        assert!(cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_bltz_not_taken() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 10);
+
+        // BLTZ r1, 8
+        let bltz_instr = 0x04200002;
+        cpu.execute_bcondz(bltz_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+        assert!(!cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_bgez_taken() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 10);
+
+        // BGEZ r1, 8 (rt=0x01 for BGEZ)
+        let bgez_instr = 0x04210002;
+        cpu.execute_bcondz(bgez_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+        assert!(cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_bgez_taken_zero() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 0);
+
+        // BGEZ r1, 8
+        let bgez_instr = 0x04210002;
+        cpu.execute_bcondz(bgez_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken (zero is >= 0)
+        assert!(cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_bgez_not_taken() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, (-10i32) as u32);
+
+        // BGEZ r1, 8
+        let bgez_instr = 0x04210002;
+        cpu.execute_bcondz(bgez_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+        assert!(!cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_bltzal_taken() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, (-10i32) as u32);
+
+        // BLTZAL r1, 8 (rt=0x10 for BLTZAL)
+        let bltzal_instr = 0x04300002;
+        cpu.execute_bcondz(bltzal_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+        assert_eq!(cpu.reg(31), 0x80000004); // Return address saved
+        assert!(cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_bltzal_not_taken() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 10);
+
+        // BLTZAL r1, 8
+        let bltzal_instr = 0x04300002;
+        cpu.execute_bcondz(bltzal_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+        assert_eq!(cpu.reg(31), 0x80000004); // Return address still saved
+        assert!(!cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_bgezal_taken() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 10);
+
+        // BGEZAL r1, 8 (rt=0x11 for BGEZAL)
+        let bgezal_instr = 0x04310002;
+        cpu.execute_bcondz(bgezal_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+        assert_eq!(cpu.reg(31), 0x80000004); // Return address saved
+        assert!(cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_bgezal_not_taken() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, (-10i32) as u32);
+
+        // BGEZAL r1, 8
+        let bgezal_instr = 0x04310002;
+        cpu.execute_bcondz(bgezal_instr).unwrap();
+
+        assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+        assert_eq!(cpu.reg(31), 0x80000004); // Return address still saved
+        assert!(!cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_branch_delay_slot_cleared_after_step() {
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        // Set up a simple program that doesn't branch
+        cpu.pc = 0xBFC00000;
+        cpu.next_pc = 0xBFC00004;
+        cpu.in_branch_delay = true;
+
+        // Write a NOP instruction (SLL r0, r0, 0)
+        bus.write32(0xBFC00000, 0x00000000).unwrap();
+
+        // Execute step
+        cpu.step(&mut bus).unwrap();
+
+        // Branch delay flag should be cleared
+        assert!(!cpu.in_delay_slot());
+    }
+
+    #[test]
+    fn test_jump_preserves_upper_pc_bits() {
+        let mut cpu = CPU::new();
+        cpu.pc = 0xBFC00000;
+        cpu.next_pc = 0xBFC00004;
+
+        // J 0x00100000 (should preserve upper 4 bits of PC)
+        let j_instr = 0x08100000;
+        cpu.op_j(j_instr).unwrap();
+
+        // Upper 4 bits should be 0xB (from 0xBFC00000)
+        assert_eq!(cpu.next_pc & 0xF0000000, 0xB0000000);
+        assert_eq!(cpu.next_pc, 0xB0400000);
     }
 }
