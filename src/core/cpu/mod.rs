@@ -132,6 +132,35 @@ impl COP0 {
     }
 }
 
+/// Exception cause codes for MIPS R3000A
+///
+/// These correspond to the exception codes stored in the CAUSE register
+/// when a CPU exception occurs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum ExceptionCause {
+    /// Interrupt (external or internal)
+    Interrupt = 0,
+    /// Address error on load
+    AddressErrorLoad = 4,
+    /// Address error on store
+    AddressErrorStore = 5,
+    /// Bus error on instruction fetch
+    BusErrorInstruction = 6,
+    /// Bus error on data access
+    BusErrorData = 7,
+    /// Syscall instruction executed
+    Syscall = 8,
+    /// Breakpoint instruction executed
+    Breakpoint = 9,
+    /// Reserved or illegal instruction
+    ReservedInstruction = 10,
+    /// Coprocessor unusable
+    CoprocessorUnusable = 11,
+    /// Arithmetic overflow
+    Overflow = 12,
+}
+
 impl CPU {
     /// Create a new CPU instance with initial state
     ///
@@ -361,9 +390,13 @@ impl CPU {
         match opcode {
             0x00 => self.execute_special(instruction, bus),
             0x01 => self.execute_bcondz(instruction),
-            0x02 => self.op_j(instruction),   // J
-            0x03 => self.op_jal(instruction), // JAL
-            0x0F => self.op_lui(instruction), // LUI
+            0x02 => self.op_j(instruction),     // J
+            0x03 => self.op_jal(instruction),   // JAL
+            0x08 => self.op_addi(instruction),  // ADDI
+            0x09 => self.op_addiu(instruction), // ADDIU
+            0x0A => self.op_slti(instruction),  // SLTI
+            0x0B => self.op_sltiu(instruction), // SLTIU
+            0x0F => self.op_lui(instruction),   // LUI
             _ => {
                 log::warn!(
                     "Unimplemented opcode: 0x{:02X} at PC=0x{:08X}",
@@ -389,10 +422,16 @@ impl CPU {
     ///
     /// Ok(()) on success
     fn execute_special(&mut self, instruction: u32, _bus: &mut Bus) -> Result<()> {
-        let (_rs, rt, rd, shamt, funct) = decode_r_type(instruction);
+        let (rs, rt, rd, shamt, funct) = decode_r_type(instruction);
 
         match funct {
-            0x00 => self.op_sll(rt, rd, shamt),
+            0x00 => self.op_sll(rt, rd, shamt), // SLL
+            0x20 => self.op_add(rs, rt, rd),    // ADD
+            0x21 => self.op_addu(rs, rt, rd),   // ADDU
+            0x22 => self.op_sub(rs, rt, rd),    // SUB
+            0x23 => self.op_subu(rs, rt, rd),   // SUBU
+            0x2A => self.op_slt(rs, rt, rd),    // SLT
+            0x2B => self.op_sltu(rs, rt, rd),   // SLTU
             _ => {
                 log::warn!(
                     "Unimplemented SPECIAL function: 0x{:02X} at PC=0x{:08X}",
@@ -522,6 +561,271 @@ impl CPU {
         Ok(())
     }
 
+    // === Arithmetic Instructions ===
+
+    /// ADD: Add (with overflow exception)
+    ///
+    /// Adds two registers with signed overflow detection.
+    /// If overflow occurs, triggers an Overflow exception.
+    ///
+    /// Format: add rd, rs, rt
+    /// Operation: rd = rs + rt
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - First source register
+    /// * `rt` - Second source register
+    /// * `rd` - Destination register
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success (exception is triggered internally on overflow)
+    fn op_add(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+        let a = self.reg(rs) as i32;
+        let b = self.reg(rt) as i32;
+
+        match a.checked_add(b) {
+            Some(result) => {
+                self.set_reg(rd, result as u32);
+                Ok(())
+            }
+            None => {
+                self.exception(ExceptionCause::Overflow);
+                Ok(())
+            }
+        }
+    }
+
+    /// ADDU: Add Unsigned (no overflow exception)
+    ///
+    /// Adds two registers without overflow detection.
+    /// Overflow wraps around (modulo 2^32).
+    ///
+    /// Format: addu rd, rs, rt
+    /// Operation: rd = rs + rt
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - First source register
+    /// * `rt` - Second source register
+    /// * `rd` - Destination register
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_addu(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+        let result = self.reg(rs).wrapping_add(self.reg(rt));
+        self.set_reg(rd, result);
+        Ok(())
+    }
+
+    /// ADDI: Add Immediate (with overflow exception)
+    ///
+    /// Adds a sign-extended immediate value to a register with overflow detection.
+    ///
+    /// Format: addi rt, rs, imm
+    /// Operation: rt = rs + sign_extend(imm)
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_addi(&mut self, instruction: u32) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let imm = (imm as i16) as i32; // Sign extend
+        let a = self.reg(rs) as i32;
+
+        match a.checked_add(imm) {
+            Some(result) => {
+                self.set_reg(rt, result as u32);
+                Ok(())
+            }
+            None => {
+                self.exception(ExceptionCause::Overflow);
+                Ok(())
+            }
+        }
+    }
+
+    /// ADDIU: Add Immediate Unsigned (no overflow exception)
+    ///
+    /// Adds a sign-extended immediate value to a register without overflow detection.
+    /// Despite the name "unsigned", the immediate is sign-extended.
+    ///
+    /// Format: addiu rt, rs, imm
+    /// Operation: rt = rs + sign_extend(imm)
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_addiu(&mut self, instruction: u32) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let imm = (imm as i16) as u32; // Sign extend
+        let result = self.reg(rs).wrapping_add(imm);
+        self.set_reg(rt, result);
+        Ok(())
+    }
+
+    /// SUB: Subtract (with overflow exception)
+    ///
+    /// Subtracts two registers with signed overflow detection.
+    ///
+    /// Format: sub rd, rs, rt
+    /// Operation: rd = rs - rt
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - First source register (minuend)
+    /// * `rt` - Second source register (subtrahend)
+    /// * `rd` - Destination register
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_sub(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+        let a = self.reg(rs) as i32;
+        let b = self.reg(rt) as i32;
+
+        match a.checked_sub(b) {
+            Some(result) => {
+                self.set_reg(rd, result as u32);
+                Ok(())
+            }
+            None => {
+                self.exception(ExceptionCause::Overflow);
+                Ok(())
+            }
+        }
+    }
+
+    /// SUBU: Subtract Unsigned (no overflow exception)
+    ///
+    /// Subtracts two registers without overflow detection.
+    ///
+    /// Format: subu rd, rs, rt
+    /// Operation: rd = rs - rt
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - First source register (minuend)
+    /// * `rt` - Second source register (subtrahend)
+    /// * `rd` - Destination register
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_subu(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+        let result = self.reg(rs).wrapping_sub(self.reg(rt));
+        self.set_reg(rd, result);
+        Ok(())
+    }
+
+    /// SLT: Set on Less Than (signed)
+    ///
+    /// Compares two registers as signed integers.
+    /// Sets rd to 1 if rs < rt, otherwise 0.
+    ///
+    /// Format: slt rd, rs, rt
+    /// Operation: rd = (rs < rt) ? 1 : 0
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - First source register
+    /// * `rt` - Second source register
+    /// * `rd` - Destination register
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_slt(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+        let a = self.reg(rs) as i32;
+        let b = self.reg(rt) as i32;
+        let result = if a < b { 1 } else { 0 };
+        self.set_reg(rd, result);
+        Ok(())
+    }
+
+    /// SLTU: Set on Less Than Unsigned
+    ///
+    /// Compares two registers as unsigned integers.
+    /// Sets rd to 1 if rs < rt, otherwise 0.
+    ///
+    /// Format: sltu rd, rs, rt
+    /// Operation: rd = (rs < rt) ? 1 : 0
+    ///
+    /// # Arguments
+    ///
+    /// * `rs` - First source register
+    /// * `rt` - Second source register
+    /// * `rd` - Destination register
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_sltu(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+        let a = self.reg(rs);
+        let b = self.reg(rt);
+        let result = if a < b { 1 } else { 0 };
+        self.set_reg(rd, result);
+        Ok(())
+    }
+
+    /// SLTI: Set on Less Than Immediate (signed)
+    ///
+    /// Compares a register with a sign-extended immediate as signed integers.
+    /// Sets rt to 1 if rs < imm, otherwise 0.
+    ///
+    /// Format: slti rt, rs, imm
+    /// Operation: rt = (rs < sign_extend(imm)) ? 1 : 0
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_slti(&mut self, instruction: u32) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let imm = (imm as i16) as i32;
+        let a = self.reg(rs) as i32;
+        let result = if a < imm { 1 } else { 0 };
+        self.set_reg(rt, result);
+        Ok(())
+    }
+
+    /// SLTIU: Set on Less Than Immediate Unsigned
+    ///
+    /// Compares a register with a sign-extended immediate as unsigned integers.
+    /// Despite the name, the immediate is sign-extended before comparison.
+    /// Sets rt to 1 if rs < imm, otherwise 0.
+    ///
+    /// Format: sltiu rt, rs, imm
+    /// Operation: rt = (rs < sign_extend(imm)) ? 1 : 0
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn op_sltiu(&mut self, instruction: u32) -> Result<()> {
+        let (_, rs, rt, imm) = decode_i_type(instruction);
+        let imm = (imm as i16) as u32; // Sign extend then treat as unsigned
+        let a = self.reg(rs);
+        let result = if a < imm { 1 } else { 0 };
+        self.set_reg(rt, result);
+        Ok(())
+    }
+
     /// Execute a branch (sets next_pc)
     ///
     /// This helper method is used by branch instructions to update the PC.
@@ -540,6 +844,65 @@ impl CPU {
         // next_pc already points to delay slot + 4, so add offset from there
         self.next_pc = self.next_pc.wrapping_add(offset as u32);
         self.in_branch_delay = true;
+    }
+
+    /// Trigger a CPU exception
+    ///
+    /// This method handles CPU exceptions by:
+    /// 1. Saving the current processor mode in the Status Register
+    /// 2. Recording the exception cause in the CAUSE register
+    /// 3. Saving the exception PC (EPC)
+    /// 4. Jumping to the exception handler
+    ///
+    /// # Arguments
+    ///
+    /// * `cause` - The exception cause code
+    ///
+    /// # Note
+    ///
+    /// The exception handler address depends on the BEV bit in the Status Register:
+    /// - BEV=1 (bootstrap): 0xBFC00180
+    /// - BEV=0 (normal): 0x80000080
+    pub fn exception(&mut self, cause: ExceptionCause) {
+        // Save current status (push exception level)
+        let sr = self.cop0.regs[COP0::SR];
+        let mode = sr & 0x3F;
+        // Push KU/IE (c→p, p→o) and enter kernel with interrupts disabled.
+        let mut new_sr = (sr & !0x3F) | ((mode << 2) & 0x3F);
+        new_sr &= !0b11; // IEc=0 (bit 0), KUc=0 (bit 1)
+        self.cop0.regs[COP0::SR] = new_sr;
+
+        // Set exception cause
+        let cause_reg = self.cop0.regs[COP0::CAUSE];
+        self.cop0.regs[COP0::CAUSE] = (cause_reg & !0x7C) | ((cause as u32) << 2);
+
+        // Save exception PC
+        // self.pc currently points to (faulting_pc + 4). Adjust accordingly.
+        let current_pc = self.pc.wrapping_sub(4);
+        self.cop0.regs[COP0::EPC] = if self.in_branch_delay {
+            current_pc.wrapping_sub(4) // branch instruction address
+        } else {
+            current_pc // faulting instruction address
+        };
+
+        // Set branch delay flag in CAUSE if in delay slot
+        if self.in_branch_delay {
+            self.cop0.regs[COP0::CAUSE] |= 1 << 31;
+        } else {
+            self.cop0.regs[COP0::CAUSE] &= !(1 << 31);
+        }
+
+        // Jump to exception handler
+        let handler = if (sr & (1 << 22)) != 0 {
+            0xBFC00180 // BEV=1: Bootstrap exception vector
+        } else {
+            0x80000080 // BEV=0: Normal exception vector
+        };
+
+        self.pc = handler;
+        self.next_pc = handler.wrapping_add(4);
+        self.in_branch_delay = false;
+        self.load_delay = None;
     }
 
     /// Check if currently in branch delay slot
@@ -1101,5 +1464,356 @@ mod tests {
 
         assert_eq!(cpu.reg(3), 0xABCD0000);
         assert_eq!(cpu.pc, 0x80000004);
+    }
+
+    // === Arithmetic Instruction Tests ===
+
+    #[test]
+    fn test_add_no_overflow() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 10);
+        cpu.set_reg(2, 20);
+
+        cpu.op_add(1, 2, 3).unwrap();
+
+        assert_eq!(cpu.reg(3), 30);
+    }
+
+    #[test]
+    fn test_add_overflow() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x7FFFFFFF); // Max positive i32
+        cpu.set_reg(2, 1);
+
+        cpu.op_add(1, 2, 3).unwrap();
+
+        // Should trigger overflow exception
+        // Check that exception was raised (via COP0 CAUSE register)
+        let cause = cpu.cop0.regs[COP0::CAUSE];
+        let exception_code = (cause >> 2) & 0x1F;
+        assert_eq!(exception_code, ExceptionCause::Overflow as u32);
+    }
+
+    #[test]
+    fn test_add_negative_overflow() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x80000000_u32); // Min negative i32
+        cpu.set_reg(2, 0xFFFFFFFF_u32); // -1 as u32
+
+        cpu.op_add(1, 2, 3).unwrap();
+
+        // Should trigger overflow exception
+        let cause = cpu.cop0.regs[COP0::CAUSE];
+        let exception_code = (cause >> 2) & 0x1F;
+        assert_eq!(exception_code, ExceptionCause::Overflow as u32);
+    }
+
+    #[test]
+    fn test_addu_no_exception_on_overflow() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0xFFFFFFFF);
+        cpu.set_reg(2, 1);
+
+        cpu.op_addu(1, 2, 3).unwrap();
+
+        assert_eq!(cpu.reg(3), 0); // Wraps around
+    }
+
+    #[test]
+    fn test_addu_basic() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 100);
+        cpu.set_reg(2, 200);
+
+        cpu.op_addu(1, 2, 3).unwrap();
+
+        assert_eq!(cpu.reg(3), 300);
+    }
+
+    #[test]
+    fn test_addi_basic() {
+        use crate::core::memory::Bus;
+
+        let mut cpu = CPU::new();
+        let mut bus = Bus::new();
+
+        cpu.pc = 0x80000000;
+        cpu.next_pc = 0x80000004;
+        cpu.set_reg(1, 100);
+
+        // ADDI r2, r1, 50 -> 0x20220032
+        bus.write32(0x80000000, 0x20220032).unwrap();
+
+        cpu.step(&mut bus).unwrap();
+
+        assert_eq!(cpu.reg(2), 150);
+    }
+
+    #[test]
+    fn test_addi_overflow() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x7FFFFFFF); // Max positive i32
+
+        // ADDI r2, r1, 1 -> 0x20220001
+        let instr = 0x20220001;
+        cpu.op_addi(instr).unwrap();
+
+        // Should trigger overflow exception
+        let cause = cpu.cop0.regs[COP0::CAUSE];
+        let exception_code = (cause >> 2) & 0x1F;
+        assert_eq!(exception_code, ExceptionCause::Overflow as u32);
+    }
+
+    #[test]
+    fn test_addiu_sign_extension() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x00000100);
+
+        // ADDIU r2, r1, -1 (0xFFFF sign extends to 0xFFFFFFFF)
+        let instr = 0x2422FFFF; // addiu r2, r1, -1
+        cpu.op_addiu(instr).unwrap();
+
+        assert_eq!(cpu.reg(2), 0x000000FF);
+    }
+
+    #[test]
+    fn test_addiu_no_overflow() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0xFFFFFFFF);
+
+        // ADDIU r2, r1, 1 -> 0x24220001
+        let instr = 0x24220001;
+        cpu.op_addiu(instr).unwrap();
+
+        assert_eq!(cpu.reg(2), 0); // Wraps around
+    }
+
+    #[test]
+    fn test_sub() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 100);
+        cpu.set_reg(2, 30);
+
+        cpu.op_sub(1, 2, 3).unwrap();
+
+        assert_eq!(cpu.reg(3), 70);
+    }
+
+    #[test]
+    fn test_sub_overflow() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0x80000000_u32); // Min negative i32
+        cpu.set_reg(2, 1);
+
+        cpu.op_sub(1, 2, 3).unwrap();
+
+        // Should trigger overflow exception
+        let cause = cpu.cop0.regs[COP0::CAUSE];
+        let exception_code = (cause >> 2) & 0x1F;
+        assert_eq!(exception_code, ExceptionCause::Overflow as u32);
+    }
+
+    #[test]
+    fn test_subu_underflow() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 10);
+        cpu.set_reg(2, 20);
+
+        cpu.op_subu(1, 2, 3).unwrap();
+
+        assert_eq!(cpu.reg(3), 0xFFFFFFF6_u32); // -10 as u32
+    }
+
+    #[test]
+    fn test_subu_basic() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 100);
+        cpu.set_reg(2, 30);
+
+        cpu.op_subu(1, 2, 3).unwrap();
+
+        assert_eq!(cpu.reg(3), 70);
+    }
+
+    #[test]
+    fn test_slt_true() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 10_u32.wrapping_neg()); // -10 as u32
+        cpu.set_reg(2, 5);
+
+        cpu.op_slt(1, 2, 3).unwrap();
+
+        assert_eq!(cpu.reg(3), 1); // -10 < 5
+    }
+
+    #[test]
+    fn test_slt_false() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 10);
+        cpu.set_reg(2, 5);
+
+        cpu.op_slt(1, 2, 3).unwrap();
+
+        assert_eq!(cpu.reg(3), 0); // 10 >= 5
+    }
+
+    #[test]
+    fn test_slt_equal() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 100);
+        cpu.set_reg(2, 100);
+
+        cpu.op_slt(1, 2, 3).unwrap();
+
+        assert_eq!(cpu.reg(3), 0); // 100 >= 100
+    }
+
+    #[test]
+    fn test_sltu() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0xFFFFFFFF);
+        cpu.set_reg(2, 1);
+
+        cpu.op_sltu(1, 2, 3).unwrap();
+
+        assert_eq!(cpu.reg(3), 0); // 0xFFFFFFFF > 1 (unsigned)
+    }
+
+    #[test]
+    fn test_sltu_true() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 5);
+        cpu.set_reg(2, 10);
+
+        cpu.op_sltu(1, 2, 3).unwrap();
+
+        assert_eq!(cpu.reg(3), 1); // 5 < 10 (unsigned)
+    }
+
+    #[test]
+    fn test_slti_true() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 5);
+
+        // SLTI r3, r1, 10 -> 0x2823000A
+        let instr = 0x2823000A;
+        cpu.op_slti(instr).unwrap();
+
+        assert_eq!(cpu.reg(3), 1); // 5 < 10
+    }
+
+    #[test]
+    fn test_slti_false() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 15);
+
+        // SLTI r3, r1, 10 -> 0x2823000A
+        let instr = 0x2823000A;
+        cpu.op_slti(instr).unwrap();
+
+        assert_eq!(cpu.reg(3), 0); // 15 >= 10
+    }
+
+    #[test]
+    fn test_slti_negative_immediate() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0xFFFFFFF6_u32); // -10 as u32
+
+        // SLTI r3, r1, -5 (0xFFFB) -> 0x2823FFFB
+        let instr = 0x2823FFFB;
+        cpu.op_slti(instr).unwrap();
+
+        assert_eq!(cpu.reg(3), 1); // -10 < -5
+    }
+
+    #[test]
+    fn test_sltiu_true() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 5);
+
+        // SLTIU r3, r1, 10 -> 0x2C23000A
+        let instr = 0x2C23000A;
+        cpu.op_sltiu(instr).unwrap();
+
+        assert_eq!(cpu.reg(3), 1); // 5 < 10 (unsigned)
+    }
+
+    #[test]
+    fn test_sltiu_false() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0xFFFFFFFF);
+
+        // SLTIU r3, r1, 10 -> 0x2C23000A
+        let instr = 0x2C23000A;
+        cpu.op_sltiu(instr).unwrap();
+
+        assert_eq!(cpu.reg(3), 0); // 0xFFFFFFFF > 10 (unsigned)
+    }
+
+    #[test]
+    fn test_sltiu_sign_extension() {
+        let mut cpu = CPU::new();
+        cpu.set_reg(1, 0xFFFFFFF0_u32);
+
+        // SLTIU r3, r1, -1 (0xFFFF sign extends to 0xFFFFFFFF)
+        let instr = 0x2C23FFFF;
+        cpu.op_sltiu(instr).unwrap();
+
+        assert_eq!(cpu.reg(3), 1); // 0xFFFFFFF0 < 0xFFFFFFFF
+    }
+
+    #[test]
+    fn test_exception_handling() {
+        let mut cpu = CPU::new();
+
+        // Trigger an overflow exception
+        cpu.exception(ExceptionCause::Overflow);
+
+        // Check CAUSE register
+        let cause = cpu.cop0.regs[COP0::CAUSE];
+        let exception_code = (cause >> 2) & 0x1F;
+        assert_eq!(exception_code, ExceptionCause::Overflow as u32);
+
+        // Check PC jumped to exception handler
+        // BEV bit (bit 22) in initial SR (0x10900000) is not set, so should jump to normal handler
+        assert_eq!(cpu.pc, 0x80000080);
+    }
+
+    #[test]
+    fn test_exception_handling_bootstrap() {
+        let mut cpu = CPU::new();
+
+        // Set BEV bit (bit 22) in Status Register
+        cpu.cop0.regs[COP0::SR] |= 1 << 22;
+
+        // Trigger an exception
+        cpu.exception(ExceptionCause::Overflow);
+
+        // Check PC jumped to bootstrap exception handler
+        assert_eq!(cpu.pc, 0xBFC00180);
+    }
+
+    #[test]
+    fn test_exception_epc_saved() {
+        let mut cpu = CPU::new();
+        // In this core, self.pc points to (current_pc + 4) during execution.
+        cpu.pc = 0x80001004;
+
+        cpu.exception(ExceptionCause::Syscall);
+
+        // Check EPC saved correctly
+        assert_eq!(cpu.cop0.regs[COP0::EPC], 0x80001000);
+    }
+
+    #[test]
+    fn test_exception_epc_and_bd_in_delay_slot() {
+        let mut cpu = CPU::new();
+        // Simulate executing a delay-slot instruction: pc = branch_pc + 8
+        cpu.pc = 0x80001008;
+        cpu.in_branch_delay = true;
+        cpu.exception(ExceptionCause::Overflow);
+        // EPC must point to branch instruction; BD must be set.
+        assert_eq!(cpu.cop0.regs[COP0::EPC], 0x80001000);
+        assert_ne!(cpu.cop0.regs[COP0::CAUSE] & (1 << 31), 0);
     }
 }
