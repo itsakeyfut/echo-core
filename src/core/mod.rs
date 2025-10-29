@@ -15,3 +15,5 @@
 
 /// Core emulator components
 pub mod cpu;
+pub mod error;
+pub mod memory;
