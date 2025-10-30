@@ -165,12 +165,14 @@ impl CPU {
     ///
     /// # Note
     ///
-    /// During step() execution, self.pc points to the delay-slot address (B + 4).
-    /// The branch target is computed as (B + 4) + offset per MIPS semantics.
+    /// The branch target is computed as (B + 4) + offset per MIPS semantics,
+    /// where B is the branch instruction address. Since next_pc points to the
+    /// delay slot (B + 4) when the branch instruction executes, we use next_pc
+    /// as the base for the calculation.
     pub(in crate::core::cpu) fn branch(&mut self, offset: i32) {
-        // self.pc points to the delay-slot address (B + 4) during execution.
+        // next_pc points to the delay-slot address (B + 4) during execution.
         // Target = (B + 4) + offset
-        let base = self.pc;
+        let base = self.next_pc;
         self.next_pc = base.wrapping_add(offset as u32);
         self.in_branch_delay = true;
     }
