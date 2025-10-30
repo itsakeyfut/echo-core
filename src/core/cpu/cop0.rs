@@ -24,18 +24,25 @@ pub(super) struct COP0 {
 
 impl COP0 {
     /// Breakpoint PC
+    #[allow(dead_code)]
     pub const BPC: usize = 3;
     /// Breakpoint Data Address
+    #[allow(dead_code)]
     pub const BDA: usize = 5;
     /// Target Address
+    #[allow(dead_code)]
     pub const TAR: usize = 6;
     /// Cache control
+    #[allow(dead_code)]
     pub const DCIC: usize = 7;
     /// Bad Virtual Address
+    #[allow(dead_code)]
     pub const BADA: usize = 8;
     /// Data Address Mask
+    #[allow(dead_code)]
     pub const BDAM: usize = 9;
     /// PC Mask
+    #[allow(dead_code)]
     pub const BPCM: usize = 11;
     /// Status Register
     pub const SR: usize = 12;
