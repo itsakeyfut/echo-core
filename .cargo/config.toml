@@ -1,1 +1,2 @@
-# placeholder
+[alias]
+x = "run --package xtask --"
