@@ -216,7 +216,7 @@ fn test_mfc0_reads_cop0_register() {
 
     // MFC0 $t0, $12 (move SR to register 8)
     // Encoding: bits [25:21] = 0x00 (MFC0), bits [20:16] = rt, bits [15:11] = rd
-    let instruction = (0x10 << 26) | (0x00 << 21) | (8 << 16) | (12 << 11);
+    let instruction = (0x10 << 26) | (8 << 16) | (12 << 11);
     cpu.op_mfc0(instruction).unwrap();
 
     // Execute the load delay
@@ -350,7 +350,7 @@ fn test_exception_clears_delay_slot() {
     cpu.exception(ExceptionCause::Syscall);
 
     // Exception should clear the branch delay flag
-    assert_eq!(cpu.in_branch_delay, false);
+    assert!(!cpu.in_branch_delay);
 }
 
 #[test]
