@@ -319,30 +319,135 @@ cargo build
 cargo build --release
 ```
 
-### Run Tests
+### Using the Task Automation Tool (xtask)
+
+This project includes a custom task automation tool (`cargo x`) that simplifies common development tasks.
+
+#### Available Commands
 
 ```bash
-# Run all tests
+# Show all available commands
+cargo x --help
+
+# Run all CI checks (fmt, clippy, build, test)
+cargo x ci
+
+# Quick checks before commit (fmt, clippy)
+cargo x check
+
+# Format code
+cargo x fmt
+
+# Run clippy
+cargo x clippy
+
+# Build the project
+cargo x build --release
+
+# Run tests
+cargo x test
+
+# Run BIOS boot test
+cargo x bios-boot --release
+
+# Install git pre-commit hooks
+cargo x install-hooks
+```
+
+#### BIOS Boot Test
+
+The `bios-boot` command runs the emulator with a BIOS file for testing:
+
+```bash
+# Run BIOS boot test with default settings (SCPH1001.BIN, 100k instructions)
+cargo x bios-boot --release
+
+# Specify custom BIOS file
+cargo x bios-boot path/to/BIOS.BIN
+
+# Specify number of instructions
+cargo x bios-boot -n 200000 --release
+
+# Run in debug mode (slower)
+cargo x bios-boot
+```
+
+**Requirements:**
+- BIOS file (e.g., `SCPH1001.BIN`) must be in the project root
+- BIOS file must be exactly 512KB (524,288 bytes)
+
+**Expected Output:**
+```
+=== BIOS Boot Test ===
+✓ BIOS file: SCPH1001.BIN
+→ Instructions: 100000
+→ Build mode: release
+
+→ Building in release mode...
+[Build output...]
+
+[Emulator output showing progress through BIOS execution]
+
+✓ BIOS boot test completed in 0.10s
+```
+
+#### Installing Git Hooks
+
+Install pre-commit hooks to automatically run checks before committing:
+
+```bash
+cargo x install-hooks
+```
+
+This will run format checks, clippy, and tests before each commit.
+
+### Running the Emulator Directly
+
+You can run the emulator directly with custom parameters:
+
+```bash
+# Basic usage (default: 100,000 instructions)
+cargo run --release -- SCPH1001.BIN
+
+# Specify number of instructions to execute
+cargo run --release -- SCPH1001.BIN -n 50000
+
+# Use different BIOS file
+cargo run --release -- path/to/SCPH5501.BIN -n 200000
+
+# Show help for available options
+cargo run --release -- --help
+```
+
+**Available Options:**
+- `<BIOS_FILE>` - Path to PlayStation BIOS file (required)
+- `-n, --instructions <N>` - Number of instructions to execute (default: 100000)
+
+**Use Cases:**
+- Quick testing with specific instruction counts
+- Testing different BIOS versions
+- Debugging specific execution ranges
+- Performance profiling with custom workloads
+
+### Manual Commands (Alternative to xtask)
+
+If you prefer to run commands manually:
+
+```bash
+# Run tests
 cargo test
 
 # Or use nextest
 cargo nextest run
-```
 
-### Run Lint
-
-```bash
+# Run lint
 cargo clippy -- -D warnings
-```
 
-### Format
+# Format
+cargo fmt
 
-```bash
 # Check formatting
 cargo fmt -- --check
-
-# Apply formatting
-cargo fmt
 ```
 
 ---
@@ -679,7 +784,38 @@ cargo build -j 2
 
 ## Development Workflow
 
-### Daily Development Flow
+### Daily Development Flow (Recommended)
+
+Using the xtask automation tool:
+
+```bash
+# 1. Create branch
+git checkout -b feature/cpu-implementation
+
+# 2. Install pre-commit hooks (one-time setup)
+cargo x install-hooks
+
+# 3. Auto-check with cargo-watch (optional)
+cargo watch -x check -x test
+
+# 4. Edit code (VSCode, etc.)
+
+# 5. Run quick checks
+cargo x check
+
+# 6. Run all tests including BIOS boot
+cargo x test
+cargo x bios-boot --release
+
+# 7. Commit (pre-commit hooks will run automatically)
+git add .
+git commit -m "feat: implement ADD instruction"
+
+# 8. Push
+git push origin feature/cpu-implementation
+```
+
+### Alternative: Manual Workflow
 
 ```bash
 # 1. Create branch
@@ -691,27 +827,31 @@ cargo watch -x check -x test
 # 3. Edit code (VSCode, etc.)
 
 # 4. Run tests
-cargo nextest run
+cargo test
 
-# 5. Lint
+# 5. Run BIOS boot test
+cargo run --release -- SCPH1001.BIN
+
+# 6. Lint
 cargo clippy -- -D warnings
 
-# 6. Format
+# 7. Format
 cargo fmt
 
-# 7. Commit
+# 8. Commit
 git add .
 git commit -m "feat: implement ADD instruction"
 
-# 8. Push
+# 9. Push
 git push origin feature/cpu-implementation
 ```
 
 ### Pre-Pull Request Checklist
 
-- [ ] All `cargo test` pass
-- [ ] No errors from `cargo clippy -- -D warnings`
-- [ ] No errors from `cargo fmt -- --check`
+- [ ] All `cargo test` pass (or `cargo x test`)
+- [ ] No errors from `cargo clippy -- -D warnings` (or `cargo x clippy`)
+- [ ] No errors from `cargo fmt -- --check` (or `cargo x fmt --check`)
+- [ ] BIOS boot test passes (`cargo x bios-boot --release`)
 - [ ] Added documentation comments
 - [ ] Updated `CHANGELOG.md` with changes (future)
 

@@ -37,6 +37,7 @@ We use `x` for development automation. All commands available:
 - **`cargo x build [--release]`** - Build project
 - **`cargo x test [--doc] [--ignored]`** - Run tests
 - **`cargo x bench`** - Run benchmarks
+- **`cargo x bios-boot [--release] [-n <instructions>] [<bios_path>]`** - Run BIOS boot test
 - **`cargo x pre-commit`** - Pre-commit checks
 - **`cargo x install-hooks`** - Install git hooks
 
@@ -169,6 +170,30 @@ Before submitting a PR, ensure:
 - Add integration tests in `tests/` directory
 - Test component interactions
 - Test realistic use cases
+
+### BIOS Boot Testing
+
+Test your changes with actual BIOS execution:
+
+```bash
+# Quick test with default settings (100k instructions)
+cargo x bios-boot --release
+
+# Extended test with more instructions
+cargo x bios-boot -n 200000 --release
+
+# Test with specific BIOS version
+cargo x bios-boot path/to/SCPH5501.BIN --release
+
+# Run emulator directly with custom parameters
+cargo run --release -- SCPH1001.BIN -n 50000
+```
+
+**Use BIOS testing for:**
+- Verifying CPU instruction implementations
+- Testing memory subsystem changes
+- Validating system initialization
+- Performance profiling specific code paths
 
 ### Benchmarks
 

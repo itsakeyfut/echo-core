@@ -1096,4 +1096,116 @@ mod tests {
         // Verify BIOS value unchanged
         assert_eq!(bus.read32(0xBFC00000).unwrap(), 0xFFFFFFFF);
     }
+
+    #[test]
+    fn test_expansion_rom_header_read() {
+        let bus = Bus::new();
+
+        // ROM entry point at 0x1F000080 should return 0 (no ROM present)
+        assert_eq!(bus.read32(0x1F000080).unwrap(), 0x00000000);
+
+        // ROM header region (0x1F000000-0x1F0000FF) should return 0
+        assert_eq!(bus.read32(0x1F000000).unwrap(), 0x00000000);
+        assert_eq!(bus.read32(0x1F0000FC).unwrap(), 0x00000000);
+
+        // Test 16-bit reads in ROM header
+        assert_eq!(bus.read16(0x1F000080).unwrap(), 0x0000);
+        assert_eq!(bus.read16(0x1F0000FE).unwrap(), 0x0000);
+
+        // Test 8-bit reads in ROM header
+        assert_eq!(bus.read8(0x1F000080).unwrap(), 0x00);
+        assert_eq!(bus.read8(0x1F0000FF).unwrap(), 0x00);
+    }
+
+    #[test]
+    fn test_expansion_region_open_bus() {
+        let bus = Bus::new();
+
+        // Addresses outside ROM header should return open bus values
+
+        // Expansion Region 1 (after ROM header)
+        assert_eq!(bus.read32(0x1F000100).unwrap(), 0xFFFFFFFF);
+        assert_eq!(bus.read32(0x1F001000).unwrap(), 0xFFFFFFFF);
+        assert_eq!(bus.read32(0x1F7FFFFC).unwrap(), 0xFFFFFFFF);
+
+        // Expansion Region 3
+        assert_eq!(bus.read32(0x1FA00000).unwrap(), 0xFFFFFFFF);
+        assert_eq!(bus.read32(0x1FBFFFFC).unwrap(), 0xFFFFFFFF);
+
+        // Test 16-bit reads (open bus)
+        assert_eq!(bus.read16(0x1F000100).unwrap(), 0xFFFF);
+        assert_eq!(bus.read16(0x1FA00000).unwrap(), 0xFFFF);
+
+        // Test 8-bit reads (open bus)
+        assert_eq!(bus.read8(0x1F000100).unwrap(), 0xFF);
+        assert_eq!(bus.read8(0x1FA00000).unwrap(), 0xFF);
+    }
+
+    #[test]
+    fn test_expansion_region_writes_ignored() {
+        let mut bus = Bus::new();
+
+        // Writes to expansion regions should succeed but be ignored
+
+        // Write to ROM header region
+        assert!(bus.write32(0x1F000080, 0x12345678).is_ok());
+        // Read should still return 0 (not what we wrote)
+        assert_eq!(bus.read32(0x1F000080).unwrap(), 0x00000000);
+
+        // Write to expansion region 1
+        assert!(bus.write32(0x1F001000, 0xABCDEF00).is_ok());
+        // Read should return open bus value (not what we wrote)
+        assert_eq!(bus.read32(0x1F001000).unwrap(), 0xFFFFFFFF);
+
+        // Write to expansion region 3
+        assert!(bus.write32(0x1FA00000, 0xDEADBEEF).is_ok());
+        // Read should return open bus value (not what we wrote)
+        assert_eq!(bus.read32(0x1FA00000).unwrap(), 0xFFFFFFFF);
+
+        // Test 16-bit writes
+        assert!(bus.write16(0x1F000080, 0x1234).is_ok());
+        assert_eq!(bus.read16(0x1F000080).unwrap(), 0x0000);
+
+        // Test 8-bit writes
+        assert!(bus.write8(0x1F000080, 0x42).is_ok());
+        assert_eq!(bus.read8(0x1F000080).unwrap(), 0x00);
+    }
+
+    #[test]
+    fn test_expansion_region_identification() {
+        let bus = Bus::new();
+
+        // Expansion region 1
+        assert_eq!(bus.identify_region(0x1F000000), MemoryRegion::Expansion);
+        assert_eq!(bus.identify_region(0x1F000084), MemoryRegion::Expansion);
+        assert_eq!(bus.identify_region(0x1F7FFFFF), MemoryRegion::Expansion);
+
+        // Expansion region 3
+        assert_eq!(bus.identify_region(0x1FA00000), MemoryRegion::Expansion);
+        assert_eq!(bus.identify_region(0x1FBFFFFF), MemoryRegion::Expansion);
+
+        // Not expansion (verify boundaries)
+        assert_ne!(bus.identify_region(0x1F800000), MemoryRegion::Expansion); // Scratchpad
+        assert_ne!(bus.identify_region(0x1F801000), MemoryRegion::Expansion); // I/O
+    }
+
+    #[test]
+    fn test_expansion_rom_entry_point_boundary() {
+        let bus = Bus::new();
+
+        // Test boundary between ROM header and open bus regions
+
+        // Last address of ROM header (should return 0)
+        assert_eq!(bus.read32(0x1F0000FC).unwrap(), 0x00000000);
+        assert_eq!(bus.read8(0x1F0000FF).unwrap(), 0x00);
+
+        // First address after ROM header (should return open bus)
+        assert_eq!(bus.read32(0x1F000100).unwrap(), 0xFFFFFFFF);
+        assert_eq!(bus.read8(0x1F000100).unwrap(), 0xFF);
+
+        // First address before ROM header (should return open bus)
+        // Note: The range check is inclusive, so 0x1F000000 is in ROM header
+        // We need to check addresses before 0x1F000000 are unmapped
+        // (This is outside expansion region 1, so would be unmapped or other region)
+    }
 }

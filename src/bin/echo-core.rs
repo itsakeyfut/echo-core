@@ -13,10 +13,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use clap::Parser;
 use echo_core::core::error::Result;
 use echo_core::core::system::System;
 use log::{error, info};
-use std::env;
+
+/// PlayStation (PSX) emulator
+#[derive(Parser)]
+#[command(name = "echo-core")]
+#[command(about = "PlayStation emulator", long_about = None)]
+struct Args {
+    /// Path to PlayStation BIOS file (e.g., SCPH1001.BIN)
+    bios_file: String,
+
+    /// Number of instructions to execute
+    #[arg(short = 'n', long, default_value = "100000")]
+    instructions: usize,
+}
 
 fn main() -> Result<()> {
     // Initialize logger with default level INFO
@@ -28,27 +41,15 @@ fn main() -> Result<()> {
     info!("PlayStation emulator");
 
     // Parse command line arguments
-    let args: Vec<String> = env::args().collect();
+    let args = Args::parse();
 
-    if args.len() < 2 {
-        eprintln!("Usage: {} <bios_file>", args[0]);
-        eprintln!();
-        eprintln!("Arguments:");
-        eprintln!("  <bios_file>  Path to PlayStation BIOS file (e.g., SCPH1001.BIN)");
-        eprintln!();
-        eprintln!("Environment variables:");
-        eprintln!("  RUST_LOG     Set log level (trace, debug, info, warn, error)");
-        std::process::exit(1);
-    }
-
-    let bios_path = &args[1];
-    info!("Loading BIOS from: {}", bios_path);
+    info!("Loading BIOS from: {}", args.bios_file);
 
     // Create and initialize system
     let mut system = System::new();
 
     // Load BIOS
-    if let Err(e) = system.load_bios(bios_path) {
+    if let Err(e) = system.load_bios(&args.bios_file) {
         error!("Failed to load BIOS: {}", e);
         return Err(e);
     }
@@ -59,17 +60,17 @@ fn main() -> Result<()> {
     info!("Starting emulation...");
     system.reset();
 
-    // Run for 100,000 instructions
-    const TOTAL_INSTRUCTIONS: usize = 100_000;
-    const LOG_INTERVAL: usize = 10_000;
+    // Run for specified number of instructions
+    let total_instructions = args.instructions;
+    let log_interval = (total_instructions / 10).max(1); // Log ~10 times during execution
 
-    for i in 0..TOTAL_INSTRUCTIONS {
+    for i in 0..total_instructions {
         // Log progress periodically
-        if i % LOG_INTERVAL == 0 && i > 0 {
+        if i % log_interval == 0 && i > 0 {
             info!(
                 "Progress: {}/{} instructions | PC: 0x{:08X} | Cycles: {}",
                 i,
-                TOTAL_INSTRUCTIONS,
+                total_instructions,
                 system.pc(),
                 system.cycles()
             );
@@ -86,7 +87,7 @@ fn main() -> Result<()> {
 
     // Final status
     info!("Emulation completed successfully!");
-    info!("Total instructions: {}", TOTAL_INSTRUCTIONS);
+    info!("Total instructions: {}", total_instructions);
     info!("Total cycles: {}", system.cycles());
     info!("Final PC: 0x{:08X}", system.pc());
 
