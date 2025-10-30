@@ -354,6 +354,54 @@ impl CPU {
     pub fn pc(&self) -> u32 {
         self.pc
     }
+
+    /// Check for pending interrupts and trigger if enabled
+    ///
+    /// This method checks if interrupts are enabled in the Status Register
+    /// and if there are any pending interrupts matching the interrupt mask.
+    /// If both conditions are met, an interrupt exception is triggered.
+    ///
+    /// # Arguments
+    ///
+    /// * `interrupt_flags` - Pending interrupt flags (bits 0-7 correspond to interrupt sources)
+    ///
+    /// # Details
+    ///
+    /// The Status Register (SR) controls interrupt handling:
+    /// - Bit 0 (IEc): Interrupt Enable (current)
+    /// - Bits [15:8]: Interrupt Mask (IM)
+    ///
+    /// The CAUSE register stores pending interrupts in bits [15:8].
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use echo_core::core::cpu::CPU;
+    ///
+    /// let mut cpu = CPU::new();
+    /// // Enable interrupts and set interrupt mask
+    /// // cpu.cop0.regs[12] |= 0x0401;  // Enable interrupts and mask bit 0
+    ///
+    /// // Check for pending interrupt 0
+    /// cpu.check_interrupts(0x01);
+    /// ```
+    pub fn check_interrupts(&mut self, interrupt_flags: u32) {
+        let sr = self.cop0.regs[COP0::SR];
+        let ie = sr & 0x1; // Interrupt Enable (bit 0)
+        let im = (sr >> 8) & 0xFF; // Interrupt Mask (bits [15:8])
+
+        if ie != 0 {
+            let pending = interrupt_flags & im;
+            if pending != 0 {
+                // Update CAUSE register with pending interrupts
+                let cause = self.cop0.regs[COP0::CAUSE];
+                self.cop0.regs[COP0::CAUSE] = (cause & !0xFF00) | (pending << 8);
+
+                // Trigger interrupt exception
+                self.exception(ExceptionCause::Interrupt);
+            }
+        }
+    }
 }
 impl Default for CPU {
     fn default() -> Self {
