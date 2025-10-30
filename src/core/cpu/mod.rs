@@ -390,14 +390,13 @@ impl CPU {
         let ie = sr & 0x1; // Interrupt Enable (bit 0)
         let im = (sr >> 8) & 0xFF; // Interrupt Mask (bits [15:8])
 
-        if ie != 0 {
-            let pending = interrupt_flags & im;
-            if pending != 0 {
-                // Update CAUSE register with pending interrupts
-                let cause = self.cop0.regs[COP0::CAUSE];
-                self.cop0.regs[COP0::CAUSE] = (cause & !0xFF00) | (pending << 8);
+        let pending_all = interrupt_flags & 0xFF;
+        let cause = self.cop0.regs[COP0::CAUSE];
+        self.cop0.regs[COP0::CAUSE] = (cause & !0xFF00) | (pending_all << 8);
 
-                // Trigger interrupt exception
+        if ie != 0 {
+            let masked = pending_all & im;
+            if masked != 0 {
                 self.exception(ExceptionCause::Interrupt);
             }
         }
