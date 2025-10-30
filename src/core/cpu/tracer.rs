@@ -205,6 +205,9 @@ impl CpuTracer {
         )?;
 
         for &reg in regs.iter().take(8) {
+            if reg >= 32 {
+                return Err(crate::core::error::EmulatorError::InvalidRegister { index: reg });
+            }
             write!(self.output, " r{}={:08X}", reg, cpu.reg(reg))?;
         }
 
