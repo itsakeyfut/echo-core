@@ -186,7 +186,6 @@ fn run_pre_commit() -> Result<()> {
 
 fn install_hooks() -> Result<()> {
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
 
     println!("{}", "Installing git hooks...".bold());
 
@@ -204,6 +203,8 @@ cargo xtask pre-commit
     // Make executable (Unix only)
     #[cfg(unix)]
     {
+        use std::os::unix::fs::PermissionsExt;
+
         let mut perms = fs::metadata(hook_path)?.permissions();
         perms.set_mode(0o755);
         fs::set_permissions(hook_path, perms)?;
