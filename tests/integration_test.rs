@@ -20,7 +20,7 @@ use echo_core::core::system::System;
 fn test_basic_initialization() -> Result<()> {
     // Basic smoke test
     let system = System::new();
-    assert_eq!(system.total_cycles(), 0);
+    assert_eq!(system.cycles(), 0);
     Ok(())
 }
 
@@ -28,12 +28,12 @@ fn test_basic_initialization() -> Result<()> {
 fn test_system_reset() {
     let mut system = System::new();
     system.reset();
-    assert_eq!(system.total_cycles(), 0);
+    assert_eq!(system.cycles(), 0);
 }
 
 #[test]
 fn test_cpu_initialization() {
     let system = System::new();
     // PC should start at BIOS entry point
-    assert_eq!(system.cpu().pc(), 0xBFC00000);
+    assert_eq!(system.pc(), 0xBFC00000);
 }
