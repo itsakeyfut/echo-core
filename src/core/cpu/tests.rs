@@ -2173,3 +2173,470 @@ fn test_jump_preserves_upper_pc_bits() {
     assert_eq!(cpu.next_pc & 0xF0000000, 0xB0000000);
     assert_eq!(cpu.next_pc, 0xB0400000);
 }
+
+// === Multiply/Divide Instruction Tests ===
+
+#[test]
+fn test_mult_positive() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 100);
+    cpu.set_reg(2, 200);
+
+    cpu.op_mult(1, 2).unwrap();
+
+    assert_eq!(cpu.lo, 20000);
+    assert_eq!(cpu.hi, 0);
+}
+
+#[test]
+fn test_mult_negative() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, (-10_i32) as u32);
+    cpu.set_reg(2, 20);
+
+    cpu.op_mult(1, 2).unwrap();
+
+    assert_eq!(cpu.lo as i32, -200);
+    assert_eq!(cpu.hi, 0xFFFFFFFF); // Sign extension
+}
+
+#[test]
+fn test_mult_both_negative() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, (-10_i32) as u32);
+    cpu.set_reg(2, (-20_i32) as u32);
+
+    cpu.op_mult(1, 2).unwrap();
+
+    assert_eq!(cpu.lo, 200);
+    assert_eq!(cpu.hi, 0);
+}
+
+#[test]
+fn test_mult_large_result() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 0x7FFFFFFF); // Max positive i32
+    cpu.set_reg(2, 2);
+
+    cpu.op_mult(1, 2).unwrap();
+
+    // 0x7FFFFFFF * 2 = 0xFFFFFFFE
+    assert_eq!(cpu.lo, 0xFFFFFFFE);
+    assert_eq!(cpu.hi, 0);
+}
+
+#[test]
+fn test_mult_overflow_to_hi() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 0xFFFFFFFF); // -1 as signed
+    cpu.set_reg(2, 0xFFFFFFFF); // -1 as signed
+
+    cpu.op_mult(1, 2).unwrap();
+
+    // (-1) * (-1) = 1
+    assert_eq!(cpu.lo, 1);
+    assert_eq!(cpu.hi, 0);
+}
+
+#[test]
+fn test_multu() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 0xFFFFFFFF);
+    cpu.set_reg(2, 2);
+
+    cpu.op_multu(1, 2).unwrap();
+
+    // 0xFFFFFFFF * 2 = 0x1FFFFFFFE
+    assert_eq!(cpu.lo, 0xFFFFFFFE);
+    assert_eq!(cpu.hi, 1);
+}
+
+#[test]
+fn test_multu_large_values() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 0x80000000); // 2^31 unsigned
+    cpu.set_reg(2, 4);
+
+    cpu.op_multu(1, 2).unwrap();
+
+    // 0x80000000 * 4 = 0x200000000
+    assert_eq!(cpu.lo, 0);
+    assert_eq!(cpu.hi, 2);
+}
+
+#[test]
+fn test_multu_max_values() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 0xFFFFFFFF);
+    cpu.set_reg(2, 0xFFFFFFFF);
+
+    cpu.op_multu(1, 2).unwrap();
+
+    // 0xFFFFFFFF * 0xFFFFFFFF = 0xFFFFFFFE00000001
+    assert_eq!(cpu.lo, 0x00000001);
+    assert_eq!(cpu.hi, 0xFFFFFFFE);
+}
+
+#[test]
+fn test_div() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 100);
+    cpu.set_reg(2, 7);
+
+    cpu.op_div(1, 2).unwrap();
+
+    assert_eq!(cpu.lo, 14); // Quotient
+    assert_eq!(cpu.hi, 2); // Remainder
+}
+
+#[test]
+fn test_div_exact() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 100);
+    cpu.set_reg(2, 10);
+
+    cpu.op_div(1, 2).unwrap();
+
+    assert_eq!(cpu.lo, 10); // Quotient
+    assert_eq!(cpu.hi, 0); // Remainder
+}
+
+#[test]
+fn test_div_negative_dividend() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, (-100_i32) as u32);
+    cpu.set_reg(2, 7);
+
+    cpu.op_div(1, 2).unwrap();
+
+    assert_eq!(cpu.lo as i32, -14); // Quotient
+    assert_eq!(cpu.hi as i32, -2); // Remainder
+}
+
+#[test]
+fn test_div_negative_divisor() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 100);
+    cpu.set_reg(2, (-7_i32) as u32);
+
+    cpu.op_div(1, 2).unwrap();
+
+    assert_eq!(cpu.lo as i32, -14); // Quotient
+    assert_eq!(cpu.hi, 2); // Remainder
+}
+
+#[test]
+fn test_div_both_negative() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, (-100_i32) as u32);
+    cpu.set_reg(2, (-7_i32) as u32);
+
+    cpu.op_div(1, 2).unwrap();
+
+    assert_eq!(cpu.lo, 14); // Quotient
+    assert_eq!(cpu.hi as i32, -2); // Remainder
+}
+
+#[test]
+fn test_div_by_zero() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 100);
+    cpu.set_reg(2, 0);
+
+    cpu.op_div(1, 2).unwrap();
+
+    // PSX doesn't trap on divide by zero, result is defined
+    assert_eq!(cpu.lo, 0xFFFFFFFF);
+    assert_eq!(cpu.hi, 100);
+}
+
+#[test]
+fn test_div_by_zero_negative() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, (-100_i32) as u32);
+    cpu.set_reg(2, 0);
+
+    cpu.op_div(1, 2).unwrap();
+
+    // Negative dividend / 0
+    assert_eq!(cpu.lo, 1);
+    assert_eq!(cpu.hi, (-100_i32) as u32);
+}
+
+#[test]
+fn test_div_overflow() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 0x80000000); // i32::MIN
+    cpu.set_reg(2, 0xFFFFFFFF); // -1
+
+    cpu.op_div(1, 2).unwrap();
+
+    // i32::MIN / -1 would overflow
+    assert_eq!(cpu.lo, 0x80000000);
+    assert_eq!(cpu.hi, 0);
+}
+
+#[test]
+fn test_divu() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 100);
+    cpu.set_reg(2, 7);
+
+    cpu.op_divu(1, 2).unwrap();
+
+    assert_eq!(cpu.lo, 14); // Quotient
+    assert_eq!(cpu.hi, 2); // Remainder
+}
+
+#[test]
+fn test_divu_large_values() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 0xFFFFFFFF);
+    cpu.set_reg(2, 2);
+
+    cpu.op_divu(1, 2).unwrap();
+
+    assert_eq!(cpu.lo, 0x7FFFFFFF); // Quotient
+    assert_eq!(cpu.hi, 1); // Remainder
+}
+
+#[test]
+fn test_divu_by_zero() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 100);
+    cpu.set_reg(2, 0);
+
+    cpu.op_divu(1, 2).unwrap();
+
+    // PSX doesn't trap on divide by zero
+    assert_eq!(cpu.lo, 0xFFFFFFFF);
+    assert_eq!(cpu.hi, 100);
+}
+
+#[test]
+fn test_divu_max_dividend() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 0xFFFFFFFF);
+    cpu.set_reg(2, 0xFFFFFFFF);
+
+    cpu.op_divu(1, 2).unwrap();
+
+    assert_eq!(cpu.lo, 1); // Quotient
+    assert_eq!(cpu.hi, 0); // Remainder
+}
+
+#[test]
+fn test_mfhi_mflo() {
+    let mut cpu = CPU::new();
+    cpu.hi = 0x12345678;
+    cpu.lo = 0xABCDEF00;
+
+    cpu.op_mfhi(3).unwrap();
+    cpu.op_mflo(4).unwrap();
+
+    assert_eq!(cpu.reg(3), 0x12345678);
+    assert_eq!(cpu.reg(4), 0xABCDEF00);
+}
+
+#[test]
+fn test_mfhi_after_mult() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 0xFFFFFFFF); // -1 as signed
+    cpu.set_reg(2, 2);
+
+    cpu.op_mult(1, 2).unwrap();
+    cpu.op_mfhi(3).unwrap();
+
+    assert_eq!(cpu.reg(3), 0xFFFFFFFF); // Upper 32 bits
+}
+
+#[test]
+fn test_mflo_after_mult() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 100);
+    cpu.set_reg(2, 200);
+
+    cpu.op_mult(1, 2).unwrap();
+    cpu.op_mflo(3).unwrap();
+
+    assert_eq!(cpu.reg(3), 20000); // Lower 32 bits
+}
+
+#[test]
+fn test_mfhi_after_div() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 100);
+    cpu.set_reg(2, 7);
+
+    cpu.op_div(1, 2).unwrap();
+    cpu.op_mfhi(3).unwrap();
+
+    assert_eq!(cpu.reg(3), 2); // Remainder
+}
+
+#[test]
+fn test_mflo_after_div() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 100);
+    cpu.set_reg(2, 7);
+
+    cpu.op_div(1, 2).unwrap();
+    cpu.op_mflo(3).unwrap();
+
+    assert_eq!(cpu.reg(3), 14); // Quotient
+}
+
+#[test]
+fn test_mthi_mtlo() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(5, 0x12345678);
+    cpu.set_reg(6, 0xABCDEF00);
+
+    cpu.op_mthi(5).unwrap();
+    cpu.op_mtlo(6).unwrap();
+
+    assert_eq!(cpu.hi, 0x12345678);
+    assert_eq!(cpu.lo, 0xABCDEF00);
+}
+
+#[test]
+fn test_mthi_overwrites() {
+    let mut cpu = CPU::new();
+    cpu.hi = 0xDEADBEEF;
+    cpu.set_reg(5, 0x11111111);
+
+    cpu.op_mthi(5).unwrap();
+
+    assert_eq!(cpu.hi, 0x11111111);
+}
+
+#[test]
+fn test_mtlo_overwrites() {
+    let mut cpu = CPU::new();
+    cpu.lo = 0xDEADBEEF;
+    cpu.set_reg(6, 0x22222222);
+
+    cpu.op_mtlo(6).unwrap();
+
+    assert_eq!(cpu.lo, 0x22222222);
+}
+
+#[test]
+fn test_mult_div_sequence() {
+    let mut cpu = CPU::new();
+
+    // First multiply
+    cpu.set_reg(1, 100);
+    cpu.set_reg(2, 200);
+    cpu.op_mult(1, 2).unwrap();
+
+    assert_eq!(cpu.lo, 20000);
+    assert_eq!(cpu.hi, 0);
+
+    // Then divide
+    cpu.set_reg(3, 100);
+    cpu.set_reg(4, 7);
+    cpu.op_div(3, 4).unwrap();
+
+    // Divide should overwrite HI/LO
+    assert_eq!(cpu.lo, 14);
+    assert_eq!(cpu.hi, 2);
+}
+
+#[test]
+fn test_hilo_register_independence() {
+    let mut cpu = CPU::new();
+
+    // Set HI/LO via MTHI/MTLO
+    cpu.set_reg(1, 0xAAAAAAAA);
+    cpu.set_reg(2, 0xBBBBBBBB);
+    cpu.op_mthi(1).unwrap();
+    cpu.op_mtlo(2).unwrap();
+
+    // Read back with MFHI/MFLO
+    cpu.op_mfhi(3).unwrap();
+    cpu.op_mflo(4).unwrap();
+
+    assert_eq!(cpu.reg(3), 0xAAAAAAAA);
+    assert_eq!(cpu.reg(4), 0xBBBBBBBB);
+
+    // Original registers should be unchanged
+    assert_eq!(cpu.reg(1), 0xAAAAAAAA);
+    assert_eq!(cpu.reg(2), 0xBBBBBBBB);
+}
+
+#[test]
+fn test_mult_zero() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 0);
+    cpu.set_reg(2, 123456);
+
+    cpu.op_mult(1, 2).unwrap();
+
+    assert_eq!(cpu.lo, 0);
+    assert_eq!(cpu.hi, 0);
+}
+
+#[test]
+fn test_multu_zero() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 0);
+    cpu.set_reg(2, 0xFFFFFFFF);
+
+    cpu.op_multu(1, 2).unwrap();
+
+    assert_eq!(cpu.lo, 0);
+    assert_eq!(cpu.hi, 0);
+}
+
+#[test]
+fn test_div_one() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 123456);
+    cpu.set_reg(2, 1);
+
+    cpu.op_div(1, 2).unwrap();
+
+    assert_eq!(cpu.lo, 123456); // Quotient
+    assert_eq!(cpu.hi, 0); // Remainder
+}
+
+#[test]
+fn test_divu_one() {
+    let mut cpu = CPU::new();
+    cpu.set_reg(1, 0xFFFFFFFF);
+    cpu.set_reg(2, 1);
+
+    cpu.op_divu(1, 2).unwrap();
+
+    assert_eq!(cpu.lo, 0xFFFFFFFF); // Quotient
+    assert_eq!(cpu.hi, 0); // Remainder
+}
+
+#[test]
+fn test_mfhi_mflo_r0_hardwired() {
+    let mut cpu = CPU::new();
+    cpu.hi = 0x12345678;
+    cpu.lo = 0xABCDEF00;
+
+    // Try to write to r0
+    cpu.op_mfhi(0).unwrap();
+    cpu.op_mflo(0).unwrap();
+
+    // r0 should still be 0
+    assert_eq!(cpu.reg(0), 0);
+}
+
+#[test]
+fn test_mthi_mtlo_from_r0() {
+    let mut cpu = CPU::new();
+    cpu.hi = 0xDEADBEEF;
+    cpu.lo = 0xCAFEBABE;
+
+    // Move r0 (which is always 0) to HI/LO
+    cpu.op_mthi(0).unwrap();
+    cpu.op_mtlo(0).unwrap();
+
+    assert_eq!(cpu.hi, 0);
+    assert_eq!(cpu.lo, 0);
+}

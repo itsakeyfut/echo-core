@@ -38,7 +38,7 @@ impl CPU {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// // Multiply 100 * 200 = 20000
     /// // LO = 20000 (0x4E20), HI = 0
     /// cpu.set_reg(1, 100);
@@ -74,7 +74,7 @@ impl CPU {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// // Multiply 0xFFFFFFFF * 2
     /// // Result = 0x1FFFFFFFE
     /// // LO = 0xFFFFFFFE, HI = 1
@@ -116,7 +116,7 @@ impl CPU {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// // 100 / 7 = 14 remainder 2
     /// cpu.set_reg(1, 100);
     /// cpu.set_reg(2, 7);
@@ -166,7 +166,7 @@ impl CPU {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// // 100 / 7 = 14 remainder 2
     /// cpu.set_reg(1, 100);
     /// cpu.set_reg(2, 7);
@@ -205,7 +205,7 @@ impl CPU {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// cpu.hi = 0x12345678;
     /// cpu.op_mfhi(3);
     /// assert_eq!(cpu.reg(3), 0x12345678);
@@ -232,7 +232,7 @@ impl CPU {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// cpu.lo = 0xABCDEF00;
     /// cpu.op_mflo(4);
     /// assert_eq!(cpu.reg(4), 0xABCDEF00);
@@ -259,7 +259,7 @@ impl CPU {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// cpu.set_reg(5, 0x12345678);
     /// cpu.op_mthi(5);
     /// assert_eq!(cpu.hi, 0x12345678);
@@ -286,7 +286,7 @@ impl CPU {
     ///
     /// # Example
     ///
-    /// ```
+    /// ```ignore
     /// cpu.set_reg(6, 0xABCDEF00);
     /// cpu.op_mtlo(6);
     /// assert_eq!(cpu.lo, 0xABCDEF00);
