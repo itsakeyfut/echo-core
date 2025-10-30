@@ -430,10 +430,8 @@ impl CPU {
 
         // Print general-purpose registers in rows of 4
         for i in 0..32 {
-            if i % 4 == 0 {
-                if i > 0 {
-                    println!();
-                }
+            if i % 4 == 0 && i > 0 {
+                println!();
             }
             print!("r{:2}: 0x{:08X}  ", i, self.reg(i));
         }
