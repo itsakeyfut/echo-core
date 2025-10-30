@@ -45,4 +45,7 @@ pub enum EmulatorError {
 
     #[error("Parse error: {0}")]
     Parse(String),
+
+    #[error("Invalid register index: {index} (valid range: 0-31)")]
+    InvalidRegister { index: u8 },
 }
