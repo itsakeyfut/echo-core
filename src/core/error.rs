@@ -48,4 +48,26 @@ pub enum EmulatorError {
 
     #[error("Invalid register index: {index} (valid range: 0-31)")]
     InvalidRegister { index: u8 },
+
+    #[error("GPU error: {0}")]
+    Gpu(#[from] GpuError),
+}
+
+/// GPU-specific error types
+#[derive(Error, Debug)]
+pub enum GpuError {
+    #[error("Invalid VRAM access at ({x}, {y})")]
+    InvalidVramAccess { x: u16, y: u16 },
+
+    #[error("Invalid GP0 command: {command:#010x}")]
+    InvalidGp0Command { command: u32 },
+
+    #[error("Invalid GP1 command: {command:#010x}")]
+    InvalidGp1Command { command: u32 },
+
+    #[error("DMA error: {0}")]
+    DmaError(String),
+
+    #[error("Rendering backend error: {0}")]
+    BackendError(String),
 }
