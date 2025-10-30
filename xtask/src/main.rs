@@ -48,6 +48,18 @@ enum Commands {
     },
     /// Run benchmarks
     Bench,
+    /// Run BIOS boot test
+    BiosBoot {
+        /// Path to BIOS file (defaults to SCPH1001.BIN)
+        #[arg(default_value = "SCPH1001.BIN")]
+        bios_path: String,
+        /// Number of instructions to execute (defaults to 100000)
+        #[arg(short = 'n', long, default_value = "100000")]
+        instructions: u64,
+        /// Build in release mode
+        #[arg(long)]
+        release: bool,
+    },
     /// Pre-commit hook (fmt, clippy, test)
     PreCommit,
     /// Install git hooks
@@ -65,6 +77,11 @@ fn main() -> Result<()> {
         Commands::Build { release } => run_build(release),
         Commands::Test { doc, ignored } => run_test(doc, ignored),
         Commands::Bench => run_bench(),
+        Commands::BiosBoot {
+            bios_path,
+            instructions,
+            release,
+        } => run_bios_boot(&bios_path, instructions, release),
         Commands::PreCommit => run_pre_commit(),
         Commands::InstallHooks => install_hooks(),
     }
@@ -163,6 +180,94 @@ fn run_bench() -> Result<()> {
     cmd.arg("bench");
 
     execute_command(&mut cmd)
+}
+
+fn run_bios_boot(bios_path: &str, instructions: u64, release: bool) -> Result<()> {
+    use std::fs;
+    use std::path::Path;
+
+    println!("{}", "=== BIOS Boot Test ===".bold().blue());
+
+    // Check if BIOS file exists
+    let bios_path_obj = Path::new(bios_path);
+    if !bios_path_obj.exists() {
+        println!(
+            "{} BIOS file not found: {}",
+            "✗".red().bold(),
+            bios_path.yellow()
+        );
+        println!(
+            "\n{} Please place a valid BIOS file (e.g., SCPH1001.BIN) in the project root.",
+            "ℹ".blue()
+        );
+        anyhow::bail!("BIOS file not found");
+    }
+
+    // Verify BIOS file size (should be 512KB)
+    let metadata = fs::metadata(bios_path_obj)?;
+    if metadata.len() != 512 * 1024 {
+        println!(
+            "{} Invalid BIOS size: {} bytes (expected 524288 bytes)",
+            "✗".red().bold(),
+            metadata.len()
+        );
+        anyhow::bail!("Invalid BIOS file size");
+    }
+
+    println!("{} BIOS file: {}", "✓".green(), bios_path.cyan());
+    println!(
+        "{} Instructions: {}",
+        "→".blue(),
+        instructions.to_string().bold()
+    );
+    println!(
+        "{} Build mode: {}",
+        "→".blue(),
+        if release {
+            "release".green().bold()
+        } else {
+            "debug".yellow().bold()
+        }
+    );
+    println!();
+
+    // Build first if needed
+    if release {
+        println!("{} Building in release mode...", "→".blue());
+        run_build(true)?;
+        println!();
+    }
+
+    // Run the emulator
+    let start = Instant::now();
+
+    let mut cmd = Command::new("cargo");
+    cmd.arg("run");
+
+    if release {
+        cmd.arg("--release");
+    }
+
+    cmd.arg("--").arg(bios_path);
+
+    let status = cmd
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()?;
+
+    if !status.success() {
+        println!("\n{} BIOS boot test failed", "✗".red().bold());
+        anyhow::bail!("BIOS boot test failed with exit code: {}", status);
+    }
+
+    let elapsed = start.elapsed();
+    println!(
+        "\n{} BIOS boot test completed in {}",
+        "✓".green().bold(),
+        format!("{:.2}s", elapsed.as_secs_f64()).bold()
+    );
+
+    Ok(())
 }
 
 fn run_pre_commit() -> Result<()> {
