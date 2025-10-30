@@ -31,6 +31,7 @@ mod exception;
 mod jump;
 mod load;
 mod logical;
+mod multiply;
 mod shift;
 mod store;
 
@@ -121,6 +122,14 @@ impl CPU {
             0x09 => self.op_jalr(rs, rd),         // JALR
             0x0C => self.op_syscall(instruction), // SYSCALL
             0x0D => self.op_break(instruction),   // BREAK
+            0x10 => self.op_mfhi(rd),             // MFHI
+            0x11 => self.op_mthi(rs),             // MTHI
+            0x12 => self.op_mflo(rd),             // MFLO
+            0x13 => self.op_mtlo(rs),             // MTLO
+            0x18 => self.op_mult(rs, rt),         // MULT
+            0x19 => self.op_multu(rs, rt),        // MULTU
+            0x1A => self.op_div(rs, rt),          // DIV
+            0x1B => self.op_divu(rs, rt),         // DIVU
             0x20 => self.op_add(rs, rt, rd),      // ADD
             0x21 => self.op_addu(rs, rt, rd),     // ADDU
             0x22 => self.op_sub(rs, rt, rd),      // SUB
