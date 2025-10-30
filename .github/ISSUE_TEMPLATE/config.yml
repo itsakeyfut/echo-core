@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or Discussion
+    url: https://github.com/itsakeyfut/echo-core/discussions
+    about: Ask questions or discuss ideas with the community
+  - name: Documentation
+    url: https://github.com/itsakeyfut/echo-core/blob/main/README.md
+    about: Read the project documentation and setup guide
+  - name: Security Issue
+    url: https://github.com/itsakeyfut/echo-core/security/advisories/new
+    about: Report a security vulnerability privately
