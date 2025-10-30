@@ -2,3 +2,9 @@
 
 specs/
 plan/
+
+# BIOS files (copyrighted, must not be committed)
+*.bin
+*.BIN
+SCPH*.BIN
+SCPH*.bin

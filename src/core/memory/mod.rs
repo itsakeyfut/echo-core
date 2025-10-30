@@ -76,6 +76,12 @@ pub struct Bus {
     /// Physical address: 0x1FC00000-0x1FC7FFFF
     /// Contains the PlayStation BIOS code
     bios: Vec<u8>,
+
+    /// Cache Control register
+    ///
+    /// Physical address: 0x1FFE0130 (accessed via 0xFFFE0130)
+    /// Controls instruction cache, data cache, and scratchpad enable
+    cache_control: u32,
 }
 
 /// Memory region identification
@@ -91,6 +97,10 @@ pub enum MemoryRegion {
     IO,
     /// BIOS ROM
     BIOS,
+    /// Cache Control registers
+    CacheControl,
+    /// Expansion regions (1, 2, 3) - typically unused in retail PSX
+    Expansion,
     /// Unmapped region
     Unmapped,
 }
@@ -118,6 +128,17 @@ impl Bus {
     const BIOS_START: u32 = 0x1FC00000;
     const BIOS_END: u32 = 0x1FC7FFFF;
 
+    /// Cache Control register address
+    const CACHE_CONTROL: u32 = 0x1FFE0130;
+
+    /// Expansion Region 1 physical address range
+    const EXP1_START: u32 = 0x1F000000;
+    const EXP1_END: u32 = 0x1F7FFFFF;
+
+    /// Expansion Region 3 physical address range
+    const EXP3_START: u32 = 0x1FA00000;
+    const EXP3_END: u32 = 0x1FBFFFFF;
+
     /// Create a new Bus instance
     ///
     /// Initializes all memory regions with zeros.
@@ -141,6 +162,7 @@ impl Bus {
             ram: vec![0u8; Self::RAM_SIZE],
             scratchpad: [0u8; 1024],
             bios: vec![0u8; Self::BIOS_SIZE],
+            cache_control: 0,
         }
     }
 
@@ -167,6 +189,8 @@ impl Bus {
         self.ram.fill(0);
         // Clear scratchpad (volatile memory)
         self.scratchpad.fill(0);
+        // Reset cache control to default
+        self.cache_control = 0;
         // BIOS is read-only ROM, so it is not cleared
     }
 
@@ -276,12 +300,18 @@ impl Bus {
 
         if (Self::RAM_START..=Self::RAM_END).contains(&paddr) {
             MemoryRegion::RAM
+        } else if (Self::EXP1_START..=Self::EXP1_END).contains(&paddr) {
+            MemoryRegion::Expansion
         } else if (Self::SCRATCHPAD_START..=Self::SCRATCHPAD_END).contains(&paddr) {
             MemoryRegion::Scratchpad
         } else if (Self::IO_START..=Self::IO_END).contains(&paddr) {
             MemoryRegion::IO
+        } else if (Self::EXP3_START..=Self::EXP3_END).contains(&paddr) {
+            MemoryRegion::Expansion
         } else if (Self::BIOS_START..=Self::BIOS_END).contains(&paddr) {
             MemoryRegion::BIOS
+        } else if paddr == Self::CACHE_CONTROL {
+            MemoryRegion::CacheControl
         } else {
             MemoryRegion::Unmapped
         }
@@ -330,6 +360,22 @@ impl Bus {
                 // I/O port stub for Phase 1 Week 1
                 log::trace!("I/O port read8 at 0x{:08X}", paddr);
                 Ok(0)
+            }
+            MemoryRegion::CacheControl => {
+                // Cache control is 32-bit only, stub 8-bit reads
+                log::debug!("Cache control read8 at 0x{:08X} (stubbed)", vaddr);
+                Ok(0)
+            }
+            MemoryRegion::Expansion => {
+                // Expansion regions: return 0 for ROM header, 0xFF otherwise
+                let paddr = self.translate_address(vaddr);
+                if (0x1F000000..=0x1F0000FF).contains(&paddr) {
+                    log::trace!("Expansion ROM header read8 at 0x{:08X} -> 0x00", vaddr);
+                    Ok(0x00)
+                } else {
+                    log::trace!("Expansion region read8 at 0x{:08X} -> 0xFF", vaddr);
+                    Ok(0xFF)
+                }
             }
             MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
         }
@@ -393,6 +439,22 @@ impl Bus {
                 // I/O port stub for Phase 1 Week 1
                 log::trace!("I/O port read16 at 0x{:08X}", paddr);
                 Ok(0)
+            }
+            MemoryRegion::CacheControl => {
+                // Cache control is 32-bit only, stub 16-bit reads
+                log::debug!("Cache control read16 at 0x{:08X} (stubbed)", vaddr);
+                Ok(0)
+            }
+            MemoryRegion::Expansion => {
+                // Expansion regions: return 0 for ROM header, 0xFFFF otherwise
+                let paddr = self.translate_address(vaddr);
+                if (0x1F000000..=0x1F0000FF).contains(&paddr) {
+                    log::trace!("Expansion ROM header read16 at 0x{:08X} -> 0x0000", vaddr);
+                    Ok(0x0000)
+                } else {
+                    log::trace!("Expansion region read16 at 0x{:08X} -> 0xFFFF", vaddr);
+                    Ok(0xFFFF)
+                }
             }
             MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
         }
@@ -471,6 +533,34 @@ impl Bus {
                 // I/O port stub for Phase 1 Week 1
                 self.read_io_port32(paddr)
             }
+            MemoryRegion::CacheControl => {
+                // Cache control register (FFFE0130h)
+                log::debug!(
+                    "Cache control read at 0x{:08X}, returning 0x{:08X}",
+                    vaddr,
+                    self.cache_control
+                );
+                Ok(self.cache_control)
+            }
+            MemoryRegion::Expansion => {
+                // Expansion regions: check for special addresses
+                let paddr = self.translate_address(vaddr);
+
+                // Expansion ROM entry points should return 0 (no ROM)
+                // BIOS checks these addresses and tries to call them as function pointers
+                // Returning 0 prevents invalid jumps to 0xFFFFFFFF
+                if (0x1F000000..=0x1F0000FF).contains(&paddr) {
+                    log::trace!(
+                        "Expansion ROM header read32 at 0x{:08X} -> 0x00000000 (no ROM)",
+                        vaddr
+                    );
+                    Ok(0x00000000)
+                } else {
+                    // Other expansion region addresses return 0xFFFFFFFF
+                    log::trace!("Expansion region read32 at 0x{:08X} -> 0xFFFFFFFF", vaddr);
+                    Ok(0xFFFFFFFF)
+                }
+            }
             MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
         }
     }
@@ -521,6 +611,24 @@ impl Bus {
             MemoryRegion::IO => {
                 // I/O port stub for Phase 1 Week 1
                 log::trace!("I/O port write8 at 0x{:08X} = 0x{:02X}", paddr, value);
+                Ok(())
+            }
+            MemoryRegion::CacheControl => {
+                // Cache control is 32-bit only, ignore 8-bit writes
+                log::debug!(
+                    "Cache control write8 at 0x{:08X} = 0x{:02X} (ignored)",
+                    vaddr,
+                    value
+                );
+                Ok(())
+            }
+            MemoryRegion::Expansion => {
+                // Expansion regions: ignore writes (no hardware present)
+                log::trace!(
+                    "Expansion region write8 at 0x{:08X} = 0x{:02X} (ignored)",
+                    vaddr,
+                    value
+                );
                 Ok(())
             }
             MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
@@ -588,6 +696,24 @@ impl Bus {
             MemoryRegion::IO => {
                 // I/O port stub for Phase 1 Week 1
                 log::trace!("I/O port write16 at 0x{:08X} = 0x{:04X}", paddr, value);
+                Ok(())
+            }
+            MemoryRegion::CacheControl => {
+                // Cache control is 32-bit only, ignore 16-bit writes
+                log::debug!(
+                    "Cache control write16 at 0x{:08X} = 0x{:04X} (ignored)",
+                    vaddr,
+                    value
+                );
+                Ok(())
+            }
+            MemoryRegion::Expansion => {
+                // Expansion regions: ignore writes (no hardware present)
+                log::trace!(
+                    "Expansion region write16 at 0x{:08X} = 0x{:04X} (ignored)",
+                    vaddr,
+                    value
+                );
                 Ok(())
             }
             MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
@@ -659,6 +785,25 @@ impl Bus {
             MemoryRegion::IO => {
                 // I/O port stub for Phase 1 Week 1
                 self.write_io_port32(paddr, value)
+            }
+            MemoryRegion::CacheControl => {
+                // Cache control register (FFFE0130h)
+                log::debug!(
+                    "Cache control write at 0x{:08X}, value 0x{:08X}",
+                    vaddr,
+                    value
+                );
+                self.cache_control = value;
+                Ok(())
+            }
+            MemoryRegion::Expansion => {
+                // Expansion regions: ignore writes (no hardware present)
+                log::trace!(
+                    "Expansion region write32 at 0x{:08X} = 0x{:08X} (ignored)",
+                    vaddr,
+                    value
+                );
+                Ok(())
             }
             MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
         }
