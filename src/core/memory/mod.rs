@@ -698,6 +698,31 @@ impl Bus {
         log::trace!("I/O port write at 0x{:08X} = 0x{:08X}", paddr, value);
         Ok(()) // Stub implementation
     }
+
+    /// Write directly to BIOS memory (test helper)
+    ///
+    /// This method bypasses the read-only protection of BIOS and allows
+    /// direct writes for testing purposes only.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - Offset into BIOS (0-512KB)
+    /// * `data` - Data to write
+    ///
+    /// # Panics
+    ///
+    /// Panics if offset + data.len() exceeds BIOS size
+    #[cfg(test)]
+    pub(crate) fn write_bios_for_test(&mut self, offset: usize, data: &[u8]) {
+        let end = offset + data.len();
+        assert!(
+            end <= Self::BIOS_SIZE,
+            "BIOS write out of bounds: offset={}, len={}",
+            offset,
+            data.len()
+        );
+        self.bios[offset..end].copy_from_slice(data);
+    }
 }
 
 impl Default for Bus {
