@@ -248,7 +248,10 @@ fn run_bios_boot(bios_path: &str, instructions: u64, release: bool) -> Result<()
         cmd.arg("--release");
     }
 
-    cmd.arg("--").arg(bios_path);
+    cmd.arg("--")
+        .arg(bios_path)
+        .arg("-n")
+        .arg(instructions.to_string());
 
     let status = cmd
         .stdout(Stdio::inherit())

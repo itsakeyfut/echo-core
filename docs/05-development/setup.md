@@ -401,6 +401,34 @@ cargo x install-hooks
 
 This will run format checks, clippy, and tests before each commit.
 
+### Running the Emulator Directly
+
+You can run the emulator directly with custom parameters:
+
+```bash
+# Basic usage (default: 100,000 instructions)
+cargo run --release -- SCPH1001.BIN
+
+# Specify number of instructions to execute
+cargo run --release -- SCPH1001.BIN -n 50000
+
+# Use different BIOS file
+cargo run --release -- path/to/SCPH5501.BIN -n 200000
+
+# Show help for available options
+cargo run --release -- --help
+```
+
+**Available Options:**
+- `<BIOS_FILE>` - Path to PlayStation BIOS file (required)
+- `-n, --instructions <N>` - Number of instructions to execute (default: 100000)
+
+**Use Cases:**
+- Quick testing with specific instruction counts
+- Testing different BIOS versions
+- Debugging specific execution ranges
+- Performance profiling with custom workloads
+
 ### Manual Commands (Alternative to xtask)
 
 If you prefer to run commands manually:
