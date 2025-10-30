@@ -80,13 +80,17 @@ pub struct LoadDelay {
 // Module declarations
 mod cop0;
 mod decode;
+mod disassembler;
 mod instructions;
 #[cfg(test)]
 mod tests;
+mod tracer;
 
 // Re-exports
 pub use cop0::ExceptionCause;
 use cop0::COP0;
+pub use disassembler::Disassembler;
+pub use tracer::CpuTracer;
 
 impl CPU {
     /// Create a new CPU instance with initial state
@@ -400,6 +404,48 @@ impl CPU {
                 self.exception(ExceptionCause::Interrupt);
             }
         }
+    }
+
+    /// Dump all CPU registers for debugging
+    ///
+    /// Prints a formatted dump of all CPU state including:
+    /// - Program counter (PC) and next PC
+    /// - HI and LO registers
+    /// - All 32 general-purpose registers
+    /// - COP0 status registers (SR, CAUSE, EPC)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use echo_core::core::cpu::CPU;
+    ///
+    /// let cpu = CPU::new();
+    /// cpu.dump_registers(); // Print all register values
+    /// ```
+    pub fn dump_registers(&self) {
+        println!("CPU Registers:");
+        println!("PC: 0x{:08X}  Next PC: 0x{:08X}", self.pc, self.next_pc);
+        println!("HI: 0x{:08X}  LO: 0x{:08X}", self.hi, self.lo);
+        println!();
+
+        // Print general-purpose registers in rows of 4
+        for i in 0..32 {
+            if i % 4 == 0 {
+                if i > 0 {
+                    println!();
+                }
+            }
+            print!("r{:2}: 0x{:08X}  ", i, self.reg(i));
+        }
+        println!("\n");
+
+        // Print COP0 registers
+        println!("COP0 Registers:");
+        println!("SR:    0x{:08X}", self.cop0.regs[COP0::SR]);
+        println!("CAUSE: 0x{:08X}", self.cop0.regs[COP0::CAUSE]);
+        println!("EPC:   0x{:08X}", self.cop0.regs[COP0::EPC]);
+        println!("BADA:  0x{:08X}", self.cop0.regs[COP0::BADA]);
+        println!("PRID:  0x{:08X}", self.cop0.regs[COP0::PRID]);
     }
 }
 impl Default for CPU {
