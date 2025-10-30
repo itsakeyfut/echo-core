@@ -170,7 +170,7 @@ fn run_pre_commit() -> Result<()> {
 
     let start = Instant::now();
 
-    run_task("Format", || run_fmt(false), false)?;
+    run_task("Format Check", || run_fmt(true), false)?;
     run_task("Clippy", || run_clippy(false), false)?;
     run_task("Test", || run_test(false, false), false)?;
 
