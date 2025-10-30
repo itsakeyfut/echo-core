@@ -535,7 +535,11 @@ impl Bus {
             }
             MemoryRegion::CacheControl => {
                 // Cache control register (FFFE0130h)
-                log::debug!("Cache control read at 0x{:08X}, returning 0x{:08X}", vaddr, self.cache_control);
+                log::debug!(
+                    "Cache control read at 0x{:08X}, returning 0x{:08X}",
+                    vaddr,
+                    self.cache_control
+                );
                 Ok(self.cache_control)
             }
             MemoryRegion::Expansion => {
@@ -546,7 +550,10 @@ impl Bus {
                 // BIOS checks these addresses and tries to call them as function pointers
                 // Returning 0 prevents invalid jumps to 0xFFFFFFFF
                 if (0x1F000000..=0x1F0000FF).contains(&paddr) {
-                    log::trace!("Expansion ROM header read32 at 0x{:08X} -> 0x00000000 (no ROM)", vaddr);
+                    log::trace!(
+                        "Expansion ROM header read32 at 0x{:08X} -> 0x00000000 (no ROM)",
+                        vaddr
+                    );
                     Ok(0x00000000)
                 } else {
                     // Other expansion region addresses return 0xFFFFFFFF
@@ -608,12 +615,20 @@ impl Bus {
             }
             MemoryRegion::CacheControl => {
                 // Cache control is 32-bit only, ignore 8-bit writes
-                log::debug!("Cache control write8 at 0x{:08X} = 0x{:02X} (ignored)", vaddr, value);
+                log::debug!(
+                    "Cache control write8 at 0x{:08X} = 0x{:02X} (ignored)",
+                    vaddr,
+                    value
+                );
                 Ok(())
             }
             MemoryRegion::Expansion => {
                 // Expansion regions: ignore writes (no hardware present)
-                log::trace!("Expansion region write8 at 0x{:08X} = 0x{:02X} (ignored)", vaddr, value);
+                log::trace!(
+                    "Expansion region write8 at 0x{:08X} = 0x{:02X} (ignored)",
+                    vaddr,
+                    value
+                );
                 Ok(())
             }
             MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
@@ -685,12 +700,20 @@ impl Bus {
             }
             MemoryRegion::CacheControl => {
                 // Cache control is 32-bit only, ignore 16-bit writes
-                log::debug!("Cache control write16 at 0x{:08X} = 0x{:04X} (ignored)", vaddr, value);
+                log::debug!(
+                    "Cache control write16 at 0x{:08X} = 0x{:04X} (ignored)",
+                    vaddr,
+                    value
+                );
                 Ok(())
             }
             MemoryRegion::Expansion => {
                 // Expansion regions: ignore writes (no hardware present)
-                log::trace!("Expansion region write16 at 0x{:08X} = 0x{:04X} (ignored)", vaddr, value);
+                log::trace!(
+                    "Expansion region write16 at 0x{:08X} = 0x{:04X} (ignored)",
+                    vaddr,
+                    value
+                );
                 Ok(())
             }
             MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
@@ -765,13 +788,21 @@ impl Bus {
             }
             MemoryRegion::CacheControl => {
                 // Cache control register (FFFE0130h)
-                log::debug!("Cache control write at 0x{:08X}, value 0x{:08X}", vaddr, value);
+                log::debug!(
+                    "Cache control write at 0x{:08X}, value 0x{:08X}",
+                    vaddr,
+                    value
+                );
                 self.cache_control = value;
                 Ok(())
             }
             MemoryRegion::Expansion => {
                 // Expansion regions: ignore writes (no hardware present)
-                log::trace!("Expansion region write32 at 0x{:08X} = 0x{:08X} (ignored)", vaddr, value);
+                log::trace!(
+                    "Expansion region write32 at 0x{:08X} = 0x{:08X} (ignored)",
+                    vaddr,
+                    value
+                );
                 Ok(())
             }
             MemoryRegion::Unmapped => Err(EmulatorError::InvalidMemoryAccess { address: vaddr }),
