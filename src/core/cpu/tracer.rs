@@ -204,11 +204,8 @@ impl CpuTracer {
             pc, instruction, disasm
         )?;
 
-        for (i, &reg) in regs.iter().enumerate().take(8) {
+        for &reg in regs.iter().take(8) {
             write!(self.output, " r{}={:08X}", reg, cpu.reg(reg))?;
-            if i < regs.len() - 1 && i < 7 {
-                // Add space between registers, but not after the last one
-            }
         }
 
         writeln!(self.output)?;
