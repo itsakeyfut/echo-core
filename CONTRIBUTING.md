@@ -10,6 +10,36 @@ Thank you for your interest in contributing to echo-core! This document provides
 
 ## Development Workflow
 
+### Quick Start
+
+```bash
+# Run all CI checks locally
+cargo x ci
+
+# Quick checks before commit
+cargo x check
+
+# Auto-format code
+cargo x fmt
+
+# Fix clippy warnings
+cargo x clippy --fix
+```
+
+### Available Commands
+
+We use `x` for development automation. All commands available:
+
+- **`cargo x ci`** - Run full CI pipeline (fmt, clippy, build, test)
+- **`cargo x check`** - Quick checks (fmt, clippy)
+- **`cargo x fmt [--check]`** - Format code
+- **`cargo x clippy [--fix]`** - Run clippy
+- **`cargo x build [--release]`** - Build project
+- **`cargo x test [--doc] [--ignored]`** - Run tests
+- **`cargo x bench`** - Run benchmarks
+- **`cargo x pre-commit`** - Pre-commit checks
+- **`cargo x install-hooks`** - Install git hooks
+
 ### Before You Start
 
 1. Check existing [issues](https://github.com/itsakeyfut/echo-core/issues) to see if your feature/bug is already being worked on
@@ -34,22 +64,31 @@ Thank you for your interest in contributing to echo-core! This document provides
 3. **Write tests**:
    - Add unit tests for new functionality
    - Update integration tests if needed
-   - Ensure all tests pass: `cargo test`
+   - Ensure all tests pass: `cargo x test`
 
-4. **Run checks**:
+4. **Run checks before committing**:
    ```bash
-   # Format code
-   cargo fmt
+   # Option 1: Run full CI pipeline
+   cargo x ci
 
-   # Run clippy
-   cargo clippy --all-targets --all-features -- -D warnings
+   # Option 2: Run quick checks
+   cargo x check
 
-   # Run tests
-   cargo test
-
-   # Build
-   cargo build --release
+   # Option 3: Auto-format and fix issues
+   cargo x fmt
+   cargo x clippy --fix
+   cargo x test
    ```
+
+### Git Hooks
+
+Install pre-commit hooks to automatically run checks:
+
+```bash
+cargo x install-hooks
+```
+
+This will automatically run fmt, clippy, and test before each commit.
 
 ### Commit Guidelines
 
@@ -109,9 +148,10 @@ git commit -m "docs: update CPU architecture documentation"
 Before submitting a PR, ensure:
 
 - [ ] Code follows the coding standards
-- [ ] All tests pass (`cargo test`)
-- [ ] No clippy warnings (`cargo clippy`)
-- [ ] Code is formatted (`cargo fmt`)
+- [ ] All CI checks pass (`cargo x ci`)
+- [ ] All tests pass (`cargo x test`)
+- [ ] No clippy warnings (`cargo x clippy`)
+- [ ] Code is formatted (`cargo x fmt`)
 - [ ] Documentation is updated
 - [ ] Commit messages follow conventions
 - [ ] PR description is clear and complete
