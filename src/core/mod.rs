@@ -31,7 +31,7 @@ pub mod system;
 
 // Re-export commonly used types
 pub use cpu::CPU;
-pub use error::{EmulatorError, Result};
+pub use error::{EmulatorError, GpuError, Result};
 pub use gpu::GPU;
 pub use memory::Bus;
 pub use spu::SPU;
