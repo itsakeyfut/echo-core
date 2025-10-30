@@ -1,0 +1,136 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug]: "
+labels: ["bug"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug! Please provide detailed information to help us understand and fix the issue.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A concise description of the bug in 1-2 sentences.
+      placeholder: The emulator crashes when loading ROMs larger than 2MB.
+    validations:
+      required: true
+
+  - type: textarea
+    id: current_behavior
+    attributes:
+      label: Current Behavior
+      description: What is currently happening? Be specific and detailed.
+      placeholder: |
+        When attempting to load a ROM file that is 2.5MB in size, the emulator
+        immediately crashes with a segmentation fault. No error message is displayed
+        before the crash.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected Behavior
+      description: What should happen instead?
+      placeholder: |
+        The emulator should successfully load the ROM file and begin execution,
+        or display a clear error message if the file size exceeds supported limits.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed steps to reproduce the bug. Include commands, file paths, and configurations.
+      placeholder: |
+        1. Compile the emulator: `zig build`
+        2. Prepare a ROM file larger than 2MB (e.g., `test_rom.bin` at 2.5MB)
+        3. Run: `./zig-out/bin/echo-core test_rom.bin`
+        4. Observe the segmentation fault
+    validations:
+      required: true
+
+  - type: textarea
+    id: root_cause
+    attributes:
+      label: Root Cause (if known)
+      description: If you have investigated the issue, describe what you believe is causing it.
+      placeholder: |
+        The memory allocation in `src/memory.zig:125` uses a fixed buffer size of 2MB,
+        but the ROM loading function attempts to read the entire file without checking size.
+
+  - type: textarea
+    id: proposed_solution
+    attributes:
+      label: Proposed Solution (optional)
+      description: If you have ideas on how to fix this, please share them.
+      placeholder: |
+        1. Add size validation before loading the ROM
+        2. Increase the maximum buffer size to 8MB
+        3. Implement dynamic memory allocation for ROM loading
+
+  - type: textarea
+    id: error_output
+    attributes:
+      label: Error Messages / Stack Trace
+      description: Include any error messages, stack traces, or relevant log output.
+      placeholder: |
+        ```
+        Segmentation fault (core dumped)
+        Stack trace:
+          at loadROM (memory.zig:125)
+          at main (main.zig:42)
+        ```
+      render: shell
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: What version are you using? (commit hash or tag)
+      placeholder: v0.1.0 or commit 96a4edc
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Provide detailed environment information.
+      placeholder: |
+        - OS: Ubuntu 22.04 LTS (Linux 6.6.87.2)
+        - Zig Version: 0.13.0
+        - Architecture: x86_64
+        - Terminal: Alacritty 0.13.0
+        - Shell: zsh 5.9
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional Context
+      description: Any other context, screenshots, or information that might be helpful.
+      placeholder: |
+        - This issue only occurs with specific ROM files
+        - Workaround: splitting ROM into smaller chunks works
+        - Related to issue #123
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm the following before submitting.
+      options:
+        - label: I have searched existing issues to ensure this is not a duplicate
+          required: true
+        - label: I have provided all required information above
+          required: true
+        - label: I have tested this on the latest version (if possible)
+          required: false
