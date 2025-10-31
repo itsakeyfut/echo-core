@@ -291,6 +291,9 @@ pub enum HorizontalRes {
 
     /// 368 pixels wide (rarely used)
     R368,
+
+    /// 384 pixels wide
+    R384,
 }
 
 /// Vertical resolution modes
@@ -544,10 +547,19 @@ impl GPU {
     /// assert_eq!(gpu.read_vram(500, 250), 0x0000); // Back to black
     /// ```
     pub fn reset(&mut self) {
-        // Clear VRAM to black
-        self.vram.fill(0x0000);
+        // Reset all GPU state
+        self.reset_state_preserving_vram();
 
-        // Reset all state to default values
+        // Clear VRAM to black (separate from state reset)
+        self.vram.fill(0x0000);
+    }
+
+    /// Reset GPU state without clearing VRAM
+    ///
+    /// Resets all GPU registers, drawing modes, display settings, command buffer,
+    /// and status flags to their default values, but preserves VRAM contents.
+    /// This is used by GP1(0x00) command which must not clear VRAM per PSX-SPX spec.
+    fn reset_state_preserving_vram(&mut self) {
         self.draw_mode = DrawMode::default();
         self.draw_area = DrawingArea::default();
         self.draw_offset = (0, 0);
@@ -764,20 +776,17 @@ impl GPU {
     /// GP1(0x00): Reset GPU
     ///
     /// Resets the GPU to its initial power-on state. This includes:
+    /// - Resetting all GPU registers and state to defaults
     /// - Clearing the command buffer
-    /// - Resetting display mode to defaults
     /// - Disabling the display
     /// - Clearing texture settings
+    ///
+    /// Note: VRAM contents are preserved per PSX-SPX specification.
     fn gp1_reset_gpu(&mut self) {
-        // Reset to initial state
-        self.reset();
-        self.draw_mode.texture_disable = false;
+        // Reset GPU state without clearing VRAM (per PSX-SPX spec)
+        self.reset_state_preserving_vram();
         self.display_mode.display_disabled = true;
         self.status.display_disabled = true;
-
-        // Clear command buffer
-        self.command_fifo.clear();
-        self.current_command = None;
 
         log::debug!("GPU reset");
     }
@@ -925,7 +934,9 @@ impl GPU {
             (0, 1) => HorizontalRes::R320,
             (0, 2) => HorizontalRes::R512,
             (0, 3) => HorizontalRes::R640,
-            (1, _) => HorizontalRes::R368,
+            (1, 0) => HorizontalRes::R368,
+            (1, 1) => HorizontalRes::R384,
+            (1, _) => HorizontalRes::R368, // Reserved combinations default to 368
             _ => HorizontalRes::R320,
         };
 
@@ -1195,6 +1206,28 @@ mod tests {
     }
 
     #[test]
+    fn test_gp1_reset_preserves_vram() {
+        let mut gpu = GPU::new();
+
+        // Write some data to VRAM
+        gpu.write_vram(100, 100, 0xABCD);
+        gpu.write_vram(500, 250, 0x1234);
+        gpu.write_vram(1023, 511, 0x5678);
+
+        // Reset via GP1 command
+        gpu.write_gp1(0x00000000);
+
+        // VRAM should be preserved (not cleared)
+        assert_eq!(gpu.read_vram(100, 100), 0xABCD);
+        assert_eq!(gpu.read_vram(500, 250), 0x1234);
+        assert_eq!(gpu.read_vram(1023, 511), 0x5678);
+
+        // But state should be reset
+        assert!(gpu.display_mode.display_disabled);
+        assert!(gpu.command_fifo.is_empty());
+    }
+
+    #[test]
     fn test_gp1_reset_command_buffer() {
         let mut gpu = GPU::new();
         gpu.command_fifo.push_back(0x12345678);
@@ -1353,12 +1386,27 @@ mod tests {
     fn test_gp1_display_mode_368_horizontal() {
         let mut gpu = GPU::new();
 
-        // 368 width mode (HR2=1)
+        // 368 width mode (HR2=1, HR1=0)
         // Bits: HR1=0, HR2=1
         // Value = 0x00 | (1<<6) = 0x40
         gpu.write_gp1(0x08000040);
 
         assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R368);
+        assert_eq!(gpu.status.horizontal_res_1, 0);
+        assert_eq!(gpu.status.horizontal_res_2, 1);
+    }
+
+    #[test]
+    fn test_gp1_display_mode_384_horizontal() {
+        let mut gpu = GPU::new();
+
+        // 384 width mode (HR2=1, HR1=1)
+        // Bits: HR1=1, HR2=1
+        // Value = 0x01 | (1<<6) = 0x41
+        gpu.write_gp1(0x08000041);
+
+        assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R384);
+        assert_eq!(gpu.status.horizontal_res_1, 1);
         assert_eq!(gpu.status.horizontal_res_2, 1);
     }
 
@@ -1382,9 +1430,13 @@ mod tests {
         gpu.write_gp1(0x08000003);
         assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R640);
 
-        // Test 368 width
+        // Test 368 width (HR2=1, HR1=0)
         gpu.write_gp1(0x08000040);
         assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R368);
+
+        // Test 384 width (HR2=1, HR1=1)
+        gpu.write_gp1(0x08000041);
+        assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R384);
     }
 
     #[test]
