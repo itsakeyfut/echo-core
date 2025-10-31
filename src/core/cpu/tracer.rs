@@ -34,8 +34,8 @@ use std::io::Write;
 ///
 /// # Example
 /// ```no_run
-/// use echo_core::core::cpu::{CPU, CpuTracer};
-/// use echo_core::core::memory::Bus;
+/// use psrx::core::cpu::{CPU, CpuTracer};
+/// use psrx::core::memory::Bus;
 ///
 /// let mut cpu = CPU::new();
 /// let mut bus = Bus::new();
@@ -68,7 +68,7 @@ impl CpuTracer {
     ///
     /// # Example
     /// ```no_run
-    /// use echo_core::core::cpu::CpuTracer;
+    /// use psrx::core::cpu::CpuTracer;
     ///
     /// let tracer = CpuTracer::new("trace.log").unwrap();
     /// ```
@@ -90,7 +90,7 @@ impl CpuTracer {
     ///
     /// # Example
     /// ```no_run
-    /// use echo_core::core::cpu::CpuTracer;
+    /// use psrx::core::cpu::CpuTracer;
     ///
     /// let mut tracer = CpuTracer::new("trace.log").unwrap();
     /// tracer.set_enabled(false); // Disable tracing
@@ -130,8 +130,8 @@ impl CpuTracer {
     ///
     /// # Example
     /// ```no_run
-    /// use echo_core::core::cpu::{CPU, CpuTracer};
-    /// use echo_core::core::memory::Bus;
+    /// use psrx::core::cpu::{CPU, CpuTracer};
+    /// use psrx::core::memory::Bus;
     ///
     /// let cpu = CPU::new();
     /// let bus = Bus::new();
@@ -179,8 +179,8 @@ impl CpuTracer {
     ///
     /// # Example
     /// ```no_run
-    /// use echo_core::core::cpu::{CPU, CpuTracer};
-    /// use echo_core::core::memory::Bus;
+    /// use psrx::core::cpu::{CPU, CpuTracer};
+    /// use psrx::core::memory::Bus;
     ///
     /// let cpu = CPU::new();
     /// let bus = Bus::new();

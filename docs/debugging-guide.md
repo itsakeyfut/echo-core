@@ -2,7 +2,7 @@
 
 ## Overview
 
-This guide covers the debugging tools and techniques available in the echo-core PlayStation emulator. These tools are essential for understanding CPU execution, troubleshooting issues, and verifying correct behavior.
+This guide covers the debugging tools and techniques available in the PSRX PlayStation emulator. These tools are essential for understanding CPU execution, troubleshooting issues, and verifying correct behavior.
 
 ## Obtaining a BIOS File
 
@@ -23,7 +23,7 @@ The `Disassembler` converts binary MIPS instruction encodings into human-readabl
 #### Usage
 
 ```rust
-use echo_core::core::cpu::Disassembler;
+use psrx::core::cpu::Disassembler;
 
 let instruction = 0x3C011234; // LUI r1, 0x1234
 let pc = 0xBFC00000;
@@ -60,8 +60,8 @@ The `CpuTracer` logs CPU execution state to a file for analysis. Each trace line
 #### Basic Usage
 
 ```rust
-use echo_core::core::cpu::{CPU, CpuTracer};
-use echo_core::core::memory::Bus;
+use psrx::core::cpu::{CPU, CpuTracer};
+use psrx::core::memory::Bus;
 
 let mut cpu = CPU::new();
 let mut bus = Bus::new();
@@ -110,7 +110,7 @@ The `dump_registers()` method prints a formatted view of all CPU state.
 #### Usage
 
 ```rust
-use echo_core::core::cpu::CPU;
+use psrx::core::cpu::CPU;
 
 let cpu = CPU::new();
 cpu.dump_registers();
@@ -142,7 +142,7 @@ PRID:  0x00000002
 
 ## Command-Line Tool
 
-The `echo-core` CLI tool allows you to load and run a BIOS file.
+The `psrx` CLI tool allows you to load and run a BIOS file.
 
 ### Usage
 
@@ -175,7 +175,7 @@ RUST_LOG=debug cargo run --release -- SCPH1001.BIN
 ### Example Output
 
 ```
-[INFO] echo-core v0.1.0
+[INFO] psrx v0.1.0
 [INFO] PlayStation emulator
 [INFO] Loading BIOS from: SCPH1001.BIN
 [INFO] BIOS loaded successfully
@@ -356,10 +356,10 @@ To identify performance bottlenecks:
 cargo build --release
 
 # Run with timing
-time ./target/release/echo-core SCPH1001.BIN
+time ./target/release/psrx SCPH1001.BIN
 
 # Profile with perf (Linux)
-perf record ./target/release/echo-core SCPH1001.BIN
+perf record ./target/release/psrx SCPH1001.BIN
 perf report
 ```
 
@@ -370,7 +370,7 @@ perf report
 - `src/core/cpu/disassembler.rs` - Instruction disassembler
 - `src/core/cpu/tracer.rs` - Execution tracer
 - `src/core/cpu/mod.rs` - CPU implementation with register dump
-- `src/bin/echo-core.rs` - CLI tool
+- `src/bin/psrx.rs` - CLI tool
 - `src/core/system.rs` - BIOS boot test
 
 ### Useful Resources

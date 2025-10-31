@@ -36,7 +36,7 @@ use super::spu::SPU;
 ///
 /// # Example
 /// ```no_run
-/// use echo_core::core::system::System;
+/// use psrx::core::system::System;
 ///
 /// let mut system = System::new();
 /// // system.load_bios("path/to/bios.bin")?;
@@ -91,7 +91,7 @@ impl System {
     /// # Example
     ///
     /// ```no_run
-    /// use echo_core::core::system::System;
+    /// use psrx::core::system::System;
     ///
     /// let mut system = System::new();
     /// system.load_bios("SCPH1001.BIN").unwrap();
@@ -147,7 +147,7 @@ impl System {
     /// # Example
     ///
     /// ```no_run
-    /// use echo_core::core::system::System;
+    /// use psrx::core::system::System;
     ///
     /// let mut system = System::new();
     /// system.step_n(100).unwrap(); // Execute 100 instructions
@@ -172,7 +172,7 @@ impl System {
     /// # Example
     ///
     /// ```no_run
-    /// use echo_core::core::system::System;
+    /// use psrx::core::system::System;
     ///
     /// let mut system = System::new();
     /// system.reset();
@@ -199,7 +199,7 @@ impl System {
     /// # Example
     ///
     /// ```
-    /// use echo_core::core::system::System;
+    /// use psrx::core::system::System;
     ///
     /// let system = System::new();
     /// assert_eq!(system.pc(), 0xBFC00000);
@@ -216,7 +216,7 @@ impl System {
     /// # Example
     ///
     /// ```
-    /// use echo_core::core::system::System;
+    /// use psrx::core::system::System;
     ///
     /// let system = System::new();
     /// assert_eq!(system.cycles(), 0);

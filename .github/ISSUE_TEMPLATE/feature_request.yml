@@ -60,7 +60,7 @@ body:
       label: Proposed Solution
       description: How do you envision this being implemented? Include technical details if possible.
       placeholder: |
-        1. Create a new `SaveState` struct in `src/state.zig`
+        1. Create a new `SaveState` struct in `src/state.rs`
         2. Implement serialization for all emulator components:
            - CPU state (registers, flags)
            - Memory (RAM, VRAM, expansion regions)
@@ -82,7 +82,7 @@ body:
 
         Alternative 2: Use existing format (like GSZ)
         - Pro: Compatibility with other emulators
-        - Con: May not capture all echo-core specific state
+        - Con: May not capture all psrx specific state
 
         Alternative 3: Implement replay recording instead
         - Pro: Smaller file size, deterministic

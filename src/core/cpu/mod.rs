@@ -25,7 +25,7 @@ use crate::core::memory::Bus;
 ///
 /// # Example
 /// ```
-/// use echo_core::core::cpu::CPU;
+/// use psrx::core::cpu::CPU;
 ///
 /// let mut cpu = CPU::new();
 /// cpu.reset();
@@ -107,7 +107,7 @@ impl CPU {
     ///
     /// # Example
     /// ```
-    /// use echo_core::core::cpu::CPU;
+    /// use psrx::core::cpu::CPU;
     ///
     /// let cpu = CPU::new();
     /// assert_eq!(cpu.reg(0), 0);
@@ -133,7 +133,7 @@ impl CPU {
     ///
     /// # Example
     /// ```
-    /// use echo_core::core::cpu::CPU;
+    /// use psrx::core::cpu::CPU;
     ///
     /// let mut cpu = CPU::new();
     /// // ... use CPU ...
@@ -164,7 +164,7 @@ impl CPU {
     ///
     /// # Example
     /// ```
-    /// use echo_core::core::cpu::CPU;
+    /// use psrx::core::cpu::CPU;
     ///
     /// let cpu = CPU::new();
     /// let value = cpu.reg(1);  // Get r1 value
@@ -190,7 +190,7 @@ impl CPU {
     ///
     /// # Example
     /// ```
-    /// use echo_core::core::cpu::CPU;
+    /// use psrx::core::cpu::CPU;
     ///
     /// let mut cpu = CPU::new();
     /// cpu.set_reg(1, 0x12345678);
@@ -223,7 +223,7 @@ impl CPU {
     ///
     /// # Example
     /// ```
-    /// use echo_core::core::cpu::CPU;
+    /// use psrx::core::cpu::CPU;
     ///
     /// let mut cpu = CPU::new();
     /// cpu.set_reg_delayed(3, 100);
@@ -265,8 +265,8 @@ impl CPU {
     /// # Example
     ///
     /// ```no_run
-    /// use echo_core::core::cpu::CPU;
-    /// use echo_core::core::memory::Bus;
+    /// use psrx::core::cpu::CPU;
+    /// use psrx::core::memory::Bus;
     ///
     /// let mut cpu = CPU::new();
     /// let mut bus = Bus::new();
@@ -380,7 +380,7 @@ impl CPU {
     /// # Example
     ///
     /// ```no_run
-    /// use echo_core::core::cpu::CPU;
+    /// use psrx::core::cpu::CPU;
     ///
     /// let mut cpu = CPU::new();
     /// // Enable interrupts and set interrupt mask
@@ -417,7 +417,7 @@ impl CPU {
     /// # Example
     ///
     /// ```no_run
-    /// use echo_core::core::cpu::CPU;
+    /// use psrx::core::cpu::CPU;
     ///
     /// let cpu = CPU::new();
     /// cpu.dump_registers(); // Print all register values

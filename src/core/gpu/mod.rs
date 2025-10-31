@@ -58,7 +58,7 @@ use std::collections::VecDeque;
 /// # Examples
 ///
 /// ```
-/// use echo_core::core::GPU;
+/// use psrx::core::GPU;
 ///
 /// let mut gpu = GPU::new();
 /// gpu.reset();
@@ -506,7 +506,7 @@ impl GPU {
     /// # Examples
     ///
     /// ```
-    /// use echo_core::core::GPU;
+    /// use psrx::core::GPU;
     ///
     /// let gpu = GPU::new();
     /// assert_eq!(gpu.read_vram(0, 0), 0x0000); // Black
@@ -536,7 +536,7 @@ impl GPU {
     /// # Examples
     ///
     /// ```
-    /// use echo_core::core::GPU;
+    /// use psrx::core::GPU;
     ///
     /// let mut gpu = GPU::new();
     /// gpu.write_vram(500, 250, 0xFFFF);
@@ -579,7 +579,7 @@ impl GPU {
     /// # Examples
     ///
     /// ```
-    /// use echo_core::core::GPU;
+    /// use psrx::core::GPU;
     ///
     /// let gpu = GPU::new();
     /// let pixel = gpu.read_vram(100, 100);
@@ -606,7 +606,7 @@ impl GPU {
     /// # Examples
     ///
     /// ```
-    /// use echo_core::core::GPU;
+    /// use psrx::core::GPU;
     ///
     /// let mut gpu = GPU::new();
     /// gpu.write_vram(100, 100, 0x7FFF); // White

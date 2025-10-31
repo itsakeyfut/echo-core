@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! echo-core: A PlayStation (PSX) emulator
+//! psrx: A PlayStation (PSX) emulator
 //!
 //! This crate provides a complete PSX emulator implementation.
 //!
@@ -27,12 +27,12 @@
 //! # Example
 //!
 //! ```no_run
-//! use echo_core::core::system::System;
+//! use psrx::core::system::System;
 //!
 //! let mut system = System::new();
 //! // system.load_bios("path/to/bios.bin")?;
 //! // system.run()?;
-//! # Ok::<(), echo_core::core::error::EmulatorError>(())
+//! # Ok::<(), psrx::core::error::EmulatorError>(())
 //! ```
 //!
 //! # Getting Started
