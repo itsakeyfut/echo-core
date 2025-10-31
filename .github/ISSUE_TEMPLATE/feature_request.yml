@@ -60,7 +60,7 @@ body:
       label: Proposed Solution
       description: How do you envision this being implemented? Include technical details if possible.
       placeholder: |
-        1. Create a new `SaveState` struct in `src/state.zig`
+        1. Create a new `SaveState` struct in `src/state.rs`
         2. Implement serialization for all emulator components:
            - CPU state (registers, flags)
            - Memory (RAM, VRAM, expansion regions)

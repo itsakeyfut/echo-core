@@ -48,9 +48,9 @@ body:
       label: Steps to Reproduce
       description: Detailed steps to reproduce the bug. Include commands, file paths, and configurations.
       placeholder: |
-        1. Compile the emulator: `zig build`
+        1. Compile the emulator: `cargo build --release`
         2. Prepare a ROM file larger than 2MB (e.g., `test_rom.bin` at 2.5MB)
-        3. Run: `./zig-out/bin/psrx test_rom.bin`
+        3. Run: `./target/release/psrx test_rom.bin`
         4. Observe the segmentation fault
     validations:
       required: true
@@ -61,7 +61,7 @@ body:
       label: Root Cause (if known)
       description: If you have investigated the issue, describe what you believe is causing it.
       placeholder: |
-        The memory allocation in `src/memory.zig:125` uses a fixed buffer size of 2MB,
+        The memory allocation in `src/memory.rs:125` uses a fixed buffer size of 2MB,
         but the ROM loading function attempts to read the entire file without checking size.
 
   - type: textarea
@@ -83,8 +83,8 @@ body:
         ```
         Segmentation fault (core dumped)
         Stack trace:
-          at loadROM (memory.zig:125)
-          at main (main.zig:42)
+          at loadROM (memory.rs:125)
+          at main (main.rs:42)
         ```
       render: shell
 
@@ -104,7 +104,7 @@ body:
       description: Provide detailed environment information.
       placeholder: |
         - OS: Ubuntu 22.04 LTS (Linux 6.6.87.2)
-        - Zig Version: 0.13.0
+        - Rust Version: 1.90.0
         - Architecture: x86_64
         - Terminal: Alacritty 0.13.0
         - Shell: zsh 5.9
