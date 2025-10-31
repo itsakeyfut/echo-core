@@ -51,8 +51,11 @@
 //! ```
 
 use crate::core::error::{EmulatorError, Result};
+use crate::core::gpu::GPU;
+use std::cell::RefCell;
 use std::fs::File;
 use std::io::Read;
+use std::rc::Rc;
 
 /// Memory bus managing all memory accesses
 ///
@@ -82,6 +85,12 @@ pub struct Bus {
     /// Physical address: 0x1FFE0130 (accessed via 0xFFFE0130)
     /// Controls instruction cache, data cache, and scratchpad enable
     cache_control: u32,
+
+    /// GPU reference (shared via Rc<RefCell>)
+    ///
+    /// The GPU is shared between the System and Bus to allow memory-mapped
+    /// register access while maintaining Rust's safety guarantees.
+    gpu: Option<Rc<RefCell<GPU>>>,
 }
 
 /// Memory region identification
@@ -139,6 +148,12 @@ impl Bus {
     const EXP3_START: u32 = 0x1FA00000;
     const EXP3_END: u32 = 0x1FBFFFFF;
 
+    /// GPU GP0/GPUREAD register (command/data and read)
+    const GPU_GP0: u32 = 0x1F801810;
+
+    /// GPU GP1/GPUSTAT register (control and status)
+    const GPU_GP1: u32 = 0x1F801814;
+
     /// Create a new Bus instance
     ///
     /// Initializes all memory regions with zeros.
@@ -163,7 +178,33 @@ impl Bus {
             scratchpad: [0u8; 1024],
             bios: vec![0u8; Self::BIOS_SIZE],
             cache_control: 0,
+            gpu: None,
         }
+    }
+
+    /// Set GPU reference for memory-mapped I/O
+    ///
+    /// Establishes the connection between the Bus and GPU for handling
+    /// GPU register accesses at memory-mapped addresses.
+    ///
+    /// # Arguments
+    ///
+    /// * `gpu` - Shared reference to the GPU instance
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::memory::Bus;
+    /// use psrx::core::GPU;
+    /// use std::rc::Rc;
+    /// use std::cell::RefCell;
+    ///
+    /// let mut bus = Bus::new();
+    /// let gpu = Rc::new(RefCell::new(GPU::new()));
+    /// bus.set_gpu(gpu.clone());
+    /// ```
+    pub fn set_gpu(&mut self, gpu: Rc<RefCell<GPU>>) {
+        self.gpu = Some(gpu);
     }
 
     /// Reset the bus to initial state
@@ -809,10 +850,9 @@ impl Bus {
         }
     }
 
-    /// Read from I/O port (32-bit) - stub implementation
+    /// Read from I/O port (32-bit)
     ///
-    /// This is a placeholder implementation for Phase 1 Week 1.
-    /// Actual I/O port handling will be implemented in later phases.
+    /// Handles reads from memory-mapped I/O registers including GPU registers.
     ///
     /// # Arguments
     ///
@@ -820,16 +860,44 @@ impl Bus {
     ///
     /// # Returns
     ///
-    /// Always returns `Ok(0)` for now
+    /// The 32-bit value read from the I/O port
     fn read_io_port32(&self, paddr: u32) -> Result<u32> {
-        log::trace!("I/O port read at 0x{:08X}", paddr);
-        Ok(0) // Stub implementation
+        match paddr {
+            // GPU GPUREAD register (0x1F801810)
+            Self::GPU_GP0 => {
+                if let Some(gpu) = &self.gpu {
+                    let value = gpu.borrow_mut().read_gpuread();
+                    log::trace!("GPUREAD (0x{:08X}) -> 0x{:08X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("GPUREAD access before GPU initialized");
+                    Ok(0)
+                }
+            }
+
+            // GPU GPUSTAT register (0x1F801814)
+            Self::GPU_GP1 => {
+                if let Some(gpu) = &self.gpu {
+                    let value = gpu.borrow().status();
+                    log::trace!("GPUSTAT (0x{:08X}) -> 0x{:08X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("GPUSTAT access before GPU initialized");
+                    Ok(0)
+                }
+            }
+
+            // Other I/O ports (stub for now)
+            _ => {
+                log::trace!("I/O port read at 0x{:08X}", paddr);
+                Ok(0)
+            }
+        }
     }
 
-    /// Write to I/O port (32-bit) - stub implementation
+    /// Write to I/O port (32-bit)
     ///
-    /// This is a placeholder implementation for Phase 1 Week 1.
-    /// Actual I/O port handling will be implemented in later phases.
+    /// Handles writes to memory-mapped I/O registers including GPU registers.
     ///
     /// # Arguments
     ///
@@ -838,10 +906,39 @@ impl Bus {
     ///
     /// # Returns
     ///
-    /// Always returns `Ok(())` for now
+    /// Result indicating success or failure
     fn write_io_port32(&mut self, paddr: u32, value: u32) -> Result<()> {
-        log::trace!("I/O port write at 0x{:08X} = 0x{:08X}", paddr, value);
-        Ok(()) // Stub implementation
+        match paddr {
+            // GPU GP0 register (0x1F801810) - commands and data
+            Self::GPU_GP0 => {
+                log::trace!("GP0 write (0x{:08X}) = 0x{:08X}", paddr, value);
+                if let Some(gpu) = &self.gpu {
+                    gpu.borrow_mut().write_gp0(value);
+                    Ok(())
+                } else {
+                    log::warn!("GP0 write before GPU initialized");
+                    Ok(())
+                }
+            }
+
+            // GPU GP1 register (0x1F801814) - control commands
+            Self::GPU_GP1 => {
+                log::trace!("GP1 write (0x{:08X}) = 0x{:08X}", paddr, value);
+                if let Some(gpu) = &self.gpu {
+                    gpu.borrow_mut().write_gp1(value);
+                    Ok(())
+                } else {
+                    log::warn!("GP1 write before GPU initialized");
+                    Ok(())
+                }
+            }
+
+            // Other I/O ports (stub for now)
+            _ => {
+                log::trace!("I/O port write at 0x{:08X} = 0x{:08X}", paddr, value);
+                Ok(())
+            }
+        }
     }
 
     /// Write directly to BIOS memory (test helper)
