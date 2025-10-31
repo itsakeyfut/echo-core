@@ -1517,16 +1517,16 @@ impl GPU {
     ) {
         // Apply drawing offset
         let v0 = Vertex {
-            x: vertices[0].x + self.draw_offset.0,
-            y: vertices[0].y + self.draw_offset.1,
+            x: vertices[0].x.wrapping_add(self.draw_offset.0),
+            y: vertices[0].y.wrapping_add(self.draw_offset.1),
         };
         let v1 = Vertex {
-            x: vertices[1].x + self.draw_offset.0,
-            y: vertices[1].y + self.draw_offset.1,
+            x: vertices[1].x.wrapping_add(self.draw_offset.0),
+            y: vertices[1].y.wrapping_add(self.draw_offset.1),
         };
         let v2 = Vertex {
-            x: vertices[2].x + self.draw_offset.0,
-            y: vertices[2].y + self.draw_offset.1,
+            x: vertices[2].x.wrapping_add(self.draw_offset.0),
+            y: vertices[2].y.wrapping_add(self.draw_offset.1),
         };
 
         log::trace!(
@@ -1553,7 +1553,7 @@ impl GPU {
 
     /// Render a monochrome (flat-shaded) quadrilateral
     ///
-    /// Quads are rendered as two triangles: (v0, v1, v2) and (v1, v2, v3).
+    /// Quads are rendered as two triangles: (v0, v1, v2) and (v0, v2, v3).
     /// Applies the drawing offset and delegates to triangle rendering.
     ///
     /// # Arguments
@@ -1569,7 +1569,7 @@ impl GPU {
     ) {
         // Quads are rendered as two triangles
         let tri1 = [vertices[0], vertices[1], vertices[2]];
-        let tri2 = [vertices[1], vertices[2], vertices[3]];
+        let tri2 = [vertices[0], vertices[2], vertices[3]];
 
         self.render_monochrome_triangle(&tri1, color, semi_transparent);
         self.render_monochrome_triangle(&tri2, color, semi_transparent);
