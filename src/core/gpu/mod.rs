@@ -57,7 +57,7 @@ use std::collections::VecDeque;
 /// # Examples
 ///
 /// ```
-/// use psrx::core::Color;
+/// use psrx::core::gpu::Color;
 ///
 /// let color = Color::from_u32(0x00FF8040);
 /// assert_eq!(color.r, 0x40);
@@ -98,7 +98,7 @@ impl Color {
     /// # Examples
     ///
     /// ```
-    /// use psrx::core::Color;
+    /// use psrx::core::gpu::Color;
     ///
     /// let color = Color::from_u32(0xFF8040);
     /// assert_eq!(color.r, 0x40);
@@ -128,7 +128,7 @@ impl Color {
     /// # Examples
     ///
     /// ```
-    /// use psrx::core::Color;
+    /// use psrx::core::gpu::Color;
     ///
     /// let color = Color { r: 255, g: 128, b: 64 };
     /// let rgb15 = color.to_rgb15();
@@ -160,7 +160,7 @@ impl Color {
 /// # Examples
 ///
 /// ```
-/// use psrx::core::Vertex;
+/// use psrx::core::gpu::Vertex;
 ///
 /// let vertex = Vertex::from_u32(0x00640032);
 /// assert_eq!(vertex.x, 50);
@@ -192,7 +192,7 @@ impl Vertex {
     /// # Examples
     ///
     /// ```
-    /// use psrx::core::Vertex;
+    /// use psrx::core::gpu::Vertex;
     ///
     /// let v = Vertex::from_u32(0x00640032);
     /// assert_eq!(v.x, 50);
@@ -659,7 +659,7 @@ pub struct VRAMTransfer {
 /// # Examples
 ///
 /// ```
-/// use psrx::core::{GPUCommand, Vertex, Color};
+/// use psrx::core::gpu::{GPUCommand, Vertex, Color};
 ///
 /// let cmd = GPUCommand::MonochromeTriangle {
 ///     vertices: [
