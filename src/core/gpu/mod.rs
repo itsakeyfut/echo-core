@@ -822,8 +822,8 @@ impl GPU {
         // Align to boundaries and apply hardware limits
         let x = x & 0x3FF; // 10-bit (0-1023)
         let y = y & 0x1FF; // 9-bit (0-511)
-        let width = ((width.saturating_sub(1)) & 0x3FF).saturating_add(1);
-        let height = ((height.saturating_sub(1)) & 0x1FF).saturating_add(1);
+        let width = (width.wrapping_sub(1) & 0x03FF).wrapping_add(1);
+        let height = (height.wrapping_sub(1) & 0x01FF).wrapping_add(1);
 
         log::debug!(
             "CPU→VRAM transfer: ({}, {}) size {}×{}",
@@ -916,8 +916,8 @@ impl GPU {
 
         let x = (coords & 0xFFFF) as u16 & 0x3FF;
         let y = ((coords >> 16) & 0xFFFF) as u16 & 0x1FF;
-        let width = (((size & 0xFFFF) as u16).saturating_sub(1) & 0x3FF).saturating_add(1);
-        let height = ((((size >> 16) & 0xFFFF) as u16).saturating_sub(1) & 0x1FF).saturating_add(1);
+        let width = (((size & 0xFFFF) as u16).wrapping_sub(1) & 0x03FF).wrapping_add(1);
+        let height = ((((size >> 16) & 0xFFFF) as u16).wrapping_sub(1) & 0x01FF).wrapping_add(1);
 
         log::debug!(
             "VRAM→CPU transfer: ({}, {}) size {}×{}",
@@ -1038,8 +1038,8 @@ impl GPU {
         let src_y = ((src_coords >> 16) & 0xFFFF) as u16 & 0x1FF;
         let dst_x = (dst_coords & 0xFFFF) as u16 & 0x3FF;
         let dst_y = ((dst_coords >> 16) & 0xFFFF) as u16 & 0x1FF;
-        let width = (((size & 0xFFFF) as u16).saturating_sub(1) & 0x3FF).saturating_add(1);
-        let height = ((((size >> 16) & 0xFFFF) as u16).saturating_sub(1) & 0x1FF).saturating_add(1);
+        let width = (((size & 0xFFFF) as u16).wrapping_sub(1) & 0x03FF).wrapping_add(1);
+        let height = ((((size >> 16) & 0xFFFF) as u16).wrapping_sub(1) & 0x01FF).wrapping_add(1);
 
         log::debug!(
             "VRAM→VRAM transfer: ({}, {}) → ({}, {}) size {}×{}",
@@ -2127,16 +2127,20 @@ mod tests {
     fn test_cpu_to_vram_size_alignment() {
         let mut gpu = GPU::new();
 
-        // Test that size of 0 is treated as 1 (per hardware behavior)
+        // Test that size of 0 wraps to maximum (1024×512 per PSX hardware behavior)
         gpu.write_gp0(0xA0000000);
         gpu.write_gp0(0x00000000); // position (0, 0)
-        gpu.write_gp0(0x00000000); // size 0x0 (should become 1x1)
+        gpu.write_gp0(0x00000000); // size 0x0 (wraps to 1024×512)
 
-        // Write 1 pixel
+        // Write 1 data word (2 pixels)
         gpu.write_gp0(0x12345678);
 
-        // Should write at least one pixel
+        // Verify first two pixels were written
         assert_eq!(gpu.read_vram(0, 0), 0x5678);
+        assert_eq!(gpu.read_vram(1, 0), 0x1234);
+
+        // Transfer should still be in progress (1024×512 is much larger than 2 pixels)
+        assert!(gpu.vram_transfer.is_some());
     }
 
     #[test]
