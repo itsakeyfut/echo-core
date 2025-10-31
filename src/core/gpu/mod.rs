@@ -49,6 +49,162 @@
 
 use std::collections::VecDeque;
 
+/// A 24-bit RGB color used in GPU commands
+///
+/// PlayStation GPU commands use 24-bit RGB colors (8 bits per channel)
+/// which are converted to 15-bit RGB for VRAM storage.
+///
+/// # Examples
+///
+/// ```
+/// use psrx::core::gpu::Color;
+///
+/// let color = Color::from_u32(0x00FF8040);
+/// assert_eq!(color.r, 0x40);
+/// assert_eq!(color.g, 0x80);
+/// assert_eq!(color.b, 0xFF);
+///
+/// let rgb15 = color.to_rgb15();
+/// assert_eq!(rgb15 & 0x1F, 0x08); // Red: 0x40 >> 3 = 8
+/// assert_eq!((rgb15 >> 5) & 0x1F, 0x10); // Green: 0x80 >> 3 = 16
+/// assert_eq!((rgb15 >> 10) & 0x1F, 0x1F); // Blue: 0xFF >> 3 = 31
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Color {
+    /// Red channel (0-255)
+    pub r: u8,
+    /// Green channel (0-255)
+    pub g: u8,
+    /// Blue channel (0-255)
+    pub b: u8,
+}
+
+impl Color {
+    /// Create a Color from a 32-bit command word
+    ///
+    /// The color is encoded in the lower 24 bits:
+    /// - Bits 0-7: Red
+    /// - Bits 8-15: Green
+    /// - Bits 16-23: Blue
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - 32-bit word containing RGB color in bits 0-23
+    ///
+    /// # Returns
+    ///
+    /// Color struct with 8-bit RGB values
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::gpu::Color;
+    ///
+    /// let color = Color::from_u32(0xFF8040);
+    /// assert_eq!(color.r, 0x40);
+    /// assert_eq!(color.g, 0x80);
+    /// assert_eq!(color.b, 0xFF);
+    /// ```
+    pub fn from_u32(value: u32) -> Self {
+        Self {
+            r: (value & 0xFF) as u8,
+            g: ((value >> 8) & 0xFF) as u8,
+            b: ((value >> 16) & 0xFF) as u8,
+        }
+    }
+
+    /// Convert 24-bit RGB to 15-bit RGB format for VRAM
+    ///
+    /// Converts each 8-bit channel to 5-bit by right-shifting by 3.
+    /// The result is packed in VRAM's 5-5-5 RGB format:
+    /// - Bits 0-4: Red (5 bits)
+    /// - Bits 5-9: Green (5 bits)
+    /// - Bits 10-14: Blue (5 bits)
+    ///
+    /// # Returns
+    ///
+    /// 16-bit color value in 5-5-5 RGB format (bit 15 is 0)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::gpu::Color;
+    ///
+    /// let color = Color { r: 255, g: 128, b: 64 };
+    /// let rgb15 = color.to_rgb15();
+    ///
+    /// assert_eq!(rgb15 & 0x1F, 31);        // R: 255 >> 3 = 31
+    /// assert_eq!((rgb15 >> 5) & 0x1F, 16); // G: 128 >> 3 = 16
+    /// assert_eq!((rgb15 >> 10) & 0x1F, 8); // B: 64 >> 3 = 8
+    /// ```
+    pub fn to_rgb15(&self) -> u16 {
+        let r = ((self.r as u16) >> 3) & 0x1F;
+        let g = ((self.g as u16) >> 3) & 0x1F;
+        let b = ((self.b as u16) >> 3) & 0x1F;
+        (b << 10) | (g << 5) | r
+    }
+}
+
+/// A 2D vertex position used in polygon rendering
+///
+/// Vertices specify positions in VRAM coordinates (signed 16-bit).
+/// Negative coordinates and coordinates outside VRAM bounds are clipped.
+///
+/// # Coordinate System
+///
+/// - Origin (0, 0) is at top-left
+/// - X increases to the right (0-1023)
+/// - Y increases downward (0-511)
+/// - Drawing offset is added to vertex positions before rendering
+///
+/// # Examples
+///
+/// ```
+/// use psrx::core::gpu::Vertex;
+///
+/// let vertex = Vertex::from_u32(0x00640032);
+/// assert_eq!(vertex.x, 50);
+/// assert_eq!(vertex.y, 100);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Vertex {
+    /// X coordinate (signed 16-bit)
+    pub x: i16,
+    /// Y coordinate (signed 16-bit)
+    pub y: i16,
+}
+
+impl Vertex {
+    /// Create a Vertex from a 32-bit command word
+    ///
+    /// Vertices are encoded as:
+    /// - Bits 0-15: X coordinate (signed 16-bit)
+    /// - Bits 16-31: Y coordinate (signed 16-bit)
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - 32-bit word containing X and Y coordinates
+    ///
+    /// # Returns
+    ///
+    /// Vertex struct with signed 16-bit coordinates
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::gpu::Vertex;
+    ///
+    /// let v = Vertex::from_u32(0x00640032);
+    /// assert_eq!(v.x, 50);
+    /// assert_eq!(v.y, 100);
+    /// ```
+    pub fn from_u32(value: u32) -> Self {
+        let x = (value & 0xFFFF) as i16;
+        let y = ((value >> 16) & 0xFFFF) as i16;
+        Self { x, y }
+    }
+}
+
 /// GPU state representing the CXD8561 graphics processor
 ///
 /// The GPU manages all graphics rendering and display functions for the PlayStation.
@@ -104,9 +260,6 @@ pub struct GPU {
     ///
     /// Stores GP0 commands that are being processed.
     command_fifo: VecDeque<u32>,
-
-    /// Current command being processed
-    current_command: Option<GPUCommand>,
 
     /// GPU status flags
     status: GPUStatus,
@@ -483,19 +636,93 @@ pub struct VRAMTransfer {
     pub direction: VRAMTransferDirection,
 }
 
-/// GPU command being processed
+/// GPU rendering command
 ///
-/// Represents a partially received GP0 command.
+/// Represents a fully parsed GPU drawing command ready for execution.
+/// These commands are created by parsing GP0 command sequences.
+///
+/// # Polygon Rendering
+///
+/// Polygons are the fundamental 3D rendering primitive. The PSX GPU supports:
+/// - **Monochrome (flat-shaded)**: Single color for entire polygon
+/// - **Gouraud-shaded**: Color interpolated across vertices (future)
+/// - **Textured**: Textured polygons (future)
+///
+/// Quadrilaterals are rendered as two triangles internally.
+///
+/// # Command Format
+///
+/// GP0 polygon commands encode data as follows:
+/// - Word 0: Command byte (bits 24-31) + Color (bits 0-23)
+/// - Word 1-N: Vertex positions (X in bits 0-15, Y in bits 16-31)
+///
+/// # Examples
+///
+/// ```
+/// use psrx::core::gpu::{GPUCommand, Vertex, Color};
+///
+/// let cmd = GPUCommand::MonochromeTriangle {
+///     vertices: [
+///         Vertex { x: 0, y: 0 },
+///         Vertex { x: 100, y: 0 },
+///         Vertex { x: 50, y: 100 },
+///     ],
+///     color: Color { r: 255, g: 0, b: 0 },
+///     semi_transparent: false,
+/// };
+/// ```
 #[derive(Debug, Clone)]
-pub struct GPUCommand {
-    /// Command opcode
-    pub opcode: u8,
+pub enum GPUCommand {
+    /// Monochrome (flat-shaded) triangle
+    ///
+    /// GP0 commands: 0x20 (opaque), 0x22 (semi-transparent)
+    /// Requires 4 words: command + 3 vertices
+    MonochromeTriangle {
+        /// Triangle vertices (3 points)
+        vertices: [Vertex; 3],
+        /// Flat color for entire triangle
+        color: Color,
+        /// Semi-transparency enabled
+        semi_transparent: bool,
+    },
 
-    /// Command parameters
-    pub params: Vec<u32>,
+    /// Monochrome (flat-shaded) quadrilateral
+    ///
+    /// GP0 commands: 0x28 (opaque), 0x2A (semi-transparent)
+    /// Requires 5 words: command + 4 vertices
+    /// Rendered as two triangles: (v0,v1,v2) and (v1,v2,v3)
+    MonochromeQuad {
+        /// Quad vertices (4 points in order)
+        vertices: [Vertex; 4],
+        /// Flat color for entire quad
+        color: Color,
+        /// Semi-transparency enabled
+        semi_transparent: bool,
+    },
 
-    /// Number of remaining words to receive
-    pub remaining_words: usize,
+    /// Gouraud-shaded triangle (color per vertex)
+    ///
+    /// GP0 commands: 0x30 (opaque), 0x32 (semi-transparent)
+    /// Requires 6 words: (command+color1, vertex1, color2, vertex2, color3, vertex3)
+    /// Future implementation - placeholder for issue #33
+    ShadedTriangle {
+        /// Triangle vertices with colors
+        vertices: [(Vertex, Color); 3],
+        /// Semi-transparency enabled
+        semi_transparent: bool,
+    },
+
+    /// Gouraud-shaded quadrilateral (color per vertex)
+    ///
+    /// GP0 commands: 0x38 (opaque), 0x3A (semi-transparent)
+    /// Requires 8 words: 4×(command+color, vertex)
+    /// Future implementation - placeholder for issue #33
+    ShadedQuad {
+        /// Quad vertices with colors
+        vertices: [(Vertex, Color); 4],
+        /// Semi-transparency enabled
+        semi_transparent: bool,
+    },
 }
 
 impl GPU {
@@ -539,7 +766,6 @@ impl GPU {
             display_area: DisplayArea::default(),
             display_mode: DisplayMode::default(),
             command_fifo: VecDeque::new(),
-            current_command: None,
             status: GPUStatus::default(),
             vram_transfer: None,
         }
@@ -581,7 +807,6 @@ impl GPU {
         self.display_area = DisplayArea::default();
         self.display_mode = DisplayMode::default();
         self.command_fifo.clear();
-        self.current_command = None;
         self.status = GPUStatus::default();
         self.vram_transfer = None;
     }
@@ -781,10 +1006,8 @@ impl GPU {
         // Otherwise, buffer the command
         self.command_fifo.push_back(value);
 
-        // Try to process command if we're not currently processing one
-        if self.current_command.is_none() {
-            self.try_process_command();
-        }
+        // Try to process command
+        self.try_process_command();
     }
 
     /// Try to process the next command in the FIFO
@@ -800,6 +1023,22 @@ impl GPU {
         let command = (first_word >> 24) & 0xFF;
 
         match command {
+            // Monochrome triangles
+            0x20 => self.parse_monochrome_triangle_opaque(),
+            0x22 => self.parse_monochrome_triangle_semi_transparent(),
+
+            // Monochrome quadrilaterals
+            0x28 => self.parse_monochrome_quad_opaque(),
+            0x2A => self.parse_monochrome_quad_semi_transparent(),
+
+            // Shaded triangles (placeholders for issue #33)
+            0x30 => self.parse_shaded_triangle_opaque(),
+            0x32 => self.parse_shaded_triangle_semi_transparent(),
+
+            // Shaded quads (placeholders for issue #33)
+            0x38 => self.parse_shaded_quad_opaque(),
+            0x3A => self.parse_shaded_quad_semi_transparent(),
+
             // VRAM transfer commands
             0xA0 => self.gp0_cpu_to_vram_transfer(),
             0xC0 => self.gp0_vram_to_cpu_transfer(),
@@ -1096,6 +1335,246 @@ impl GPU {
         }
     }
 
+    /// GP0(0x20): Monochrome Triangle (Opaque)
+    ///
+    /// Renders a flat-shaded triangle with a single color.
+    /// Requires 4 words: command+color, vertex1, vertex2, vertex3
+    fn parse_monochrome_triangle_opaque(&mut self) {
+        if self.command_fifo.len() < 4 {
+            return; // Need more words
+        }
+
+        let cmd = self.command_fifo.pop_front().unwrap();
+        let v1 = self.command_fifo.pop_front().unwrap();
+        let v2 = self.command_fifo.pop_front().unwrap();
+        let v3 = self.command_fifo.pop_front().unwrap();
+
+        let color = Color::from_u32(cmd);
+        let vertices = [
+            Vertex::from_u32(v1),
+            Vertex::from_u32(v2),
+            Vertex::from_u32(v3),
+        ];
+
+        self.render_monochrome_triangle(&vertices, &color, false);
+    }
+
+    /// GP0(0x22): Monochrome Triangle (Semi-Transparent)
+    ///
+    /// Renders a flat-shaded triangle with semi-transparency enabled.
+    /// Requires 4 words: command+color, vertex1, vertex2, vertex3
+    fn parse_monochrome_triangle_semi_transparent(&mut self) {
+        if self.command_fifo.len() < 4 {
+            return;
+        }
+
+        let cmd = self.command_fifo.pop_front().unwrap();
+        let v1 = self.command_fifo.pop_front().unwrap();
+        let v2 = self.command_fifo.pop_front().unwrap();
+        let v3 = self.command_fifo.pop_front().unwrap();
+
+        let color = Color::from_u32(cmd);
+        let vertices = [
+            Vertex::from_u32(v1),
+            Vertex::from_u32(v2),
+            Vertex::from_u32(v3),
+        ];
+
+        self.render_monochrome_triangle(&vertices, &color, true);
+    }
+
+    /// GP0(0x28): Monochrome Quad (Opaque)
+    ///
+    /// Renders a flat-shaded quadrilateral with a single color.
+    /// Requires 5 words: command+color, vertex1, vertex2, vertex3, vertex4
+    fn parse_monochrome_quad_opaque(&mut self) {
+        if self.command_fifo.len() < 5 {
+            return;
+        }
+
+        let cmd = self.command_fifo.pop_front().unwrap();
+        let v1 = self.command_fifo.pop_front().unwrap();
+        let v2 = self.command_fifo.pop_front().unwrap();
+        let v3 = self.command_fifo.pop_front().unwrap();
+        let v4 = self.command_fifo.pop_front().unwrap();
+
+        let color = Color::from_u32(cmd);
+        let vertices = [
+            Vertex::from_u32(v1),
+            Vertex::from_u32(v2),
+            Vertex::from_u32(v3),
+            Vertex::from_u32(v4),
+        ];
+
+        self.render_monochrome_quad(&vertices, &color, false);
+    }
+
+    /// GP0(0x2A): Monochrome Quad (Semi-Transparent)
+    ///
+    /// Renders a flat-shaded quadrilateral with semi-transparency enabled.
+    /// Requires 5 words: command+color, vertex1, vertex2, vertex3, vertex4
+    fn parse_monochrome_quad_semi_transparent(&mut self) {
+        if self.command_fifo.len() < 5 {
+            return;
+        }
+
+        let cmd = self.command_fifo.pop_front().unwrap();
+        let v1 = self.command_fifo.pop_front().unwrap();
+        let v2 = self.command_fifo.pop_front().unwrap();
+        let v3 = self.command_fifo.pop_front().unwrap();
+        let v4 = self.command_fifo.pop_front().unwrap();
+
+        let color = Color::from_u32(cmd);
+        let vertices = [
+            Vertex::from_u32(v1),
+            Vertex::from_u32(v2),
+            Vertex::from_u32(v3),
+            Vertex::from_u32(v4),
+        ];
+
+        self.render_monochrome_quad(&vertices, &color, true);
+    }
+
+    /// GP0(0x30): Gouraud-Shaded Triangle (Opaque) - Placeholder
+    ///
+    /// Will be implemented in issue #33
+    fn parse_shaded_triangle_opaque(&mut self) {
+        if self.command_fifo.len() < 6 {
+            return;
+        }
+
+        // Consume command words to prevent stalling
+        for _ in 0..6 {
+            self.command_fifo.pop_front();
+        }
+
+        log::warn!("Shaded triangle rendering not yet implemented (issue #33)");
+    }
+
+    /// GP0(0x32): Gouraud-Shaded Triangle (Semi-Transparent) - Placeholder
+    ///
+    /// Will be implemented in issue #33
+    fn parse_shaded_triangle_semi_transparent(&mut self) {
+        if self.command_fifo.len() < 6 {
+            return;
+        }
+
+        // Consume command words to prevent stalling
+        for _ in 0..6 {
+            self.command_fifo.pop_front();
+        }
+
+        log::warn!("Shaded triangle rendering not yet implemented (issue #33)");
+    }
+
+    /// GP0(0x38): Gouraud-Shaded Quad (Opaque) - Placeholder
+    ///
+    /// Will be implemented in issue #33
+    fn parse_shaded_quad_opaque(&mut self) {
+        if self.command_fifo.len() < 8 {
+            return;
+        }
+
+        // Consume command words to prevent stalling
+        for _ in 0..8 {
+            self.command_fifo.pop_front();
+        }
+
+        log::warn!("Shaded quad rendering not yet implemented (issue #33)");
+    }
+
+    /// GP0(0x3A): Gouraud-Shaded Quad (Semi-Transparent) - Placeholder
+    ///
+    /// Will be implemented in issue #33
+    fn parse_shaded_quad_semi_transparent(&mut self) {
+        if self.command_fifo.len() < 8 {
+            return;
+        }
+
+        // Consume command words to prevent stalling
+        for _ in 0..8 {
+            self.command_fifo.pop_front();
+        }
+
+        log::warn!("Shaded quad rendering not yet implemented (issue #33)");
+    }
+
+    /// Render a monochrome (flat-shaded) triangle
+    ///
+    /// Applies the drawing offset to all vertices and logs the rendering operation.
+    /// Actual rasterization will be implemented in issue #33.
+    ///
+    /// # Arguments
+    ///
+    /// * `vertices` - Array of 3 vertices defining the triangle
+    /// * `color` - Flat color for the entire triangle
+    /// * `semi_transparent` - Whether semi-transparency is enabled
+    fn render_monochrome_triangle(
+        &mut self,
+        vertices: &[Vertex; 3],
+        color: &Color,
+        semi_transparent: bool,
+    ) {
+        // Apply drawing offset
+        let v0 = Vertex {
+            x: vertices[0].x.wrapping_add(self.draw_offset.0),
+            y: vertices[0].y.wrapping_add(self.draw_offset.1),
+        };
+        let v1 = Vertex {
+            x: vertices[1].x.wrapping_add(self.draw_offset.0),
+            y: vertices[1].y.wrapping_add(self.draw_offset.1),
+        };
+        let v2 = Vertex {
+            x: vertices[2].x.wrapping_add(self.draw_offset.0),
+            y: vertices[2].y.wrapping_add(self.draw_offset.1),
+        };
+
+        log::trace!(
+            "Rendering {}triangle: ({}, {}), ({}, {}), ({}, {}) color=({},{},{})",
+            if semi_transparent {
+                "semi-transparent "
+            } else {
+                ""
+            },
+            v0.x,
+            v0.y,
+            v1.x,
+            v1.y,
+            v2.x,
+            v2.y,
+            color.r,
+            color.g,
+            color.b
+        );
+
+        // Actual rasterization will be implemented in issue #33
+        // For now, just log the command
+    }
+
+    /// Render a monochrome (flat-shaded) quadrilateral
+    ///
+    /// Quads are rendered as two triangles: (v0, v1, v2) and (v0, v2, v3).
+    /// Applies the drawing offset and delegates to triangle rendering.
+    ///
+    /// # Arguments
+    ///
+    /// * `vertices` - Array of 4 vertices defining the quad (in order)
+    /// * `color` - Flat color for the entire quad
+    /// * `semi_transparent` - Whether semi-transparency is enabled
+    fn render_monochrome_quad(
+        &mut self,
+        vertices: &[Vertex; 4],
+        color: &Color,
+        semi_transparent: bool,
+    ) {
+        // Quads are rendered as two triangles
+        let tri1 = [vertices[0], vertices[1], vertices[2]];
+        let tri2 = [vertices[0], vertices[2], vertices[3]];
+
+        self.render_monochrome_triangle(&tri1, color, semi_transparent);
+        self.render_monochrome_triangle(&tri2, color, semi_transparent);
+    }
+
     /// Process GP1 command (control commands)
     ///
     /// GP1 commands control the GPU's display parameters and operational state.
@@ -1161,7 +1640,6 @@ impl GPU {
     fn gp1_reset_command_buffer(&mut self) {
         // Clear pending commands
         self.command_fifo.clear();
-        self.current_command = None;
 
         // Cancel any ongoing VRAM transfer
         self.vram_transfer = None;
@@ -1565,7 +2043,6 @@ mod tests {
         assert!(gpu.display_mode.display_disabled);
         assert!(gpu.status.display_disabled);
         assert!(gpu.command_fifo.is_empty());
-        assert!(gpu.current_command.is_none());
     }
 
     #[test]
@@ -1595,16 +2072,10 @@ mod tests {
         let mut gpu = GPU::new();
         gpu.command_fifo.push_back(0x12345678);
         gpu.command_fifo.push_back(0x9ABCDEF0);
-        gpu.current_command = Some(GPUCommand {
-            opcode: 0x20,
-            params: vec![0x12345678],
-            remaining_words: 5,
-        });
 
         gpu.write_gp1(0x01000000);
 
         assert!(gpu.command_fifo.is_empty());
-        assert!(gpu.current_command.is_none());
         assert!(gpu.vram_transfer.is_none());
     }
 
@@ -2190,5 +2661,155 @@ mod tests {
         assert_eq!((data2 >> 16) & 0xFFFF, 0xDDDD);
 
         assert!(gpu.vram_transfer.is_none());
+    }
+
+    #[test]
+    fn test_color_conversion() {
+        let color = Color {
+            r: 255,
+            g: 128,
+            b: 64,
+        };
+        let rgb15 = color.to_rgb15();
+
+        // Verify 15-bit conversion
+        assert_eq!(rgb15 & 0x1F, 31); // R: 255 >> 3 = 31
+        assert_eq!((rgb15 >> 5) & 0x1F, 16); // G: 128 >> 3 = 16
+        assert_eq!((rgb15 >> 10) & 0x1F, 8); // B: 64 >> 3 = 8
+    }
+
+    #[test]
+    fn test_color_from_u32() {
+        let color = Color::from_u32(0x00FF8040);
+        assert_eq!(color.r, 0x40);
+        assert_eq!(color.g, 0x80);
+        assert_eq!(color.b, 0xFF);
+    }
+
+    #[test]
+    fn test_vertex_from_u32() {
+        let v = Vertex::from_u32(0x00640032); // x=50, y=100
+        assert_eq!(v.x, 50);
+        assert_eq!(v.y, 100);
+    }
+
+    #[test]
+    fn test_vertex_from_u32_negative() {
+        // Test negative coordinates (signed 16-bit)
+        let v = Vertex::from_u32(0xFFFFFFFF);
+        assert_eq!(v.x, -1);
+        assert_eq!(v.y, -1);
+    }
+
+    #[test]
+    fn test_monochrome_triangle_parsing() {
+        let mut gpu = GPU::new();
+
+        // Monochrome triangle command
+        gpu.write_gp0(0x20FF0000); // Red triangle
+        gpu.write_gp0(0x00640032); // V1: (50, 100)
+        gpu.write_gp0(0x00C80096); // V2: (200, 150)
+        gpu.write_gp0(0x00320064); // V3: (50, 100)
+
+        // Command should be processed (no crash, FIFO empty)
+        assert!(gpu.command_fifo.is_empty());
+    }
+
+    #[test]
+    fn test_monochrome_triangle_semi_transparent() {
+        let mut gpu = GPU::new();
+
+        // Semi-transparent triangle command
+        gpu.write_gp0(0x2200FF00); // Green semi-transparent triangle
+        gpu.write_gp0(0x00000000); // V1: (0, 0)
+        gpu.write_gp0(0x00640000); // V2: (100, 0)
+        gpu.write_gp0(0x00320064); // V3: (50, 100)
+
+        // Command should be processed
+        assert!(gpu.command_fifo.is_empty());
+    }
+
+    #[test]
+    fn test_monochrome_quad_parsing() {
+        let mut gpu = GPU::new();
+
+        gpu.write_gp0(0x2800FF00); // Green quad
+        gpu.write_gp0(0x00000000); // V1: (0, 0)
+        gpu.write_gp0(0x00640000); // V2: (100, 0)
+        gpu.write_gp0(0x00640064); // V3: (100, 100)
+        gpu.write_gp0(0x00000064); // V4: (0, 100)
+
+        assert!(gpu.command_fifo.is_empty());
+    }
+
+    #[test]
+    fn test_monochrome_quad_semi_transparent() {
+        let mut gpu = GPU::new();
+
+        gpu.write_gp0(0x2A0000FF); // Blue semi-transparent quad
+        gpu.write_gp0(0x000A000A); // V1: (10, 10)
+        gpu.write_gp0(0x0032000A); // V2: (50, 10)
+        gpu.write_gp0(0x00320032); // V3: (50, 50)
+        gpu.write_gp0(0x000A0032); // V4: (10, 50)
+
+        assert!(gpu.command_fifo.is_empty());
+    }
+
+    #[test]
+    fn test_drawing_offset_applied() {
+        let mut gpu = GPU::new();
+        gpu.draw_offset = (10, 20);
+
+        let vertices = [
+            Vertex { x: 0, y: 0 },
+            Vertex { x: 10, y: 0 },
+            Vertex { x: 5, y: 10 },
+        ];
+
+        let color = Color { r: 255, g: 0, b: 0 };
+
+        // Should not crash
+        gpu.render_monochrome_triangle(&vertices, &color, false);
+    }
+
+    #[test]
+    fn test_partial_command_buffering() {
+        let mut gpu = GPU::new();
+
+        // Send only 2 words of a triangle command (needs 4)
+        gpu.write_gp0(0x20FF0000); // Command + color
+        gpu.write_gp0(0x00000000); // V1
+
+        // Should be buffered, not processed
+        assert_eq!(gpu.command_fifo.len(), 2);
+
+        // Send remaining words
+        gpu.write_gp0(0x00640000); // V2
+        gpu.write_gp0(0x00320064); // V3
+
+        // Now command should be processed
+        assert!(gpu.command_fifo.is_empty());
+    }
+
+    #[test]
+    fn test_quad_splits_into_two_triangles() {
+        let mut gpu = GPU::new();
+
+        // Render a quad - internally it should split into two triangles
+        let vertices = [
+            Vertex { x: 0, y: 0 },
+            Vertex { x: 100, y: 0 },
+            Vertex { x: 100, y: 100 },
+            Vertex { x: 0, y: 100 },
+        ];
+
+        let color = Color {
+            r: 255,
+            g: 255,
+            b: 255,
+        };
+
+        // Should not crash - actual rendering stub is called twice internally
+        gpu.render_monochrome_quad(&vertices, &color, false);
     }
 }
