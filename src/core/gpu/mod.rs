@@ -291,6 +291,9 @@ pub enum HorizontalRes {
 
     /// 368 pixels wide (rarely used)
     R368,
+
+    /// 384 pixels wide
+    R384,
 }
 
 /// Vertical resolution modes
@@ -544,10 +547,19 @@ impl GPU {
     /// assert_eq!(gpu.read_vram(500, 250), 0x0000); // Back to black
     /// ```
     pub fn reset(&mut self) {
-        // Clear VRAM to black
-        self.vram.fill(0x0000);
+        // Reset all GPU state
+        self.reset_state_preserving_vram();
 
-        // Reset all state to default values
+        // Clear VRAM to black (separate from state reset)
+        self.vram.fill(0x0000);
+    }
+
+    /// Reset GPU state without clearing VRAM
+    ///
+    /// Resets all GPU registers, drawing modes, display settings, command buffer,
+    /// and status flags to their default values, but preserves VRAM contents.
+    /// This is used by GP1(0x00) command which must not clear VRAM per PSX-SPX spec.
+    fn reset_state_preserving_vram(&mut self) {
         self.draw_mode = DrawMode::default();
         self.draw_area = DrawingArea::default();
         self.draw_offset = (0, 0);
@@ -720,6 +732,289 @@ impl GPU {
         // For now, this is a placeholder
         let _ = cycles;
     }
+
+    /// Process GP1 command (control commands)
+    ///
+    /// GP1 commands control the GPU's display parameters and operational state.
+    /// These commands configure display settings, DMA modes, and GPU state.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - 32-bit GP1 command word with command in bits 24-31
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::GPU;
+    ///
+    /// let mut gpu = GPU::new();
+    /// // Reset GPU
+    /// gpu.write_gp1(0x00000000);
+    /// // Enable display
+    /// gpu.write_gp1(0x03000000);
+    /// ```
+    pub fn write_gp1(&mut self, value: u32) {
+        let command = (value >> 24) & 0xFF;
+
+        match command {
+            0x00 => self.gp1_reset_gpu(),
+            0x01 => self.gp1_reset_command_buffer(),
+            0x02 => self.gp1_acknowledge_interrupt(),
+            0x03 => self.gp1_display_enable(value),
+            0x04 => self.gp1_dma_direction(value),
+            0x05 => self.gp1_display_area_start(value),
+            0x06 => self.gp1_horizontal_display_range(value),
+            0x07 => self.gp1_vertical_display_range(value),
+            0x08 => self.gp1_display_mode(value),
+            0x10 => self.gp1_get_gpu_info(value),
+            _ => {
+                log::warn!("Unknown GP1 command: 0x{:02X}", command);
+            }
+        }
+    }
+
+    /// GP1(0x00): Reset GPU
+    ///
+    /// Resets the GPU to its initial power-on state. This includes:
+    /// - Resetting all GPU registers and state to defaults
+    /// - Clearing the command buffer
+    /// - Disabling the display
+    /// - Clearing texture settings
+    ///
+    /// Note: VRAM contents are preserved per PSX-SPX specification.
+    fn gp1_reset_gpu(&mut self) {
+        // Reset GPU state without clearing VRAM (per PSX-SPX spec)
+        self.reset_state_preserving_vram();
+        self.display_mode.display_disabled = true;
+        self.status.display_disabled = true;
+
+        log::debug!("GPU reset");
+    }
+
+    /// GP1(0x01): Reset Command Buffer
+    ///
+    /// Clears the GP0 command FIFO and cancels any ongoing commands.
+    /// This is useful for recovering from command processing errors.
+    fn gp1_reset_command_buffer(&mut self) {
+        // Clear pending commands
+        self.command_fifo.clear();
+        self.current_command = None;
+
+        // Cancel any ongoing VRAM transfer
+        self.vram_transfer = None;
+
+        log::debug!("Command buffer reset");
+    }
+
+    /// GP1(0x02): Acknowledge GPU Interrupt
+    ///
+    /// Clears the GPU interrupt request flag. The GPU can generate
+    /// interrupts for certain operations, though this is rarely used.
+    fn gp1_acknowledge_interrupt(&mut self) {
+        self.status.interrupt_request = false;
+        log::debug!("GPU interrupt acknowledged");
+    }
+
+    /// GP1(0x03): Display Enable
+    ///
+    /// Enables or disables the display output.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Bit 0: 0=Enable, 1=Disable (inverted logic)
+    fn gp1_display_enable(&mut self, value: u32) {
+        let enabled = (value & 1) == 0;
+        self.display_mode.display_disabled = !enabled;
+        self.status.display_disabled = !enabled;
+
+        log::debug!("Display {}", if enabled { "enabled" } else { "disabled" });
+    }
+
+    /// GP1(0x04): DMA Direction
+    ///
+    /// Sets the DMA transfer direction/mode.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Bits 0-1: Direction (0=Off, 1=FIFO, 2=CPUtoGP0, 3=GPUREADtoCPU)
+    fn gp1_dma_direction(&mut self, value: u32) {
+        let direction = (value & 3) as u8;
+        self.status.dma_direction = direction;
+
+        match direction {
+            0 => log::debug!("DMA off"),
+            1 => log::debug!("DMA FIFO"),
+            2 => log::debug!("DMA CPU→GP0"),
+            3 => log::debug!("DMA GPUREAD→CPU"),
+            _ => unreachable!(),
+        }
+    }
+
+    /// GP1(0x05): Start of Display Area
+    ///
+    /// Sets the top-left corner of the display area in VRAM.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Bits 0-9: X coordinate, Bits 10-18: Y coordinate
+    fn gp1_display_area_start(&mut self, value: u32) {
+        let x = (value & 0x3FF) as u16;
+        let y = ((value >> 10) & 0x1FF) as u16;
+
+        self.display_area.x = x;
+        self.display_area.y = y;
+
+        log::debug!("Display area start: ({}, {})", x, y);
+    }
+
+    /// GP1(0x06): Horizontal Display Range
+    ///
+    /// Sets the horizontal display range on screen (scanline timing).
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Bits 0-11: X1 start, Bits 12-23: X2 end
+    fn gp1_horizontal_display_range(&mut self, value: u32) {
+        let x1 = (value & 0xFFF) as u16;
+        let x2 = ((value >> 12) & 0xFFF) as u16;
+
+        // Store as width
+        self.display_area.width = x2.saturating_sub(x1);
+
+        log::debug!(
+            "Horizontal display range: {} to {} (width: {})",
+            x1,
+            x2,
+            self.display_area.width
+        );
+    }
+
+    /// GP1(0x07): Vertical Display Range
+    ///
+    /// Sets the vertical display range on screen (scanline timing).
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Bits 0-9: Y1 start, Bits 10-19: Y2 end
+    fn gp1_vertical_display_range(&mut self, value: u32) {
+        let y1 = (value & 0x3FF) as u16;
+        let y2 = ((value >> 10) & 0x3FF) as u16;
+
+        // Store as height
+        self.display_area.height = y2.saturating_sub(y1);
+
+        log::debug!(
+            "Vertical display range: {} to {} (height: {})",
+            y1,
+            y2,
+            self.display_area.height
+        );
+    }
+
+    /// GP1(0x08): Display Mode
+    ///
+    /// Sets the display mode including resolution, video mode, and color depth.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Display mode configuration bits:
+    ///   - Bits 0-1: Horizontal resolution 1
+    ///   - Bit 2: Vertical resolution (0=240, 1=480)
+    ///   - Bit 3: Video mode (0=NTSC, 1=PAL)
+    ///   - Bit 4: Color depth (0=15bit, 1=24bit)
+    ///   - Bit 5: Interlace (0=Off, 1=On)
+    ///   - Bit 6: Horizontal resolution 2
+    ///   - Bit 7: Reverse flag
+    fn gp1_display_mode(&mut self, value: u32) {
+        // Horizontal resolution
+        let hr1 = (value & 3) as u8;
+        let hr2 = ((value >> 6) & 1) as u8;
+        self.display_mode.horizontal_res = match (hr2, hr1) {
+            (0, 0) => HorizontalRes::R256,
+            (0, 1) => HorizontalRes::R320,
+            (0, 2) => HorizontalRes::R512,
+            (0, 3) => HorizontalRes::R640,
+            (1, 0) => HorizontalRes::R368,
+            (1, 1) => HorizontalRes::R384,
+            (1, _) => HorizontalRes::R368, // Reserved combinations default to 368
+            _ => HorizontalRes::R320,
+        };
+
+        // Update status register horizontal resolution bits
+        self.status.horizontal_res_1 = hr1;
+        self.status.horizontal_res_2 = hr2;
+
+        // Vertical resolution
+        let vres = ((value >> 2) & 1) != 0;
+        self.display_mode.vertical_res = if vres {
+            VerticalRes::R480
+        } else {
+            VerticalRes::R240
+        };
+        self.status.vertical_res = vres;
+
+        // Video mode (NTSC/PAL)
+        let video_mode = ((value >> 3) & 1) != 0;
+        self.display_mode.video_mode = if video_mode {
+            VideoMode::PAL
+        } else {
+            VideoMode::NTSC
+        };
+        self.status.video_mode = video_mode;
+
+        // Color depth
+        let color_depth = ((value >> 4) & 1) != 0;
+        self.display_mode.display_area_color_depth = if color_depth {
+            ColorDepth::C24Bit
+        } else {
+            ColorDepth::C15Bit
+        };
+        self.status.display_area_color_depth = color_depth;
+
+        // Interlace
+        let interlaced = ((value >> 5) & 1) != 0;
+        self.display_mode.interlaced = interlaced;
+        self.status.vertical_interlace = interlaced;
+
+        // Reverse flag (rarely used)
+        self.status.reverse_flag = ((value >> 7) & 1) != 0;
+
+        log::debug!(
+            "Display mode: {:?} {:?} {:?} {:?} interlaced={}",
+            self.display_mode.horizontal_res,
+            self.display_mode.vertical_res,
+            self.display_mode.video_mode,
+            self.display_mode.display_area_color_depth,
+            interlaced
+        );
+    }
+
+    /// GP1(0x10): GPU Info
+    ///
+    /// Requests GPU information to be returned via the GPUREAD register.
+    /// Different info types return different GPU state information.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Bits 0-7: Info type
+    ///   - 0x02: Texture window settings
+    ///   - 0x03: Draw area top left
+    ///   - 0x04: Draw area bottom right
+    ///   - 0x05: Draw offset
+    ///   - 0x07: GPU version (returns 2 for PSX)
+    fn gp1_get_gpu_info(&mut self, value: u32) {
+        let info_type = value & 0xFF;
+
+        log::debug!("GPU info request: type {}", info_type);
+
+        // TODO: Implement proper GPU info responses via GPUREAD register
+        // Info types:
+        // 0x02 - Texture window
+        // 0x03 - Draw area top left
+        // 0x04 - Draw area bottom right
+        // 0x05 - Draw offset
+        // 0x07 - GPU version (2 for PSX)
+    }
 }
 
 impl Default for GPU {
@@ -891,5 +1186,336 @@ mod tests {
         // Both should have the same initial state
         assert_eq!(gpu1.vram.len(), gpu2.vram.len());
         assert_eq!(gpu1.read_vram(0, 0), gpu2.read_vram(0, 0));
+    }
+
+    // GP1 Command Tests
+
+    #[test]
+    fn test_gp1_reset_gpu() {
+        let mut gpu = GPU::new();
+        gpu.display_mode.display_disabled = false;
+        gpu.status.display_disabled = false;
+        gpu.command_fifo.push_back(0x12345678);
+
+        gpu.write_gp1(0x00000000);
+
+        assert!(gpu.display_mode.display_disabled);
+        assert!(gpu.status.display_disabled);
+        assert!(gpu.command_fifo.is_empty());
+        assert!(gpu.current_command.is_none());
+    }
+
+    #[test]
+    fn test_gp1_reset_preserves_vram() {
+        let mut gpu = GPU::new();
+
+        // Write some data to VRAM
+        gpu.write_vram(100, 100, 0xABCD);
+        gpu.write_vram(500, 250, 0x1234);
+        gpu.write_vram(1023, 511, 0x5678);
+
+        // Reset via GP1 command
+        gpu.write_gp1(0x00000000);
+
+        // VRAM should be preserved (not cleared)
+        assert_eq!(gpu.read_vram(100, 100), 0xABCD);
+        assert_eq!(gpu.read_vram(500, 250), 0x1234);
+        assert_eq!(gpu.read_vram(1023, 511), 0x5678);
+
+        // But state should be reset
+        assert!(gpu.display_mode.display_disabled);
+        assert!(gpu.command_fifo.is_empty());
+    }
+
+    #[test]
+    fn test_gp1_reset_command_buffer() {
+        let mut gpu = GPU::new();
+        gpu.command_fifo.push_back(0x12345678);
+        gpu.command_fifo.push_back(0x9ABCDEF0);
+        gpu.current_command = Some(GPUCommand {
+            opcode: 0x20,
+            params: vec![0x12345678],
+            remaining_words: 5,
+        });
+
+        gpu.write_gp1(0x01000000);
+
+        assert!(gpu.command_fifo.is_empty());
+        assert!(gpu.current_command.is_none());
+        assert!(gpu.vram_transfer.is_none());
+    }
+
+    #[test]
+    fn test_gp1_acknowledge_interrupt() {
+        let mut gpu = GPU::new();
+        gpu.status.interrupt_request = true;
+
+        gpu.write_gp1(0x02000000);
+
+        assert!(!gpu.status.interrupt_request);
+    }
+
+    #[test]
+    fn test_gp1_display_enable() {
+        let mut gpu = GPU::new();
+
+        // Enable display (bit 0 = 0)
+        gpu.write_gp1(0x03000000);
+        assert!(!gpu.display_mode.display_disabled);
+        assert!(!gpu.status.display_disabled);
+
+        // Disable display (bit 0 = 1)
+        gpu.write_gp1(0x03000001);
+        assert!(gpu.display_mode.display_disabled);
+        assert!(gpu.status.display_disabled);
+    }
+
+    #[test]
+    fn test_gp1_dma_direction() {
+        let mut gpu = GPU::new();
+
+        // Test all DMA directions
+        gpu.write_gp1(0x04000000);
+        assert_eq!(gpu.status.dma_direction, 0);
+
+        gpu.write_gp1(0x04000001);
+        assert_eq!(gpu.status.dma_direction, 1);
+
+        gpu.write_gp1(0x04000002);
+        assert_eq!(gpu.status.dma_direction, 2);
+
+        gpu.write_gp1(0x04000003);
+        assert_eq!(gpu.status.dma_direction, 3);
+    }
+
+    #[test]
+    fn test_gp1_display_area_start() {
+        let mut gpu = GPU::new();
+
+        // Set display area start to (8, 16)
+        gpu.write_gp1(0x05000008 | (0x10 << 10));
+        assert_eq!(gpu.display_area.x, 8);
+        assert_eq!(gpu.display_area.y, 16);
+
+        // Test with different coordinates
+        gpu.write_gp1(0x05000100 | (0x80 << 10));
+        assert_eq!(gpu.display_area.x, 256);
+        assert_eq!(gpu.display_area.y, 128);
+    }
+
+    #[test]
+    fn test_gp1_horizontal_display_range() {
+        let mut gpu = GPU::new();
+
+        // Set horizontal range from 100 to 400 (width = 300)
+        gpu.write_gp1(0x06000064 | (0x190 << 12));
+        assert_eq!(gpu.display_area.width, 300);
+
+        // Test with different values
+        gpu.write_gp1(0x06000000 | (0x280 << 12));
+        assert_eq!(gpu.display_area.width, 640);
+    }
+
+    #[test]
+    fn test_gp1_vertical_display_range() {
+        let mut gpu = GPU::new();
+
+        // Set vertical range from 16 to 256 (height = 240)
+        gpu.write_gp1(0x07000010 | (0x100 << 10));
+        assert_eq!(gpu.display_area.height, 240);
+
+        // Test with different values
+        gpu.write_gp1(0x07000020 | (0x200 << 10));
+        assert_eq!(gpu.display_area.height, 480);
+    }
+
+    #[test]
+    fn test_gp1_display_mode_320x240_ntsc() {
+        let mut gpu = GPU::new();
+
+        // 320x240 NTSC 15-bit non-interlaced
+        // Bits: HR1=1, VRes=0, VideoMode=0, ColorDepth=0, Interlace=0, HR2=0
+        gpu.write_gp1(0x08000001);
+
+        assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R320);
+        assert_eq!(gpu.display_mode.vertical_res, VerticalRes::R240);
+        assert_eq!(gpu.display_mode.video_mode, VideoMode::NTSC);
+        assert_eq!(
+            gpu.display_mode.display_area_color_depth,
+            ColorDepth::C15Bit
+        );
+        assert!(!gpu.display_mode.interlaced);
+
+        // Check status bits are updated
+        assert_eq!(gpu.status.horizontal_res_1, 1);
+        assert_eq!(gpu.status.horizontal_res_2, 0);
+        assert!(!gpu.status.vertical_res);
+        assert!(!gpu.status.video_mode);
+        assert!(!gpu.status.display_area_color_depth);
+        assert!(!gpu.status.vertical_interlace);
+    }
+
+    #[test]
+    fn test_gp1_display_mode_640x480_pal_interlaced() {
+        let mut gpu = GPU::new();
+
+        // 640x480 PAL 24-bit interlaced
+        // Bits: HR1=3, VRes=1, VideoMode=1, ColorDepth=1, Interlace=1, HR2=0
+        // Value = 0x03 | (1<<2) | (1<<3) | (1<<4) | (1<<5) = 0x3F
+        gpu.write_gp1(0x0800003F);
+
+        assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R640);
+        assert_eq!(gpu.display_mode.vertical_res, VerticalRes::R480);
+        assert_eq!(gpu.display_mode.video_mode, VideoMode::PAL);
+        assert_eq!(
+            gpu.display_mode.display_area_color_depth,
+            ColorDepth::C24Bit
+        );
+        assert!(gpu.display_mode.interlaced);
+
+        // Check status bits are updated
+        assert_eq!(gpu.status.horizontal_res_1, 3);
+        assert_eq!(gpu.status.horizontal_res_2, 0);
+        assert!(gpu.status.vertical_res);
+        assert!(gpu.status.video_mode);
+        assert!(gpu.status.display_area_color_depth);
+        assert!(gpu.status.vertical_interlace);
+    }
+
+    #[test]
+    fn test_gp1_display_mode_368_horizontal() {
+        let mut gpu = GPU::new();
+
+        // 368 width mode (HR2=1, HR1=0)
+        // Bits: HR1=0, HR2=1
+        // Value = 0x00 | (1<<6) = 0x40
+        gpu.write_gp1(0x08000040);
+
+        assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R368);
+        assert_eq!(gpu.status.horizontal_res_1, 0);
+        assert_eq!(gpu.status.horizontal_res_2, 1);
+    }
+
+    #[test]
+    fn test_gp1_display_mode_384_horizontal() {
+        let mut gpu = GPU::new();
+
+        // 384 width mode (HR2=1, HR1=1)
+        // Bits: HR1=1, HR2=1
+        // Value = 0x01 | (1<<6) = 0x41
+        gpu.write_gp1(0x08000041);
+
+        assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R384);
+        assert_eq!(gpu.status.horizontal_res_1, 1);
+        assert_eq!(gpu.status.horizontal_res_2, 1);
+    }
+
+    #[test]
+    fn test_gp1_display_mode_all_resolutions() {
+        let mut gpu = GPU::new();
+
+        // Test 256 width
+        gpu.write_gp1(0x08000000);
+        assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R256);
+
+        // Test 320 width
+        gpu.write_gp1(0x08000001);
+        assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R320);
+
+        // Test 512 width
+        gpu.write_gp1(0x08000002);
+        assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R512);
+
+        // Test 640 width
+        gpu.write_gp1(0x08000003);
+        assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R640);
+
+        // Test 368 width (HR2=1, HR1=0)
+        gpu.write_gp1(0x08000040);
+        assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R368);
+
+        // Test 384 width (HR2=1, HR1=1)
+        gpu.write_gp1(0x08000041);
+        assert_eq!(gpu.display_mode.horizontal_res, HorizontalRes::R384);
+    }
+
+    #[test]
+    fn test_gp1_display_mode_reverse_flag() {
+        let mut gpu = GPU::new();
+
+        // Set reverse flag (bit 7)
+        gpu.write_gp1(0x08000080);
+        assert!(gpu.status.reverse_flag);
+
+        // Clear reverse flag
+        gpu.write_gp1(0x08000000);
+        assert!(!gpu.status.reverse_flag);
+    }
+
+    #[test]
+    fn test_gp1_get_gpu_info() {
+        let mut gpu = GPU::new();
+
+        // Test various info types (should not panic)
+        gpu.write_gp1(0x10000002); // Texture window
+        gpu.write_gp1(0x10000003); // Draw area top left
+        gpu.write_gp1(0x10000004); // Draw area bottom right
+        gpu.write_gp1(0x10000005); // Draw offset
+        gpu.write_gp1(0x10000007); // GPU version
+    }
+
+    #[test]
+    fn test_gp1_unknown_command() {
+        let mut gpu = GPU::new();
+
+        // Unknown command should not panic
+        gpu.write_gp1(0xFF000000);
+    }
+
+    #[test]
+    fn test_gp1_reset_clears_transfer() {
+        let mut gpu = GPU::new();
+
+        // Set up a VRAM transfer
+        gpu.vram_transfer = Some(VRAMTransfer {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+            current_x: 50,
+            current_y: 50,
+        });
+
+        // Reset command buffer should clear transfer
+        gpu.write_gp1(0x01000000);
+        assert!(gpu.vram_transfer.is_none());
+    }
+
+    #[test]
+    fn test_gp1_display_area_boundaries() {
+        let mut gpu = GPU::new();
+
+        // Test maximum coordinates
+        gpu.write_gp1(0x050003FF | (0x1FF << 10)); // Max X=1023, Y=511
+        assert_eq!(gpu.display_area.x, 1023);
+        assert_eq!(gpu.display_area.y, 511);
+
+        // Test zero coordinates
+        gpu.write_gp1(0x05000000);
+        assert_eq!(gpu.display_area.x, 0);
+        assert_eq!(gpu.display_area.y, 0);
+    }
+
+    #[test]
+    fn test_gp1_display_range_saturation() {
+        let mut gpu = GPU::new();
+
+        // Test horizontal range where x2 < x1 (should saturate to 0)
+        gpu.write_gp1(0x06000200 | (0x100 << 12));
+        assert_eq!(gpu.display_area.width, 0);
+
+        // Test vertical range where y2 < y1 (should saturate to 0)
+        gpu.write_gp1(0x07000200 | (0x100 << 10));
+        assert_eq!(gpu.display_area.height, 0);
     }
 }
