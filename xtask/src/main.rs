@@ -6,7 +6,7 @@ use std::time::Instant;
 
 #[derive(Parser)]
 #[command(name = "x")]
-#[command(about = "Development automation for echo-core")]
+#[command(about = "Development automation for psrx")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

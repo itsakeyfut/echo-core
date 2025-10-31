@@ -50,7 +50,7 @@ body:
       placeholder: |
         1. Compile the emulator: `zig build`
         2. Prepare a ROM file larger than 2MB (e.g., `test_rom.bin` at 2.5MB)
-        3. Run: `./zig-out/bin/echo-core test_rom.bin`
+        3. Run: `./zig-out/bin/psrx test_rom.bin`
         4. Observe the segmentation fault
     validations:
       required: true

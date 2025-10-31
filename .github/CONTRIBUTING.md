@@ -1,6 +1,6 @@
-# Contributing to echo-core
+# Contributing to PSRX
 
-Thank you for your interest in contributing to echo-core! This document provides guidelines and instructions for contributing to the project.
+Thank you for your interest in contributing to PSRX! This document provides guidelines and instructions for contributing to the project.
 
 ## Getting Started
 
@@ -43,7 +43,7 @@ We use `x` for development automation. All commands available:
 
 ### Before You Start
 
-1. Check existing [issues](https://github.com/itsakeyfut/echo-core/issues) to see if your feature/bug is already being worked on
+1. Check existing [issues](https://github.com/itsakeyfut/psrx/issues) to see if your feature/bug is already being worked on
 2. Create a new issue if one doesn't exist
 3. Comment on the issue to let others know you're working on it
 
@@ -231,10 +231,10 @@ cargo run --release -- SCPH1001.BIN -n 50000
 
 ## License
 
-By contributing to echo-core, you agree that your contributions will be licensed under the Apache License 2.0.
+By contributing to PSRX, you agree that your contributions will be licensed under the Apache License 2.0.
 
 ## Questions?
 
 Feel free to open an issue with the `question` label if you have any questions about contributing!
 
-Thank you for contributing to echo-core! 🎮
+Thank you for contributing to PSRX! 🎮

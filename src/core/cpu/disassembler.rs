@@ -25,7 +25,7 @@ use super::decode::{decode_i_type, decode_j_type, decode_r_type};
 ///
 /// # Example
 /// ```
-/// use echo_core::core::cpu::Disassembler;
+/// use psrx::core::cpu::Disassembler;
 ///
 /// let instruction = 0x00000000; // NOP
 /// let disasm = Disassembler::disassemble(instruction, 0xBFC00000);
@@ -47,7 +47,7 @@ impl Disassembler {
     ///
     /// # Example
     /// ```
-    /// use echo_core::core::cpu::Disassembler;
+    /// use psrx::core::cpu::Disassembler;
     ///
     /// let instruction = 0x3C011234; // LUI r1, 0x1234
     /// let disasm = Disassembler::disassemble(instruction, 0xBFC00000);

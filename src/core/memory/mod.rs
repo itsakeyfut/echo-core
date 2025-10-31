@@ -38,7 +38,7 @@
 //! # Example
 //!
 //! ```
-//! use echo_core::core::memory::Bus;
+//! use psrx::core::memory::Bus;
 //!
 //! let mut bus = Bus::new();
 //!
@@ -153,7 +153,7 @@ impl Bus {
     /// # Example
     ///
     /// ```
-    /// use echo_core::core::memory::Bus;
+    /// use psrx::core::memory::Bus;
     ///
     /// let bus = Bus::new();
     /// ```
@@ -177,7 +177,7 @@ impl Bus {
     /// # Example
     ///
     /// ```
-    /// use echo_core::core::memory::Bus;
+    /// use psrx::core::memory::Bus;
     ///
     /// let mut bus = Bus::new();
     /// bus.write32(0x80000000, 0x12345678).unwrap();
@@ -218,7 +218,7 @@ impl Bus {
     /// # Example
     ///
     /// ```no_run
-    /// use echo_core::core::memory::Bus;
+    /// use psrx::core::memory::Bus;
     ///
     /// let mut bus = Bus::new();
     /// bus.load_bios("SCPH1001.BIN").unwrap();
@@ -285,7 +285,7 @@ impl Bus {
     /// # Example
     ///
     /// ```
-    /// use echo_core::core::memory::{Bus, MemoryRegion};
+    /// use psrx::core::memory::{Bus, MemoryRegion};
     ///
     /// let bus = Bus::new();
     ///
@@ -334,7 +334,7 @@ impl Bus {
     /// # Example
     ///
     /// ```
-    /// use echo_core::core::memory::Bus;
+    /// use psrx::core::memory::Bus;
     ///
     /// let mut bus = Bus::new();
     /// bus.write8(0x80000000, 0x42).unwrap();
@@ -399,7 +399,7 @@ impl Bus {
     /// # Example
     ///
     /// ```
-    /// use echo_core::core::memory::Bus;
+    /// use psrx::core::memory::Bus;
     ///
     /// let mut bus = Bus::new();
     /// bus.write16(0x80000000, 0x1234).unwrap();
@@ -478,7 +478,7 @@ impl Bus {
     /// # Example
     ///
     /// ```
-    /// use echo_core::core::memory::Bus;
+    /// use psrx::core::memory::Bus;
     ///
     /// let mut bus = Bus::new();
     /// bus.write32(0x80000000, 0x12345678).unwrap();
@@ -583,7 +583,7 @@ impl Bus {
     /// # Example
     ///
     /// ```
-    /// use echo_core::core::memory::Bus;
+    /// use psrx::core::memory::Bus;
     ///
     /// let mut bus = Bus::new();
     /// bus.write8(0x80000000, 0x42).unwrap();
@@ -654,7 +654,7 @@ impl Bus {
     /// # Example
     ///
     /// ```
-    /// use echo_core::core::memory::Bus;
+    /// use psrx::core::memory::Bus;
     ///
     /// let mut bus = Bus::new();
     /// bus.write16(0x80000000, 0x1234).unwrap();
@@ -739,7 +739,7 @@ impl Bus {
     /// # Example
     ///
     /// ```
-    /// use echo_core::core::memory::Bus;
+    /// use psrx::core::memory::Bus;
     ///
     /// let mut bus = Bus::new();
     /// bus.write32(0x80000000, 0x12345678).unwrap();

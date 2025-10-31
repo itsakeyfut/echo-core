@@ -14,13 +14,13 @@
 // limitations under the License.
 
 use clap::Parser;
-use echo_core::core::error::Result;
-use echo_core::core::system::System;
 use log::{error, info};
+use psrx::core::error::Result;
+use psrx::core::system::System;
 
 /// PlayStation (PSX) emulator
 #[derive(Parser)]
-#[command(name = "echo-core")]
+#[command(name = "psrx")]
 #[command(about = "PlayStation emulator", long_about = None)]
 struct Args {
     /// Path to PlayStation BIOS file (e.g., SCPH1001.BIN)
@@ -37,7 +37,7 @@ fn main() -> Result<()> {
         .filter_level(log::LevelFilter::Info)
         .init();
 
-    info!("echo-core v{}", env!("CARGO_PKG_VERSION"));
+    info!("psrx v{}", env!("CARGO_PKG_VERSION"));
     info!("PlayStation emulator");
 
     // Parse command line arguments

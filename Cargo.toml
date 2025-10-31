@@ -3,14 +3,14 @@ members = ["xtask"]
 resolver = "2"
 
 [package]
-name = "echo-core"
+name = "psrx"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.90"
 authors = ["itsakeyfut"]
 description = "A PlayStation (PSX) emulator written in Rust"
 license = "Apache-2.0"
-repository = "https://github.com/itsakeyfut/echo-core"
+repository = "https://github.com/itsakeyfut/psrx"
 
 [dependencies]
 # Error handling

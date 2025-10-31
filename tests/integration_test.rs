@@ -13,8 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use echo_core::core::error::Result;
-use echo_core::core::system::System;
+use psrx::core::error::Result;
+use psrx::core::system::System;
 
 #[test]
 fn test_basic_initialization() -> Result<()> {

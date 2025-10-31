@@ -1,1 +1,1 @@
-# EchoCore - PlayStation Emulator
+# PSRX (PlayStation Rust eXecutable) - PlayStation Emulator

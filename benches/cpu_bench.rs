@@ -14,8 +14,8 @@
 // limitations under the License.
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use echo_core::core::cpu::CPU;
-use echo_core::core::memory::Bus;
+use psrx::core::cpu::CPU;
+use psrx::core::memory::Bus;
 use std::hint::black_box;
 
 fn cpu_step_benchmark(c: &mut Criterion) {

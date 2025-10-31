@@ -82,7 +82,7 @@ body:
 
         Alternative 2: Use existing format (like GSZ)
         - Pro: Compatibility with other emulators
-        - Con: May not capture all echo-core specific state
+        - Con: May not capture all psrx specific state
 
         Alternative 3: Implement replay recording instead
         - Pro: Smaller file size, deterministic

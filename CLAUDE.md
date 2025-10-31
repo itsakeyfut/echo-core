@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**EchoCore** is a PlayStation (PSX) emulator written in Rust, implementing the Sony PlayStation hardware including the MIPS R3000A CPU, CXD8561Q GPU, SPU, and other peripherals. The project follows a phased development approach with a focus on accuracy, maintainability, and performance.
+**PSRX** is a PlayStation (PSX) emulator written in Rust, implementing the Sony PlayStation hardware including the MIPS R3000A CPU, CXD8561Q GPU, SPU, and other peripherals. The project follows a phased development approach with a focus on accuracy, maintainability, and performance.
 
 ## Development Commands
 
