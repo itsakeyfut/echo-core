@@ -107,7 +107,7 @@ impl System {
     pub fn reset(&mut self) {
         self.cpu.reset();
         self.bus.reset();
-        self.gpu = GPU::new();
+        self.gpu.reset();
         self.spu = SPU::new();
         self.cycles = 0;
         self.running = true;

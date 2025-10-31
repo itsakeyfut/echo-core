@@ -121,7 +121,7 @@ pub struct GPU {
 ///
 /// Specifies how primitives are rendered, including texture mapping settings,
 /// transparency mode, and dithering.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct DrawMode {
     /// Texture page base X coordinate (in units of 64 pixels)
     pub texture_page_x_base: u16,
@@ -177,10 +177,21 @@ pub struct DrawingArea {
     pub bottom: u16,
 }
 
+impl Default for DrawingArea {
+    fn default() -> Self {
+        Self {
+            left: 0,
+            top: 0,
+            right: 1023,
+            bottom: 511,
+        }
+    }
+}
+
 /// Texture window settings
 ///
 /// Controls texture coordinate wrapping and masking within a specified window.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct TextureWindow {
     /// Texture window mask X (in 8-pixel steps)
     pub mask_x: u8,
@@ -213,6 +224,17 @@ pub struct DisplayArea {
     pub height: u16,
 }
 
+impl Default for DisplayArea {
+    fn default() -> Self {
+        Self {
+            x: 0,
+            y: 0,
+            width: 320,
+            height: 240,
+        }
+    }
+}
+
 /// Display mode settings
 ///
 /// Controls the display output format including resolution, video mode, and color depth.
@@ -235,6 +257,19 @@ pub struct DisplayMode {
 
     /// Display disabled
     pub display_disabled: bool,
+}
+
+impl Default for DisplayMode {
+    fn default() -> Self {
+        Self {
+            horizontal_res: HorizontalRes::R320,
+            vertical_res: VerticalRes::R240,
+            video_mode: VideoMode::NTSC,
+            display_area_color_depth: ColorDepth::C15Bit,
+            interlaced: false,
+            display_disabled: true,
+        }
+    }
 }
 
 /// Horizontal resolution modes
@@ -375,6 +410,38 @@ pub struct GPUStatus {
     pub drawing_odd_line: bool,
 }
 
+impl Default for GPUStatus {
+    fn default() -> Self {
+        Self {
+            texture_page_x_base: 0,
+            texture_page_y_base: 0,
+            semi_transparency: 0,
+            texture_depth: 0,
+            dithering: false,
+            draw_to_display: false,
+            set_mask_bit: false,
+            draw_pixels: false,
+            interlace_field: false,
+            reverse_flag: false,
+            texture_disable: false,
+            horizontal_res_2: 0,
+            horizontal_res_1: 0,
+            vertical_res: false,
+            video_mode: false,
+            display_area_color_depth: false,
+            vertical_interlace: false,
+            display_disabled: true,
+            interrupt_request: false,
+            dma_request: false,
+            ready_to_receive_cmd: true,
+            ready_to_send_vram: true,
+            ready_to_receive_dma: true,
+            dma_direction: 0,
+            drawing_odd_line: false,
+        }
+    }
+}
+
 /// VRAM transfer state
 ///
 /// Tracks the progress of a VRAM transfer operation (CPU-to-VRAM or VRAM-to-CPU).
@@ -448,82 +515,15 @@ impl GPU {
         Self {
             // Initialize VRAM to all black (0x0000)
             vram: vec![0x0000; Self::VRAM_SIZE],
-
-            draw_mode: DrawMode {
-                texture_page_x_base: 0,
-                texture_page_y_base: 0,
-                semi_transparency: 0,
-                texture_depth: 0,
-                dithering: false,
-                draw_to_display: false,
-                texture_disable: false,
-                texture_x_flip: false,
-                texture_y_flip: false,
-            },
-
-            draw_area: DrawingArea {
-                left: 0,
-                top: 0,
-                right: 1023,
-                bottom: 511,
-            },
-
+            draw_mode: DrawMode::default(),
+            draw_area: DrawingArea::default(),
             draw_offset: (0, 0),
-
-            texture_window: TextureWindow {
-                mask_x: 0,
-                mask_y: 0,
-                offset_x: 0,
-                offset_y: 0,
-            },
-
-            display_area: DisplayArea {
-                x: 0,
-                y: 0,
-                width: 320,
-                height: 240,
-            },
-
-            display_mode: DisplayMode {
-                horizontal_res: HorizontalRes::R320,
-                vertical_res: VerticalRes::R240,
-                video_mode: VideoMode::NTSC,
-                display_area_color_depth: ColorDepth::C15Bit,
-                interlaced: false,
-                display_disabled: true,
-            },
-
+            texture_window: TextureWindow::default(),
+            display_area: DisplayArea::default(),
+            display_mode: DisplayMode::default(),
             command_fifo: VecDeque::new(),
             current_command: None,
-
-            status: GPUStatus {
-                texture_page_x_base: 0,
-                texture_page_y_base: 0,
-                semi_transparency: 0,
-                texture_depth: 0,
-                dithering: false,
-                draw_to_display: false,
-                set_mask_bit: false,
-                draw_pixels: false,
-                interlace_field: false,
-                reverse_flag: false,
-                texture_disable: false,
-                horizontal_res_2: 0,
-                horizontal_res_1: 0,
-                vertical_res: false,
-                video_mode: false,
-                display_area_color_depth: false,
-                vertical_interlace: false,
-                display_disabled: true,
-                interrupt_request: false,
-                dma_request: false,
-                ready_to_receive_cmd: true,
-                ready_to_send_vram: true,
-                ready_to_receive_dma: true,
-                dma_direction: 0,
-                drawing_odd_line: false,
-            },
-
+            status: GPUStatus::default(),
             vram_transfer: None,
         }
     }
@@ -548,81 +548,15 @@ impl GPU {
         self.vram.fill(0x0000);
 
         // Reset all state to default values
-        self.draw_mode = DrawMode {
-            texture_page_x_base: 0,
-            texture_page_y_base: 0,
-            semi_transparency: 0,
-            texture_depth: 0,
-            dithering: false,
-            draw_to_display: false,
-            texture_disable: false,
-            texture_x_flip: false,
-            texture_y_flip: false,
-        };
-
-        self.draw_area = DrawingArea {
-            left: 0,
-            top: 0,
-            right: 1023,
-            bottom: 511,
-        };
-
+        self.draw_mode = DrawMode::default();
+        self.draw_area = DrawingArea::default();
         self.draw_offset = (0, 0);
-
-        self.texture_window = TextureWindow {
-            mask_x: 0,
-            mask_y: 0,
-            offset_x: 0,
-            offset_y: 0,
-        };
-
-        self.display_area = DisplayArea {
-            x: 0,
-            y: 0,
-            width: 320,
-            height: 240,
-        };
-
-        self.display_mode = DisplayMode {
-            horizontal_res: HorizontalRes::R320,
-            vertical_res: VerticalRes::R240,
-            video_mode: VideoMode::NTSC,
-            display_area_color_depth: ColorDepth::C15Bit,
-            interlaced: false,
-            display_disabled: true,
-        };
-
+        self.texture_window = TextureWindow::default();
+        self.display_area = DisplayArea::default();
+        self.display_mode = DisplayMode::default();
         self.command_fifo.clear();
         self.current_command = None;
-
-        self.status = GPUStatus {
-            texture_page_x_base: 0,
-            texture_page_y_base: 0,
-            semi_transparency: 0,
-            texture_depth: 0,
-            dithering: false,
-            draw_to_display: false,
-            set_mask_bit: false,
-            draw_pixels: false,
-            interlace_field: false,
-            reverse_flag: false,
-            texture_disable: false,
-            horizontal_res_2: 0,
-            horizontal_res_1: 0,
-            vertical_res: false,
-            video_mode: false,
-            display_area_color_depth: false,
-            vertical_interlace: false,
-            display_disabled: true,
-            interrupt_request: false,
-            dma_request: false,
-            ready_to_receive_cmd: true,
-            ready_to_send_vram: true,
-            ready_to_receive_dma: true,
-            dma_direction: 0,
-            drawing_odd_line: false,
-        };
-
+        self.status = GPUStatus::default();
         self.vram_transfer = None;
     }
 
@@ -637,6 +571,11 @@ impl GPU {
     ///
     /// The 16-bit pixel value in 5-5-5 RGB format
     ///
+    /// # Note
+    ///
+    /// Coordinates are automatically wrapped to valid VRAM ranges
+    /// (0-1023 for X, 0-511 for Y), matching PlayStation hardware behavior.
+    ///
     /// # Examples
     ///
     /// ```
@@ -645,11 +584,6 @@ impl GPU {
     /// let gpu = GPU::new();
     /// let pixel = gpu.read_vram(100, 100);
     /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if coordinates are out of bounds in debug builds.
-    /// In release builds, coordinates are wrapped to valid ranges.
     #[inline(always)]
     pub fn read_vram(&self, x: u16, y: u16) -> u16 {
         let index = self.vram_index(x, y);
@@ -664,6 +598,11 @@ impl GPU {
     /// * `y` - Y coordinate (0-511)
     /// * `value` - 16-bit pixel value in 5-5-5 RGB format
     ///
+    /// # Note
+    ///
+    /// Coordinates are automatically wrapped to valid VRAM ranges
+    /// (0-1023 for X, 0-511 for Y), matching PlayStation hardware behavior.
+    ///
     /// # Examples
     ///
     /// ```
@@ -673,11 +612,6 @@ impl GPU {
     /// gpu.write_vram(100, 100, 0x7FFF); // White
     /// assert_eq!(gpu.read_vram(100, 100), 0x7FFF);
     /// ```
-    ///
-    /// # Panics
-    ///
-    /// Panics if coordinates are out of bounds in debug builds.
-    /// In release builds, coordinates are wrapped to valid ranges.
     #[inline(always)]
     pub fn write_vram(&mut self, x: u16, y: u16, value: u16) {
         let index = self.vram_index(x, y);
