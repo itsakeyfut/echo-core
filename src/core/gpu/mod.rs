@@ -445,6 +445,17 @@ impl Default for GPUStatus {
     }
 }
 
+/// VRAM transfer direction
+///
+/// Indicates whether a VRAM transfer is uploading from CPU to VRAM or downloading from VRAM to CPU.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VRAMTransferDirection {
+    /// CPU→VRAM transfer (GP0 0xA0)
+    CpuToVram,
+    /// VRAM→CPU transfer (GP0 0xC0)
+    VramToCpu,
+}
+
 /// VRAM transfer state
 ///
 /// Tracks the progress of a VRAM transfer operation (CPU-to-VRAM or VRAM-to-CPU).
@@ -467,6 +478,9 @@ pub struct VRAMTransfer {
 
     /// Current Y position in transfer
     pub current_y: u16,
+
+    /// Transfer direction
+    pub direction: VRAMTransferDirection,
 }
 
 /// GPU command being processed
@@ -754,10 +768,14 @@ impl GPU {
     /// gpu.write_gp0(0x00020002);  // size
     /// ```
     pub fn write_gp0(&mut self, value: u32) {
-        // If we're in the middle of a VRAM transfer, handle it
-        if self.vram_transfer.is_some() {
-            self.process_vram_write(value);
-            return;
+        // If we're in the middle of a CPU→VRAM transfer, handle it
+        if let Some(ref transfer) = self.vram_transfer {
+            if transfer.direction == VRAMTransferDirection::CpuToVram {
+                self.process_vram_write(value);
+                return;
+            }
+            // VRAM→CPU transfer is in progress; ignore stray GP0 writes
+            // (CPU should be reading from GPUREAD instead)
         }
 
         // Otherwise, buffer the command
@@ -841,6 +859,7 @@ impl GPU {
             height,
             current_x: 0,
             current_y: 0,
+            direction: VRAMTransferDirection::CpuToVram,
         });
     }
 
@@ -935,6 +954,7 @@ impl GPU {
             height,
             current_x: 0,
             current_y: 0,
+            direction: VRAMTransferDirection::VramToCpu,
         });
 
         // Update status to indicate data is ready
@@ -1827,6 +1847,7 @@ mod tests {
             height: 100,
             current_x: 50,
             current_y: 50,
+            direction: VRAMTransferDirection::CpuToVram,
         });
 
         // Reset command buffer should clear transfer
