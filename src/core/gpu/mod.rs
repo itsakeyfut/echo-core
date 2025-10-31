@@ -733,6 +733,349 @@ impl GPU {
         let _ = cycles;
     }
 
+    /// Process GP0 command (drawing and VRAM commands)
+    ///
+    /// GP0 commands handle drawing operations and VRAM transfers.
+    /// Commands are buffered in a FIFO and processed when complete.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - 32-bit GP0 command word
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::GPU;
+    ///
+    /// let mut gpu = GPU::new();
+    /// // Start CPU→VRAM transfer
+    /// gpu.write_gp0(0xA0000000);
+    /// gpu.write_gp0(0x0000000A);  // position
+    /// gpu.write_gp0(0x00020002);  // size
+    /// ```
+    pub fn write_gp0(&mut self, value: u32) {
+        // If we're in the middle of a VRAM transfer, handle it
+        if self.vram_transfer.is_some() {
+            self.process_vram_write(value);
+            return;
+        }
+
+        // Otherwise, buffer the command
+        self.command_fifo.push_back(value);
+
+        // Try to process command if we're not currently processing one
+        if self.current_command.is_none() {
+            self.try_process_command();
+        }
+    }
+
+    /// Try to process the next command in the FIFO
+    ///
+    /// Examines the command FIFO and attempts to process the next GP0 command
+    /// if enough words have been received.
+    fn try_process_command(&mut self) {
+        if self.command_fifo.is_empty() {
+            return;
+        }
+
+        let first_word = self.command_fifo[0];
+        let command = (first_word >> 24) & 0xFF;
+
+        match command {
+            // VRAM transfer commands
+            0xA0 => self.gp0_cpu_to_vram_transfer(),
+            0xC0 => self.gp0_vram_to_cpu_transfer(),
+            0x80 => self.gp0_vram_to_vram_transfer(),
+
+            // Other commands will be implemented in later issues
+            _ => {
+                log::warn!("Unimplemented GP0 command: 0x{:02X}", command);
+                // Remove unknown command to prevent stalling
+                self.command_fifo.pop_front();
+            }
+        }
+    }
+
+    /// GP0(0xA0): CPU→VRAM Transfer
+    ///
+    /// Initiates a transfer from CPU to VRAM. The transfer requires 3 command words:
+    /// - Word 0: Command (0xA0000000)
+    /// - Word 1: Destination coordinates (X in bits 0-15, Y in bits 16-31)
+    /// - Word 2: Size (Width in bits 0-15, Height in bits 16-31)
+    ///
+    /// After these words, subsequent GP0 writes are treated as pixel data (2 pixels per word).
+    fn gp0_cpu_to_vram_transfer(&mut self) {
+        if self.command_fifo.len() < 3 {
+            return; // Need more words
+        }
+
+        // Extract command words
+        let _ = self.command_fifo.pop_front().unwrap();
+        let coords = self.command_fifo.pop_front().unwrap();
+        let size = self.command_fifo.pop_front().unwrap();
+
+        let x = (coords & 0xFFFF) as u16;
+        let y = ((coords >> 16) & 0xFFFF) as u16;
+        let width = (size & 0xFFFF) as u16;
+        let height = ((size >> 16) & 0xFFFF) as u16;
+
+        // Align to boundaries and apply hardware limits
+        let x = x & 0x3FF; // 10-bit (0-1023)
+        let y = y & 0x1FF; // 9-bit (0-511)
+        let width = ((width.saturating_sub(1)) & 0x3FF).saturating_add(1);
+        let height = ((height.saturating_sub(1)) & 0x1FF).saturating_add(1);
+
+        log::debug!(
+            "CPU→VRAM transfer: ({}, {}) size {}×{}",
+            x,
+            y,
+            width,
+            height
+        );
+
+        // Start VRAM transfer
+        self.vram_transfer = Some(VRAMTransfer {
+            x,
+            y,
+            width,
+            height,
+            current_x: 0,
+            current_y: 0,
+        });
+    }
+
+    /// Process incoming VRAM write data during CPU→VRAM transfer
+    ///
+    /// Each word contains two 16-bit pixels. Pixels are written sequentially
+    /// left-to-right, top-to-bottom within the transfer rectangle.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - 32-bit word containing two 16-bit pixels
+    fn process_vram_write(&mut self, value: u32) {
+        // Extract transfer state to avoid borrowing issues
+        let mut transfer = match self.vram_transfer.take() {
+            Some(t) => t,
+            None => return,
+        };
+
+        // Each u32 contains two 16-bit pixels
+        let pixel1 = (value & 0xFFFF) as u16;
+        let pixel2 = ((value >> 16) & 0xFFFF) as u16;
+
+        // Write first pixel
+        let vram_x = (transfer.x + transfer.current_x) & 0x3FF;
+        let vram_y = (transfer.y + transfer.current_y) & 0x1FF;
+        self.write_vram(vram_x, vram_y, pixel1);
+
+        transfer.current_x += 1;
+        if transfer.current_x >= transfer.width {
+            transfer.current_x = 0;
+            transfer.current_y += 1;
+        }
+
+        // Write second pixel if transfer not complete
+        if transfer.current_y < transfer.height {
+            let vram_x = (transfer.x + transfer.current_x) & 0x3FF;
+            let vram_y = (transfer.y + transfer.current_y) & 0x1FF;
+            self.write_vram(vram_x, vram_y, pixel2);
+
+            transfer.current_x += 1;
+            if transfer.current_x >= transfer.width {
+                transfer.current_x = 0;
+                transfer.current_y += 1;
+            }
+        }
+
+        // Check if transfer is complete
+        if transfer.current_y >= transfer.height {
+            log::debug!("CPU→VRAM transfer complete");
+            // Transfer is complete, don't restore it
+        } else {
+            // Restore transfer state for next write
+            self.vram_transfer = Some(transfer);
+        }
+    }
+
+    /// GP0(0xC0): VRAM→CPU Transfer
+    ///
+    /// Initiates a transfer from VRAM to CPU. The transfer requires 3 command words:
+    /// - Word 0: Command (0xC0000000)
+    /// - Word 1: Source coordinates (X in bits 0-15, Y in bits 16-31)
+    /// - Word 2: Size (Width in bits 0-15, Height in bits 16-31)
+    ///
+    /// After this command, the CPU can read pixel data via GPUREAD register.
+    fn gp0_vram_to_cpu_transfer(&mut self) {
+        if self.command_fifo.len() < 3 {
+            return;
+        }
+
+        let _ = self.command_fifo.pop_front().unwrap();
+        let coords = self.command_fifo.pop_front().unwrap();
+        let size = self.command_fifo.pop_front().unwrap();
+
+        let x = (coords & 0xFFFF) as u16 & 0x3FF;
+        let y = ((coords >> 16) & 0xFFFF) as u16 & 0x1FF;
+        let width = (((size & 0xFFFF) as u16).saturating_sub(1) & 0x3FF).saturating_add(1);
+        let height = ((((size >> 16) & 0xFFFF) as u16).saturating_sub(1) & 0x1FF).saturating_add(1);
+
+        log::debug!(
+            "VRAM→CPU transfer: ({}, {}) size {}×{}",
+            x,
+            y,
+            width,
+            height
+        );
+
+        // Set up for reading
+        self.vram_transfer = Some(VRAMTransfer {
+            x,
+            y,
+            width,
+            height,
+            current_x: 0,
+            current_y: 0,
+        });
+
+        // Update status to indicate data is ready
+        self.status.ready_to_send_vram = true;
+    }
+
+    /// Read from GPUREAD register (0x1F801810)
+    ///
+    /// Returns pixel data during VRAM→CPU transfers. Each read returns
+    /// two 16-bit pixels packed into a 32-bit word.
+    ///
+    /// # Returns
+    ///
+    /// 32-bit word containing two pixels (pixel1 in bits 0-15, pixel2 in bits 16-31)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::GPU;
+    ///
+    /// let mut gpu = GPU::new();
+    /// gpu.write_vram(100, 100, 0x1234);
+    /// gpu.write_vram(101, 100, 0x5678);
+    ///
+    /// // Start VRAM→CPU transfer
+    /// gpu.write_gp0(0xC0000000);
+    /// gpu.write_gp0(0x00640064);  // position (100, 100)
+    /// gpu.write_gp0(0x00010002);  // size 2×1
+    ///
+    /// let data = gpu.read_gpuread();
+    /// assert_eq!(data & 0xFFFF, 0x1234);
+    /// assert_eq!((data >> 16) & 0xFFFF, 0x5678);
+    /// ```
+    pub fn read_gpuread(&mut self) -> u32 {
+        // Extract transfer state to avoid borrowing issues
+        let mut transfer = match self.vram_transfer.take() {
+            Some(t) => t,
+            None => return 0,
+        };
+
+        // Read two pixels and pack into u32
+        let vram_x1 = (transfer.x + transfer.current_x) & 0x3FF;
+        let vram_y1 = (transfer.y + transfer.current_y) & 0x1FF;
+        let pixel1 = self.read_vram(vram_x1, vram_y1);
+
+        transfer.current_x += 1;
+        if transfer.current_x >= transfer.width {
+            transfer.current_x = 0;
+            transfer.current_y += 1;
+        }
+
+        let pixel2 = if transfer.current_y < transfer.height {
+            let vram_x2 = (transfer.x + transfer.current_x) & 0x3FF;
+            let vram_y2 = (transfer.y + transfer.current_y) & 0x1FF;
+            let p = self.read_vram(vram_x2, vram_y2);
+
+            transfer.current_x += 1;
+            if transfer.current_x >= transfer.width {
+                transfer.current_x = 0;
+                transfer.current_y += 1;
+            }
+
+            p
+        } else {
+            0
+        };
+
+        // Check if complete
+        if transfer.current_y >= transfer.height {
+            self.status.ready_to_send_vram = false;
+            log::debug!("VRAM→CPU transfer complete");
+            // Transfer is complete, don't restore it
+        } else {
+            // Restore transfer state for next read
+            self.vram_transfer = Some(transfer);
+        }
+
+        (pixel1 as u32) | ((pixel2 as u32) << 16)
+    }
+
+    /// GP0(0x80): VRAM→VRAM Transfer
+    ///
+    /// Copies a rectangle within VRAM. The transfer requires 4 command words:
+    /// - Word 0: Command (0x80000000)
+    /// - Word 1: Source coordinates (X in bits 0-15, Y in bits 16-31)
+    /// - Word 2: Destination coordinates (X in bits 0-15, Y in bits 16-31)
+    /// - Word 3: Size (Width in bits 0-15, Height in bits 16-31)
+    ///
+    /// The copy handles overlapping regions correctly by using a temporary buffer.
+    fn gp0_vram_to_vram_transfer(&mut self) {
+        if self.command_fifo.len() < 4 {
+            return;
+        }
+
+        let _ = self.command_fifo.pop_front().unwrap();
+        let src_coords = self.command_fifo.pop_front().unwrap();
+        let dst_coords = self.command_fifo.pop_front().unwrap();
+        let size = self.command_fifo.pop_front().unwrap();
+
+        let src_x = (src_coords & 0xFFFF) as u16 & 0x3FF;
+        let src_y = ((src_coords >> 16) & 0xFFFF) as u16 & 0x1FF;
+        let dst_x = (dst_coords & 0xFFFF) as u16 & 0x3FF;
+        let dst_y = ((dst_coords >> 16) & 0xFFFF) as u16 & 0x1FF;
+        let width = (((size & 0xFFFF) as u16).saturating_sub(1) & 0x3FF).saturating_add(1);
+        let height = ((((size >> 16) & 0xFFFF) as u16).saturating_sub(1) & 0x1FF).saturating_add(1);
+
+        log::debug!(
+            "VRAM→VRAM transfer: ({}, {}) → ({}, {}) size {}×{}",
+            src_x,
+            src_y,
+            dst_x,
+            dst_y,
+            width,
+            height
+        );
+
+        // Copy rectangle
+        // Note: Need to handle overlapping regions correctly
+        let mut temp_buffer = vec![0u16; (width as usize) * (height as usize)];
+
+        // Read source
+        for y in 0..height {
+            for x in 0..width {
+                let sx = (src_x + x) & 0x3FF;
+                let sy = (src_y + y) & 0x1FF;
+                temp_buffer[(y as usize) * (width as usize) + (x as usize)] =
+                    self.read_vram(sx, sy);
+            }
+        }
+
+        // Write destination
+        for y in 0..height {
+            for x in 0..width {
+                let dx = (dst_x + x) & 0x3FF;
+                let dy = (dst_y + y) & 0x1FF;
+                let pixel = temp_buffer[(y as usize) * (width as usize) + (x as usize)];
+                self.write_vram(dx, dy, pixel);
+            }
+        }
+    }
+
     /// Process GP1 command (control commands)
     ///
     /// GP1 commands control the GPU's display parameters and operational state.
@@ -1517,5 +1860,310 @@ mod tests {
         // Test vertical range where y2 < y1 (should saturate to 0)
         gpu.write_gp1(0x07000200 | (0x100 << 10));
         assert_eq!(gpu.display_area.height, 0);
+    }
+
+    // GP0 VRAM Transfer Tests
+
+    #[test]
+    fn test_cpu_to_vram_transfer() {
+        let mut gpu = GPU::new();
+
+        // Start transfer: position (10, 20), size 2x2
+        gpu.write_gp0(0xA0000000);
+        gpu.write_gp0(0x0014000A); // y=20, x=10
+        gpu.write_gp0(0x00020002); // height=2, width=2
+
+        // Write 2 u32 words (4 pixels total for 2x2)
+        gpu.write_gp0(0x7FFF7FFF); // Two white pixels
+        gpu.write_gp0(0x00000000); // Two black pixels
+
+        // Verify pixels written correctly
+        assert_eq!(gpu.read_vram(10, 20), 0x7FFF);
+        assert_eq!(gpu.read_vram(11, 20), 0x7FFF);
+        assert_eq!(gpu.read_vram(10, 21), 0x0000);
+        assert_eq!(gpu.read_vram(11, 21), 0x0000);
+
+        // Transfer should be complete
+        assert!(gpu.vram_transfer.is_none());
+    }
+
+    #[test]
+    fn test_cpu_to_vram_transfer_wrapping() {
+        let mut gpu = GPU::new();
+
+        // Test coordinate wrapping at VRAM boundary
+        gpu.write_gp0(0xA0000000);
+        gpu.write_gp0(0x000003FF); // position (1023, 0)
+        gpu.write_gp0(0x00010002); // size 2x1
+
+        // Write 1 u32 word (2 pixels)
+        gpu.write_gp0(0x12345678);
+
+        // Verify wrapping: second pixel wraps to x=0 same row
+        // VRAM coordinates wrap independently from transfer coordinates
+        assert_eq!(gpu.read_vram(1023, 0), 0x5678);
+        assert_eq!(gpu.read_vram(0, 0), 0x1234); // Wrapped to x=0 same row
+    }
+
+    #[test]
+    fn test_cpu_to_vram_transfer_odd_width() {
+        let mut gpu = GPU::new();
+
+        // Test transfer with odd width (3 pixels = 2 u32 words)
+        gpu.write_gp0(0xA0000000);
+        gpu.write_gp0(0x00000000); // position (0, 0)
+        gpu.write_gp0(0x00010003); // size 3x1
+
+        // Write 2 u32 words (4 pixels, but only 3 are in transfer)
+        gpu.write_gp0(0xAAAABBBB);
+        gpu.write_gp0(0xCCCCDDDD);
+
+        // Verify only 3 pixels written
+        assert_eq!(gpu.read_vram(0, 0), 0xBBBB);
+        assert_eq!(gpu.read_vram(1, 0), 0xAAAA);
+        assert_eq!(gpu.read_vram(2, 0), 0xDDDD);
+
+        // Transfer should be complete after 3 pixels
+        assert!(gpu.vram_transfer.is_none());
+    }
+
+    #[test]
+    fn test_vram_to_cpu_transfer() {
+        let mut gpu = GPU::new();
+
+        // Setup VRAM with test pattern
+        gpu.write_vram(100, 100, 0x1234);
+        gpu.write_vram(101, 100, 0x5678);
+        gpu.write_vram(102, 100, 0x9ABC);
+        gpu.write_vram(103, 100, 0xDEF0);
+
+        // Start read transfer: position (100, 100), size 4x1
+        gpu.write_gp0(0xC0000000);
+        gpu.write_gp0(0x00640064); // position (100, 100)
+        gpu.write_gp0(0x00010004); // size 4x1
+
+        // Read data (2 pixels per read)
+        let data1 = gpu.read_gpuread();
+        assert_eq!(data1 & 0xFFFF, 0x1234);
+        assert_eq!((data1 >> 16) & 0xFFFF, 0x5678);
+
+        let data2 = gpu.read_gpuread();
+        assert_eq!(data2 & 0xFFFF, 0x9ABC);
+        assert_eq!((data2 >> 16) & 0xFFFF, 0xDEF0);
+
+        // Transfer should be complete
+        assert!(gpu.vram_transfer.is_none());
+        assert!(!gpu.status.ready_to_send_vram);
+    }
+
+    #[test]
+    fn test_vram_to_cpu_transfer_odd_width() {
+        let mut gpu = GPU::new();
+
+        // Setup VRAM with test pattern
+        gpu.write_vram(50, 50, 0xAAAA);
+        gpu.write_vram(51, 50, 0xBBBB);
+        gpu.write_vram(52, 50, 0xCCCC);
+
+        // Start read transfer: position (50, 50), size 3x1
+        gpu.write_gp0(0xC0000000);
+        gpu.write_gp0(0x00320032); // position (50, 50)
+        gpu.write_gp0(0x00010003); // size 3x1
+
+        // Read first 2 pixels
+        let data1 = gpu.read_gpuread();
+        assert_eq!(data1 & 0xFFFF, 0xAAAA);
+        assert_eq!((data1 >> 16) & 0xFFFF, 0xBBBB);
+
+        // Read remaining pixel (second pixel should be 0 as transfer ends)
+        let data2 = gpu.read_gpuread();
+        assert_eq!(data2 & 0xFFFF, 0xCCCC);
+        assert_eq!((data2 >> 16) & 0xFFFF, 0); // No more data
+
+        // Transfer should be complete
+        assert!(gpu.vram_transfer.is_none());
+    }
+
+    #[test]
+    fn test_vram_to_cpu_status_flag() {
+        let mut gpu = GPU::new();
+
+        // Initially not ready to send
+        assert!(gpu.status.ready_to_send_vram);
+
+        // Start transfer
+        gpu.write_gp0(0xC0000000);
+        gpu.write_gp0(0x00000000);
+        gpu.write_gp0(0x00010001); // 1x1 transfer
+
+        // Should be ready to send
+        assert!(gpu.status.ready_to_send_vram);
+
+        // Read data
+        let _ = gpu.read_gpuread();
+
+        // Should no longer be ready after transfer complete
+        assert!(!gpu.status.ready_to_send_vram);
+    }
+
+    #[test]
+    fn test_vram_to_vram_transfer() {
+        let mut gpu = GPU::new();
+
+        // Write source data
+        gpu.write_vram(0, 0, 0xAAAA);
+        gpu.write_vram(1, 0, 0xBBBB);
+        gpu.write_vram(0, 1, 0xCCCC);
+        gpu.write_vram(1, 1, 0xDDDD);
+
+        // Copy 2x2 rectangle from (0,0) to (10,10)
+        gpu.write_gp0(0x80000000);
+        gpu.write_gp0(0x00000000); // src (0, 0)
+        gpu.write_gp0(0x000A000A); // dst (10, 10)
+        gpu.write_gp0(0x00020002); // size 2x2
+
+        // Verify destination
+        assert_eq!(gpu.read_vram(10, 10), 0xAAAA);
+        assert_eq!(gpu.read_vram(11, 10), 0xBBBB);
+        assert_eq!(gpu.read_vram(10, 11), 0xCCCC);
+        assert_eq!(gpu.read_vram(11, 11), 0xDDDD);
+
+        // Source should be unchanged
+        assert_eq!(gpu.read_vram(0, 0), 0xAAAA);
+        assert_eq!(gpu.read_vram(1, 0), 0xBBBB);
+    }
+
+    #[test]
+    fn test_vram_to_vram_transfer_overlapping() {
+        let mut gpu = GPU::new();
+
+        // Write source data in a line
+        for i in 0..5 {
+            gpu.write_vram(i, 0, 0x1000 + i);
+        }
+
+        // Copy overlapping region: (0,0) to (2,0), size 3x1
+        // This tests that we use a temporary buffer
+        gpu.write_gp0(0x80000000);
+        gpu.write_gp0(0x00000000); // src (0, 0)
+        gpu.write_gp0(0x00000002); // dst (2, 0)
+        gpu.write_gp0(0x00010003); // size 3x1
+
+        // Verify copy worked correctly despite overlap
+        assert_eq!(gpu.read_vram(2, 0), 0x1000);
+        assert_eq!(gpu.read_vram(3, 0), 0x1001);
+        assert_eq!(gpu.read_vram(4, 0), 0x1002);
+    }
+
+    #[test]
+    fn test_vram_to_vram_transfer_wrapping() {
+        let mut gpu = GPU::new();
+
+        // Write at edge of VRAM
+        gpu.write_vram(1023, 511, 0xABCD);
+        gpu.write_vram(0, 0, 0x1234);
+
+        // Copy from edge, should wrap
+        gpu.write_gp0(0x80000000);
+        gpu.write_gp0(0x01FF03FF); // src (1023, 511)
+        gpu.write_gp0(0x00640064); // dst (100, 100)
+        gpu.write_gp0(0x00020002); // size 2x2
+
+        // Verify wrapped copy
+        assert_eq!(gpu.read_vram(100, 100), 0xABCD);
+        // Other pixels will be from wrapped coordinates
+    }
+
+    #[test]
+    fn test_gp0_command_buffering() {
+        let mut gpu = GPU::new();
+
+        // Send partial command (should buffer)
+        gpu.write_gp0(0xA0000000);
+        assert_eq!(gpu.command_fifo.len(), 1);
+        assert!(gpu.vram_transfer.is_none());
+
+        // Send second word
+        gpu.write_gp0(0x00000000);
+        assert_eq!(gpu.command_fifo.len(), 2);
+        assert!(gpu.vram_transfer.is_none());
+
+        // Send third word - command should execute
+        gpu.write_gp0(0x00010001);
+        assert_eq!(gpu.command_fifo.len(), 0);
+        assert!(gpu.vram_transfer.is_some());
+    }
+
+    #[test]
+    fn test_gp0_unknown_command() {
+        let mut gpu = GPU::new();
+
+        // Send unknown command (should be ignored)
+        gpu.write_gp0(0xFF000000);
+
+        // FIFO should be empty (command removed)
+        assert!(gpu.command_fifo.is_empty());
+    }
+
+    #[test]
+    fn test_vram_transfer_interrupt_by_gp1_reset() {
+        let mut gpu = GPU::new();
+
+        // Start a VRAM transfer
+        gpu.write_gp0(0xA0000000);
+        gpu.write_gp0(0x00000000);
+        gpu.write_gp0(0x00010001);
+        assert!(gpu.vram_transfer.is_some());
+
+        // Reset command buffer via GP1
+        gpu.write_gp1(0x01000000);
+
+        // Transfer should be cancelled
+        assert!(gpu.vram_transfer.is_none());
+        assert!(gpu.command_fifo.is_empty());
+    }
+
+    #[test]
+    fn test_cpu_to_vram_size_alignment() {
+        let mut gpu = GPU::new();
+
+        // Test that size of 0 is treated as 1 (per hardware behavior)
+        gpu.write_gp0(0xA0000000);
+        gpu.write_gp0(0x00000000); // position (0, 0)
+        gpu.write_gp0(0x00000000); // size 0x0 (should become 1x1)
+
+        // Write 1 pixel
+        gpu.write_gp0(0x12345678);
+
+        // Should write at least one pixel
+        assert_eq!(gpu.read_vram(0, 0), 0x5678);
+    }
+
+    #[test]
+    fn test_vram_to_cpu_multiline() {
+        let mut gpu = GPU::new();
+
+        // Write 2x2 pattern
+        gpu.write_vram(0, 0, 0xAAAA);
+        gpu.write_vram(1, 0, 0xBBBB);
+        gpu.write_vram(0, 1, 0xCCCC);
+        gpu.write_vram(1, 1, 0xDDDD);
+
+        // Read 2x2 area
+        gpu.write_gp0(0xC0000000);
+        gpu.write_gp0(0x00000000); // position (0, 0)
+        gpu.write_gp0(0x00020002); // size 2x2
+
+        // Read first row
+        let data1 = gpu.read_gpuread();
+        assert_eq!(data1 & 0xFFFF, 0xAAAA);
+        assert_eq!((data1 >> 16) & 0xFFFF, 0xBBBB);
+
+        // Read second row
+        let data2 = gpu.read_gpuread();
+        assert_eq!(data2 & 0xFFFF, 0xCCCC);
+        assert_eq!((data2 >> 16) & 0xFFFF, 0xDDDD);
+
+        assert!(gpu.vram_transfer.is_none());
     }
 }
