@@ -45,6 +45,18 @@ enum Commands {
         doc: bool,
         #[arg(long)]
         ignored: bool,
+        /// Run only CPU module tests
+        #[arg(long)]
+        cpu: bool,
+        /// Run only GPU module tests
+        #[arg(long)]
+        gpu: bool,
+        /// Run only Memory module tests
+        #[arg(long)]
+        memory: bool,
+        /// Run only System module tests
+        #[arg(long)]
+        system: bool,
     },
     /// Run benchmarks
     Bench,
@@ -75,7 +87,14 @@ fn main() -> Result<()> {
         Commands::Fmt { check } => run_fmt(check),
         Commands::Clippy { fix } => run_clippy(fix),
         Commands::Build { release } => run_build(release),
-        Commands::Test { doc, ignored } => run_test(doc, ignored),
+        Commands::Test {
+            doc,
+            ignored,
+            cpu,
+            gpu,
+            memory,
+            system,
+        } => run_test(doc, ignored, cpu, gpu, memory, system),
         Commands::Bench => run_bench(),
         Commands::BiosBoot {
             bios_path,
@@ -95,7 +114,11 @@ fn run_ci(verbose: bool) -> Result<()> {
     run_task("Format Check", || run_fmt(true), verbose)?;
     run_task("Clippy", || run_clippy(false), verbose)?;
     run_task("Build", || run_build(false), verbose)?;
-    run_task("Test", || run_test(false, false), verbose)?;
+    run_task(
+        "Test",
+        || run_test(false, false, false, false, false, false),
+        verbose,
+    )?;
 
     let elapsed = start.elapsed();
     println!(
@@ -160,19 +183,89 @@ fn run_build(release: bool) -> Result<()> {
     execute_command(&mut cmd)
 }
 
-fn run_test(doc: bool, ignored: bool) -> Result<()> {
-    let mut cmd = Command::new("cargo");
-    cmd.arg("test").arg("--all-features");
-
+fn run_test(
+    doc: bool,
+    ignored: bool,
+    cpu: bool,
+    gpu: bool,
+    memory: bool,
+    system: bool,
+) -> Result<()> {
     if doc {
-        cmd.arg("--doc");
+        // Run doc tests
+        let mut cmd = Command::new("cargo");
+        cmd.arg("test").arg("--all-features").arg("--doc");
+
+        if ignored {
+            cmd.arg("--").arg("--ignored");
+        }
+
+        return execute_command(&mut cmd);
     }
 
-    if ignored {
-        cmd.arg("--").arg("--ignored");
+    // Determine which module tests to run
+    let module_flags = [cpu, gpu, memory, system];
+    let module_count = module_flags.iter().filter(|&&f| f).count();
+
+    if module_count == 0 {
+        // Run all tests
+        let mut cmd = Command::new("cargo");
+        cmd.arg("test").arg("--all-features");
+
+        if ignored {
+            cmd.arg("--").arg("--ignored");
+        }
+
+        return execute_command(&mut cmd);
     }
 
-    execute_command(&mut cmd)
+    // Run each module's tests sequentially
+    let modules = [
+        (cpu, "core::cpu", "CPU"),
+        (gpu, "core::gpu", "GPU"),
+        (memory, "core::memory", "Memory"),
+        (system, "core::system", "System"),
+    ];
+
+    let mut all_success = true;
+
+    for (enabled, module_path, module_name) in modules {
+        if !enabled {
+            continue;
+        }
+
+        println!("{} Running {} tests...", "→".blue(), module_name.bold());
+
+        let mut cmd = Command::new("cargo");
+        cmd.arg("test")
+            .arg("--all-features")
+            .arg("--lib")
+            .arg(module_path);
+
+        if ignored {
+            cmd.arg("--").arg("--ignored");
+        }
+
+        match execute_command(&mut cmd) {
+            Ok(_) => {
+                println!("{} {} tests passed\n", "✓".green(), module_name);
+            }
+            Err(e) => {
+                println!("{} {} tests failed\n", "✗".red(), module_name);
+                all_success = false;
+                if module_count == 1 {
+                    // If only one module was requested, return the error immediately
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    if all_success {
+        Ok(())
+    } else {
+        anyhow::bail!("Some module tests failed")
+    }
 }
 
 fn run_bench() -> Result<()> {
@@ -280,7 +373,11 @@ fn run_pre_commit() -> Result<()> {
 
     run_task("Format Check", || run_fmt(true), false)?;
     run_task("Clippy", || run_clippy(false), false)?;
-    run_task("Test", || run_test(false, false), false)?;
+    run_task(
+        "Test",
+        || run_test(false, false, false, false, false, false),
+        false,
+    )?;
 
     let elapsed = start.elapsed();
     println!(
