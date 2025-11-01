@@ -313,6 +313,343 @@ impl Rasterizer {
         // Bounds are checked above, so this is safe
         vram[index] = color;
     }
+
+    /// Draw a line from (x0, y0) to (x1, y1) using Bresenham's algorithm
+    ///
+    /// Implements Bresenham's line algorithm, which efficiently rasterizes lines
+    /// using only integer arithmetic. The algorithm works by incrementing the
+    /// coordinate along the major axis and conditionally incrementing the minor
+    /// axis based on an error accumulator.
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Mutable reference to VRAM buffer
+    /// * `x0` - Start X coordinate
+    /// * `y0` - Start Y coordinate
+    /// * `x1` - End X coordinate
+    /// * `y1` - End Y coordinate
+    /// * `color` - Line color in 15-bit RGB format
+    ///
+    /// # Algorithm
+    ///
+    /// The algorithm maintains an error term that tracks when to step in the minor axis:
+    /// 1. Calculate dx and dy (absolute differences)
+    /// 2. Initialize error = dx + dy (dy is negative)
+    /// 3. For each step:
+    ///    - Draw pixel at current position
+    ///    - If e2 >= dy, step in X direction
+    ///    - If e2 <= dx, step in Y direction
+    ///
+    /// # References
+    ///
+    /// - [Bresenham's Line Algorithm](https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::gpu::Rasterizer;
+    ///
+    /// let mut vram = vec![0u16; 1024 * 512];
+    /// let mut rasterizer = Rasterizer::new();
+    ///
+    /// // Draw a white diagonal line
+    /// rasterizer.draw_line(&mut vram, 0, 0, 100, 100, 0x7FFF);
+    /// ```
+    pub fn draw_line(&mut self, vram: &mut [u16], x0: i16, y0: i16, x1: i16, y1: i16, color: u16) {
+        let dx = (x1 - x0).abs();
+        let dy = -(y1 - y0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+
+        let mut x = x0;
+        let mut y = y0;
+
+        loop {
+            // Check clipping bounds before drawing
+            let (clip_left, clip_top, clip_right, clip_bottom) = self.clip_rect;
+            if x >= clip_left && x <= clip_right && y >= clip_top && y <= clip_bottom {
+                Self::write_pixel(vram, x, y, color);
+            }
+
+            if x == x1 && y == y1 {
+                break;
+            }
+
+            let e2 = 2 * err;
+            if e2 >= dy {
+                err += dy;
+                x += sx;
+            }
+            if e2 <= dx {
+                err += dx;
+                y += sy;
+            }
+        }
+    }
+
+    /// Draw a polyline (connected line segments)
+    ///
+    /// Draws multiple connected line segments by calling `draw_line` for each pair
+    /// of consecutive points. This is commonly used for wireframe rendering and
+    /// debug visualization.
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Mutable reference to VRAM buffer
+    /// * `points` - Slice of (x, y) coordinates defining the polyline vertices
+    /// * `color` - Line color in 15-bit RGB format
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::gpu::Rasterizer;
+    ///
+    /// let mut vram = vec![0u16; 1024 * 512];
+    /// let mut rasterizer = Rasterizer::new();
+    ///
+    /// // Draw a triangle outline
+    /// let points = [(100, 100), (200, 100), (150, 200), (100, 100)];
+    /// rasterizer.draw_polyline(&mut vram, &points, 0x7FFF);
+    /// ```
+    pub fn draw_polyline(&mut self, vram: &mut [u16], points: &[(i16, i16)], color: u16) {
+        if points.len() < 2 {
+            return;
+        }
+
+        for i in 0..points.len() - 1 {
+            self.draw_line(
+                vram,
+                points[i].0,
+                points[i].1,
+                points[i + 1].0,
+                points[i + 1].1,
+                color,
+            );
+        }
+    }
+
+    /// Draw a gradient triangle with per-vertex colors
+    ///
+    /// Renders a triangle with colors interpolated across the surface using
+    /// barycentric coordinates. Each vertex has its own color, and colors
+    /// are smoothly blended across the triangle interior (Gouraud shading).
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Mutable reference to VRAM buffer
+    /// * `v0` - First vertex position (x, y)
+    /// * `c0` - First vertex color (r, g, b) in 8-bit RGB
+    /// * `v1` - Second vertex position (x, y)
+    /// * `c1` - Second vertex color (r, g, b) in 8-bit RGB
+    /// * `v2` - Third vertex position (x, y)
+    /// * `c2` - Third vertex color (r, g, b) in 8-bit RGB
+    ///
+    /// # Algorithm
+    ///
+    /// Uses barycentric coordinate interpolation:
+    /// 1. Sort vertices by Y coordinate
+    /// 2. Compute bounding box clipped to drawing area
+    /// 3. For each pixel in bounding box:
+    ///    - Calculate barycentric weights (w0, w1, w2)
+    ///    - If inside triangle (all weights ≥ 0):
+    ///      - Interpolate color: C = w0*c0 + w1*c1 + w2*c2
+    ///      - Convert to 15-bit and write pixel
+    ///
+    /// # References
+    ///
+    /// - [Barycentric Coordinates](https://www.scratchapixel.com/lessons/3d-basic-rendering/ray-tracing-rendering-a-triangle/barycentric-coordinates)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::gpu::Rasterizer;
+    ///
+    /// let mut vram = vec![0u16; 1024 * 512];
+    /// let mut rasterizer = Rasterizer::new();
+    ///
+    /// // Draw a gradient triangle (red -> green -> blue)
+    /// rasterizer.draw_gradient_triangle(
+    ///     &mut vram,
+    ///     (100, 100), (255, 0, 0),   // Red vertex
+    ///     (200, 100), (0, 255, 0),   // Green vertex
+    ///     (150, 200), (0, 0, 255),   // Blue vertex
+    /// );
+    /// ```
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_gradient_triangle(
+        &mut self,
+        vram: &mut [u16],
+        v0: (i16, i16),
+        c0: (u8, u8, u8),
+        v1: (i16, i16),
+        c1: (u8, u8, u8),
+        v2: (i16, i16),
+        c2: (u8, u8, u8),
+    ) {
+        // Sort vertices by Y
+        let (v0, c0, v1, c1, v2, c2) = Self::sort_gradient_vertices(v0, c0, v1, c1, v2, c2);
+
+        if v0.1 == v2.1 {
+            return; // Degenerate triangle
+        }
+
+        // Compute bounding box
+        let min_x = v0.0.min(v1.0).min(v2.0).max(self.clip_rect.0);
+        let max_x = v0.0.max(v1.0).max(v2.0).min(self.clip_rect.2);
+        let min_y = v0.1.min(v1.1).min(v2.1).max(self.clip_rect.1);
+        let max_y = v0.1.max(v1.1).max(v2.1).min(self.clip_rect.3);
+
+        // Rasterize using barycentric coordinates
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let (w0, w1, w2) = Self::barycentric(x, y, v0, v1, v2);
+
+                // Check if inside triangle
+                if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
+                    // Interpolate color
+                    let r = (c0.0 as f32 * w0 + c1.0 as f32 * w1 + c2.0 as f32 * w2) as u8;
+                    let g = (c0.1 as f32 * w0 + c1.1 as f32 * w1 + c2.1 as f32 * w2) as u8;
+                    let b = (c0.2 as f32 * w0 + c1.2 as f32 * w1 + c2.2 as f32 * w2) as u8;
+
+                    let color = Self::rgb_to_rgb15(r, g, b);
+                    Self::write_pixel(vram, x, y, color);
+                }
+            }
+        }
+    }
+
+    /// Compute barycentric coordinates for a point relative to a triangle
+    ///
+    /// Barycentric coordinates (w0, w1, w2) express a point as a weighted sum
+    /// of triangle vertices: P = w0*v0 + w1*v1 + w2*v2, where w0+w1+w2=1.
+    /// Points inside the triangle have all weights in range [0, 1].
+    ///
+    /// # Arguments
+    ///
+    /// * `px` - Point X coordinate
+    /// * `py` - Point Y coordinate
+    /// * `v0` - First triangle vertex (x, y)
+    /// * `v1` - Second triangle vertex (x, y)
+    /// * `v2` - Third triangle vertex (x, y)
+    ///
+    /// # Returns
+    ///
+    /// Tuple (w0, w1, w2) of barycentric weights. If the triangle is degenerate
+    /// (zero area), returns (0, 0, 0).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # // This function is private, so we demonstrate its usage through gradient triangles
+    /// use psrx::core::gpu::Rasterizer;
+    ///
+    /// let mut vram = vec![0u16; 1024 * 512];
+    /// let mut rasterizer = Rasterizer::new();
+    ///
+    /// // Draw a gradient triangle that uses barycentric interpolation internally
+    /// rasterizer.draw_gradient_triangle(
+    ///     &mut vram,
+    ///     (0, 0), (255, 0, 0),
+    ///     (100, 0), (0, 255, 0),
+    ///     (50, 100), (0, 0, 255),
+    /// );
+    /// ```
+    fn barycentric(
+        px: i16,
+        py: i16,
+        v0: (i16, i16),
+        v1: (i16, i16),
+        v2: (i16, i16),
+    ) -> (f32, f32, f32) {
+        // Promote to i32 before multiplication to prevent i16 overflow
+        let denom = (((v1.1 - v2.1) as i32) * ((v0.0 - v2.0) as i32)
+            + ((v2.0 - v1.0) as i32) * ((v0.1 - v2.1) as i32)) as f32;
+
+        if denom.abs() < 0.001 {
+            return (0.0, 0.0, 0.0);
+        }
+
+        let w0 = ((((v1.1 - v2.1) as i32) * ((px - v2.0) as i32)
+            + ((v2.0 - v1.0) as i32) * ((py - v2.1) as i32)) as f32)
+            / denom;
+        let w1 = ((((v2.1 - v0.1) as i32) * ((px - v2.0) as i32)
+            + ((v0.0 - v2.0) as i32) * ((py - v2.1) as i32)) as f32)
+            / denom;
+        let w2 = 1.0 - w0 - w1;
+
+        (w0, w1, w2)
+    }
+
+    /// Convert 24-bit RGB to 15-bit RGB format
+    ///
+    /// Converts 8-bit per channel RGB (0-255) to 5-bit per channel (0-31)
+    /// by right-shifting each channel by 3 bits. Result is packed in
+    /// PlayStation's 5-5-5 RGB format.
+    ///
+    /// # Arguments
+    ///
+    /// * `r` - Red channel (0-255)
+    /// * `g` - Green channel (0-255)
+    /// * `b` - Blue channel (0-255)
+    ///
+    /// # Returns
+    ///
+    /// 16-bit color in 5-5-5 RGB format (bit 15 is 0)
+    ///
+    /// # Format
+    ///
+    /// - Bits 0-4: Red (5 bits)
+    /// - Bits 5-9: Green (5 bits)
+    /// - Bits 10-14: Blue (5 bits)
+    /// - Bit 15: Mask bit (always 0)
+    fn rgb_to_rgb15(r: u8, g: u8, b: u8) -> u16 {
+        let r = ((r as u16) >> 3) & 0x1F;
+        let g = ((g as u16) >> 3) & 0x1F;
+        let b = ((b as u16) >> 3) & 0x1F;
+        (b << 10) | (g << 5) | r
+    }
+
+    /// Sort triangle vertices by Y coordinate, preserving associated colors
+    ///
+    /// Returns vertices in ascending Y order (v0.y <= v1.y <= v2.y) along
+    /// with their corresponding colors. This is used to prepare vertices
+    /// for gradient triangle rasterization.
+    ///
+    /// # Arguments
+    ///
+    /// * `v0` - First vertex position
+    /// * `c0` - First vertex color
+    /// * `v1` - Second vertex position
+    /// * `c1` - Second vertex color
+    /// * `v2` - Third vertex position
+    /// * `c2` - Third vertex color
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (v0, c0, v1, c1, v2, c2) sorted by Y coordinate
+    #[allow(clippy::type_complexity)]
+    fn sort_gradient_vertices(
+        v0: (i16, i16),
+        c0: (u8, u8, u8),
+        v1: (i16, i16),
+        c1: (u8, u8, u8),
+        v2: (i16, i16),
+        c2: (u8, u8, u8),
+    ) -> (
+        (i16, i16),
+        (u8, u8, u8),
+        (i16, i16),
+        (u8, u8, u8),
+        (i16, i16),
+        (u8, u8, u8),
+    ) {
+        let mut verts = [(v0, c0), (v1, c1), (v2, c2)];
+        verts.sort_by_key(|v| v.0 .1);
+        (
+            verts[0].0, verts[0].1, verts[1].0, verts[1].1, verts[2].0, verts[2].1,
+        )
+    }
 }
 
 impl Default for Rasterizer {
@@ -421,5 +758,177 @@ mod tests {
         // Check middle pixel is drawn
         let pixel = vram[150 * 1024 + 150];
         assert_ne!(pixel, 0);
+    }
+
+    #[test]
+    fn test_line_drawing() {
+        let mut vram = vec![0u16; 1024 * 512];
+        let mut rasterizer = Rasterizer::new();
+
+        // Draw a horizontal line
+        rasterizer.draw_line(&mut vram, 10, 10, 50, 10, 0x7FFF);
+
+        // Check pixels along the line are set
+        assert_ne!(vram[10 * 1024 + 10], 0);
+        assert_ne!(vram[10 * 1024 + 30], 0);
+        assert_ne!(vram[10 * 1024 + 50], 0);
+
+        // Check pixel not on the line is not set
+        assert_eq!(vram[11 * 1024 + 30], 0);
+    }
+
+    #[test]
+    fn test_line_diagonal() {
+        let mut vram = vec![0u16; 1024 * 512];
+        let mut rasterizer = Rasterizer::new();
+
+        // Draw a diagonal line
+        rasterizer.draw_line(&mut vram, 10, 10, 50, 50, 0x7FFF);
+
+        // Check start and end pixels
+        assert_ne!(vram[10 * 1024 + 10], 0);
+        assert_ne!(vram[50 * 1024 + 50], 0);
+
+        // Check a point approximately on the line
+        assert_ne!(vram[30 * 1024 + 30], 0);
+    }
+
+    #[test]
+    fn test_line_clipping() {
+        let mut vram = vec![0u16; 1024 * 512];
+        let mut rasterizer = Rasterizer::new();
+        rasterizer.set_clip_rect(20, 20, 100, 100);
+
+        // Draw line that extends beyond clip area
+        rasterizer.draw_line(&mut vram, 0, 50, 200, 50, 0x7FFF);
+
+        // Pixel before clip area should not be set
+        assert_eq!(vram[50 * 1024 + 10], 0);
+
+        // Pixel in clip area should be set
+        assert_ne!(vram[50 * 1024 + 50], 0);
+
+        // Pixel after clip area should not be set
+        assert_eq!(vram[50 * 1024 + 150], 0);
+    }
+
+    #[test]
+    fn test_polyline() {
+        let mut vram = vec![0u16; 1024 * 512];
+        let mut rasterizer = Rasterizer::new();
+
+        // Draw a triangle using polyline
+        let points = [(100, 100), (200, 100), (150, 200), (100, 100)];
+        rasterizer.draw_polyline(&mut vram, &points, 0x7FFF);
+
+        // Check vertices are drawn
+        assert_ne!(vram[100 * 1024 + 100], 0);
+        assert_ne!(vram[100 * 1024 + 200], 0);
+        assert_ne!(vram[200 * 1024 + 150], 0);
+
+        // Check edges are connected
+        assert_ne!(vram[100 * 1024 + 150], 0); // Top edge
+    }
+
+    #[test]
+    fn test_polyline_empty() {
+        let mut vram = vec![0u16; 1024 * 512];
+        let mut rasterizer = Rasterizer::new();
+
+        // Empty polyline should not crash
+        let points: &[(i16, i16)] = &[];
+        rasterizer.draw_polyline(&mut vram, points, 0x7FFF);
+
+        // Single point should not crash
+        let points = [(100, 100)];
+        rasterizer.draw_polyline(&mut vram, &points, 0x7FFF);
+    }
+
+    #[test]
+    fn test_gradient_triangle() {
+        let mut vram = vec![0u16; 1024 * 512];
+        let mut rasterizer = Rasterizer::new();
+
+        // Draw a gradient triangle (red -> green -> blue)
+        rasterizer.draw_gradient_triangle(
+            &mut vram,
+            (100, 100),
+            (255, 0, 0), // Red
+            (200, 100),
+            (0, 255, 0), // Green
+            (150, 150),
+            (0, 0, 255), // Blue
+        );
+
+        // Check that pixels are drawn
+        let pixel = vram[120 * 1024 + 150];
+        assert_ne!(pixel, 0);
+
+        // Check that center has interpolated color
+        // The center should be a blend of all three colors
+        let center_pixel = vram[125 * 1024 + 150];
+        assert_ne!(center_pixel, 0);
+        assert_ne!(center_pixel, 0x001F); // Not pure red
+        assert_ne!(center_pixel, 0x03E0); // Not pure green
+        assert_ne!(center_pixel, 0x7C00); // Not pure blue
+    }
+
+    #[test]
+    fn test_barycentric_coordinates() {
+        let v0 = (0, 0);
+        let v1 = (100, 0);
+        let v2 = (50, 100);
+
+        // Test point at v0
+        let (w0, w1, w2) = Rasterizer::barycentric(0, 0, v0, v1, v2);
+        assert!((w0 - 1.0).abs() < 0.01);
+        assert!(w1.abs() < 0.01);
+        assert!(w2.abs() < 0.01);
+
+        // Test point at v1
+        let (w0, w1, w2) = Rasterizer::barycentric(100, 0, v0, v1, v2);
+        assert!(w0.abs() < 0.01);
+        assert!((w1 - 1.0).abs() < 0.01);
+        assert!(w2.abs() < 0.01);
+
+        // Test point at centroid (approximately)
+        let (w0, w1, w2) = Rasterizer::barycentric(50, 33, v0, v1, v2);
+        assert!((w0 - 0.33).abs() < 0.1);
+        assert!((w1 - 0.33).abs() < 0.1);
+        assert!((w2 - 0.33).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_rgb_to_rgb15() {
+        // Test pure colors
+        assert_eq!(Rasterizer::rgb_to_rgb15(255, 0, 0), 0x001F); // Red
+        assert_eq!(Rasterizer::rgb_to_rgb15(0, 255, 0), 0x03E0); // Green
+        assert_eq!(Rasterizer::rgb_to_rgb15(0, 0, 255), 0x7C00); // Blue
+        assert_eq!(Rasterizer::rgb_to_rgb15(255, 255, 255), 0x7FFF); // White
+        assert_eq!(Rasterizer::rgb_to_rgb15(0, 0, 0), 0x0000); // Black
+
+        // Test conversion with rounding
+        assert_eq!(Rasterizer::rgb_to_rgb15(128, 128, 128), 0x4210); // Gray
+    }
+
+    #[test]
+    fn test_gradient_vertex_sorting() {
+        let v0 = (10, 30);
+        let c0 = (255, 0, 0);
+        let v1 = (20, 10);
+        let c1 = (0, 255, 0);
+        let v2 = (30, 20);
+        let c2 = (0, 0, 255);
+
+        let (s0, sc0, s1, sc1, s2, sc2) =
+            Rasterizer::sort_gradient_vertices(v0, c0, v1, c1, v2, c2);
+
+        // Should be sorted by Y
+        assert_eq!(s0, (20, 10)); // Lowest Y
+        assert_eq!(sc0, (0, 255, 0)); // Green
+        assert_eq!(s1, (30, 20)); // Middle Y
+        assert_eq!(sc1, (0, 0, 255)); // Blue
+        assert_eq!(s2, (10, 30)); // Highest Y
+        assert_eq!(sc2, (255, 0, 0)); // Red
     }
 }
