@@ -21,9 +21,12 @@ cargo x build --release
 cargo x test
 
 # Run specific module tests
-cargo test --lib core::cpu
-cargo test --lib core::gpu
-cargo test --lib core::memory
+cargo x test --cpu
+cargo x test --gpu
+cargo x test --memory
+
+# Run multiple module tests
+cargo x test --cpu --gpu --memory --system
 
 # Run a single test
 cargo test test_cpu_initialization
