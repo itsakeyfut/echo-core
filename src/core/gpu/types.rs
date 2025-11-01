@@ -174,6 +174,156 @@ impl Vertex {
     }
 }
 
+/// Texture coordinate for textured primitives
+///
+/// Texture coordinates specify which texel (texture pixel) to sample from VRAM.
+/// Coordinates are in texel units within the texture page.
+///
+/// # Coordinate System
+///
+/// - U: Horizontal texture coordinate (0-255)
+/// - V: Vertical texture coordinate (0-255)
+/// - Coordinates wrap within the texture page
+///
+/// # Examples
+///
+/// ```
+/// use psrx::core::gpu::TexCoord;
+///
+/// let texcoord = TexCoord::from_u32(0x00804020);
+/// assert_eq!(texcoord.u, 0x20);
+/// assert_eq!(texcoord.v, 0x40);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TexCoord {
+    /// U coordinate (horizontal, 0-255)
+    pub u: u8,
+    /// V coordinate (vertical, 0-255)
+    pub v: u8,
+}
+
+impl TexCoord {
+    /// Create a TexCoord from a 32-bit command word
+    ///
+    /// Texture coordinates are encoded in the lower 16 bits:
+    /// - Bits 0-7: U coordinate
+    /// - Bits 8-15: V coordinate
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - 32-bit word containing texture coordinates
+    ///
+    /// # Returns
+    ///
+    /// TexCoord struct with U and V coordinates
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::gpu::TexCoord;
+    ///
+    /// let tc = TexCoord::from_u32(0x00804020);
+    /// assert_eq!(tc.u, 0x20);
+    /// assert_eq!(tc.v, 0x40);
+    /// ```
+    pub fn from_u32(value: u32) -> Self {
+        Self {
+            u: (value & 0xFF) as u8,
+            v: ((value >> 8) & 0xFF) as u8,
+        }
+    }
+}
+
+/// Texture color depth modes
+///
+/// The PlayStation GPU supports three texture formats:
+/// - 4-bit: 16 colors using a 16-color CLUT (Color Lookup Table)
+/// - 8-bit: 256 colors using a 256-color CLUT
+/// - 15-bit: Direct color (no CLUT needed)
+///
+/// # CLUT (Color Lookup Table)
+///
+/// For 4-bit and 8-bit textures, the texture data contains palette indices
+/// that are looked up in a CLUT stored elsewhere in VRAM. Each CLUT entry
+/// is a 16-bit color in 5-5-5 RGB format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextureDepth {
+    /// 4-bit indexed color (16 colors, uses CLUT)
+    T4Bit,
+    /// 8-bit indexed color (256 colors, uses CLUT)
+    T8Bit,
+    /// 15-bit direct color (no CLUT)
+    T15Bit,
+}
+
+impl From<u8> for TextureDepth {
+    /// Convert DrawMode texture_depth value to TextureDepth enum
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Texture depth value (0=4bit, 1=8bit, 2=15bit)
+    ///
+    /// # Returns
+    ///
+    /// TextureDepth enum value
+    fn from(value: u8) -> Self {
+        match value {
+            0 => TextureDepth::T4Bit,
+            1 => TextureDepth::T8Bit,
+            _ => TextureDepth::T15Bit,
+        }
+    }
+}
+
+/// Texture mapping information
+///
+/// Contains all information needed to sample a texture from VRAM, including
+/// texture page location, CLUT location, and color depth.
+///
+/// # Texture Pages
+///
+/// VRAM is divided into texture pages of varying sizes depending on color depth:
+/// - 4-bit: 256×256 pixels (stored as 64×256 16-bit values, 4 pixels per value)
+/// - 8-bit: 128×256 pixels (stored as 64×256 16-bit values, 2 pixels per value)
+/// - 15-bit: 64×256 pixels (1 pixel per 16-bit value)
+///
+/// # CLUT Location
+///
+/// For 4-bit and 8-bit textures, the CLUT (palette) is stored separately in VRAM.
+/// - 4-bit CLUT: 16 colors (16 consecutive pixels)
+/// - 8-bit CLUT: 256 colors (256 consecutive pixels)
+///
+/// # Examples
+///
+/// ```
+/// use psrx::core::gpu::{TextureInfo, TextureDepth};
+///
+/// let texture = TextureInfo {
+///     page_x: 64,      // Texture page at X=64
+///     page_y: 0,       // Texture page at Y=0
+///     clut_x: 0,       // CLUT at X=0
+///     clut_y: 0,       // CLUT at Y=0
+///     depth: TextureDepth::T4Bit,
+/// };
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub struct TextureInfo {
+    /// Texture page base X coordinate (in pixels)
+    pub page_x: u16,
+
+    /// Texture page base Y coordinate (0 or 256)
+    pub page_y: u16,
+
+    /// CLUT X position in VRAM (for 4-bit/8-bit textures)
+    pub clut_x: u16,
+
+    /// CLUT Y position in VRAM (for 4-bit/8-bit textures)
+    pub clut_y: u16,
+
+    /// Texture color depth
+    pub depth: TextureDepth,
+}
+
 /// Drawing mode configuration
 ///
 /// Specifies how primitives are rendered, including texture mapping settings,

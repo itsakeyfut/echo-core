@@ -15,9 +15,10 @@
 
 //! GP0 polygon drawing commands
 //!
-//! Implements parsing for triangle and quadrilateral rendering commands.
+//! Implements parsing for triangle and quadrilateral rendering commands,
+//! including both flat-shaded, Gouraud-shaded, and textured primitives.
 
-use super::super::types::{Color, Vertex};
+use super::super::types::{Color, TexCoord, TextureInfo, Vertex};
 use super::super::GPU;
 
 impl GPU {
@@ -275,5 +276,242 @@ impl GPU {
         ];
 
         self.render_gradient_quad(&vertices, &colors, true);
+    }
+
+    /// GP0(0x24): Textured Triangle (Opaque)
+    ///
+    /// Renders a textured triangle with texture mapping.
+    /// Requires 7 words: command+color, vertex1+texcoord1, clut, vertex2+texcoord2, tpage, vertex3+texcoord3
+    ///
+    /// # Command Format
+    ///
+    /// ```text
+    /// Word 0: 0x24RRGGBB - Command (0x24) + Color (RGB tint)
+    /// Word 1: YYYYXXXX - Vertex1 (X, Y)
+    /// Word 2: CLUTVVUU - CLUT info (bits 16-31) + TexCoord1 (U, V)
+    /// Word 3: YYYYXXXX - Vertex2 (X, Y)
+    /// Word 4: PAGEVVUU - Texture Page (bits 16-31) + TexCoord2 (U, V)
+    /// Word 5: YYYYXXXX - Vertex3 (X, Y)
+    /// Word 6: ----VVUU - TexCoord3 (U, V)
+    /// ```
+    ///
+    /// # CLUT and Texture Page Encoding
+    ///
+    /// Word 2 (CLUT):
+    /// - Bits 16-21: CLUT X coordinate / 16 (multiply by 16 to get actual X)
+    /// - Bits 22-30: CLUT Y coordinate
+    ///
+    /// Word 4 (Texture Page):
+    /// - Bits 16-19: Texture page X base (N×64)
+    /// - Bit 20: Texture page Y base (0=Y0-255, 1=Y256-511)
+    /// - Bits 21-22: Semi-transparency mode (ignored for opaque)
+    /// - Bits 23-24: Texture depth (0=4bit, 1=8bit, 2=15bit)
+    ///
+    /// # References
+    ///
+    /// - [PSX-SPX: GPU Texture Commands](http://problemkaputt.de/psx-spx.htm#gputextureattributes)
+    pub(in crate::core::gpu) fn parse_textured_triangle_opaque(&mut self) {
+        if self.command_fifo.len() < 7 {
+            return; // Need more words
+        }
+
+        let cmd = self.command_fifo.pop_front().unwrap();
+        let v0 = self.command_fifo.pop_front().unwrap();
+        let t0clut = self.command_fifo.pop_front().unwrap();
+        let v1 = self.command_fifo.pop_front().unwrap();
+        let t1page = self.command_fifo.pop_front().unwrap();
+        let v2 = self.command_fifo.pop_front().unwrap();
+        let t2 = self.command_fifo.pop_front().unwrap();
+
+        let color = Color::from_u32(cmd);
+        let vertices = [
+            Vertex::from_u32(v0),
+            Vertex::from_u32(v1),
+            Vertex::from_u32(v2),
+        ];
+        let texcoords = [
+            TexCoord::from_u32(t0clut),
+            TexCoord::from_u32(t1page),
+            TexCoord::from_u32(t2),
+        ];
+
+        // Extract CLUT coordinates from word 2
+        let clut_x = ((t0clut >> 16) & 0x3F) * 16;
+        let clut_y = (t0clut >> 22) & 0x1FF;
+
+        // Extract texture page information from word 4
+        let page_x = ((t1page >> 16) & 0xF) * 64;
+        let page_y = ((t1page >> 20) & 1) * 256;
+        let tex_depth = ((t1page >> 23) & 0x3) as u8;
+
+        let texture_info = TextureInfo {
+            page_x: page_x as u16,
+            page_y: page_y as u16,
+            clut_x: clut_x as u16,
+            clut_y: clut_y as u16,
+            depth: tex_depth.into(),
+        };
+
+        self.render_textured_triangle(&vertices, &texcoords, &texture_info, &color, false);
+    }
+
+    /// GP0(0x26): Textured Triangle (Semi-Transparent)
+    ///
+    /// Renders a textured triangle with semi-transparency enabled.
+    /// Same format as 0x24, but with semi-transparency blending applied.
+    pub(in crate::core::gpu) fn parse_textured_triangle_semi_transparent(&mut self) {
+        if self.command_fifo.len() < 7 {
+            return;
+        }
+
+        let cmd = self.command_fifo.pop_front().unwrap();
+        let v0 = self.command_fifo.pop_front().unwrap();
+        let t0clut = self.command_fifo.pop_front().unwrap();
+        let v1 = self.command_fifo.pop_front().unwrap();
+        let t1page = self.command_fifo.pop_front().unwrap();
+        let v2 = self.command_fifo.pop_front().unwrap();
+        let t2 = self.command_fifo.pop_front().unwrap();
+
+        let color = Color::from_u32(cmd);
+        let vertices = [
+            Vertex::from_u32(v0),
+            Vertex::from_u32(v1),
+            Vertex::from_u32(v2),
+        ];
+        let texcoords = [
+            TexCoord::from_u32(t0clut),
+            TexCoord::from_u32(t1page),
+            TexCoord::from_u32(t2),
+        ];
+
+        let clut_x = ((t0clut >> 16) & 0x3F) * 16;
+        let clut_y = (t0clut >> 22) & 0x1FF;
+        let page_x = ((t1page >> 16) & 0xF) * 64;
+        let page_y = ((t1page >> 20) & 1) * 256;
+        let tex_depth = ((t1page >> 23) & 0x3) as u8;
+
+        let texture_info = TextureInfo {
+            page_x: page_x as u16,
+            page_y: page_y as u16,
+            clut_x: clut_x as u16,
+            clut_y: clut_y as u16,
+            depth: tex_depth.into(),
+        };
+
+        self.render_textured_triangle(&vertices, &texcoords, &texture_info, &color, true);
+    }
+
+    /// GP0(0x2C): Textured Quadrilateral (Opaque)
+    ///
+    /// Renders a textured quadrilateral with texture mapping.
+    /// Requires 9 words: command+color, 4×(vertex+texcoord), with CLUT and texture page info
+    ///
+    /// # Command Format
+    ///
+    /// ```text
+    /// Word 0: 0x2CRRGGBB - Command (0x2C) + Color (RGB tint)
+    /// Word 1: YYYYXXXX - Vertex1 (X, Y)
+    /// Word 2: CLUTVVUU - CLUT info + TexCoord1 (U, V)
+    /// Word 3: YYYYXXXX - Vertex2 (X, Y)
+    /// Word 4: PAGEVVUU - Texture Page + TexCoord2 (U, V)
+    /// Word 5: YYYYXXXX - Vertex3 (X, Y)
+    /// Word 6: ----VVUU - TexCoord3 (U, V)
+    /// Word 7: YYYYXXXX - Vertex4 (X, Y)
+    /// Word 8: ----VVUU - TexCoord4 (U, V)
+    /// ```
+    pub(in crate::core::gpu) fn parse_textured_quad_opaque(&mut self) {
+        if self.command_fifo.len() < 9 {
+            return;
+        }
+
+        let cmd = self.command_fifo.pop_front().unwrap();
+        let v0 = self.command_fifo.pop_front().unwrap();
+        let t0clut = self.command_fifo.pop_front().unwrap();
+        let v1 = self.command_fifo.pop_front().unwrap();
+        let t1page = self.command_fifo.pop_front().unwrap();
+        let v2 = self.command_fifo.pop_front().unwrap();
+        let t2 = self.command_fifo.pop_front().unwrap();
+        let v3 = self.command_fifo.pop_front().unwrap();
+        let t3 = self.command_fifo.pop_front().unwrap();
+
+        let color = Color::from_u32(cmd);
+        let vertices = [
+            Vertex::from_u32(v0),
+            Vertex::from_u32(v1),
+            Vertex::from_u32(v2),
+            Vertex::from_u32(v3),
+        ];
+        let texcoords = [
+            TexCoord::from_u32(t0clut),
+            TexCoord::from_u32(t1page),
+            TexCoord::from_u32(t2),
+            TexCoord::from_u32(t3),
+        ];
+
+        let clut_x = ((t0clut >> 16) & 0x3F) * 16;
+        let clut_y = (t0clut >> 22) & 0x1FF;
+        let page_x = ((t1page >> 16) & 0xF) * 64;
+        let page_y = ((t1page >> 20) & 1) * 256;
+        let tex_depth = ((t1page >> 23) & 0x3) as u8;
+
+        let texture_info = TextureInfo {
+            page_x: page_x as u16,
+            page_y: page_y as u16,
+            clut_x: clut_x as u16,
+            clut_y: clut_y as u16,
+            depth: tex_depth.into(),
+        };
+
+        self.render_textured_quad(&vertices, &texcoords, &texture_info, &color, false);
+    }
+
+    /// GP0(0x2E): Textured Quadrilateral (Semi-Transparent)
+    ///
+    /// Renders a textured quadrilateral with semi-transparency enabled.
+    /// Same format as 0x2C, but with semi-transparency blending applied.
+    pub(in crate::core::gpu) fn parse_textured_quad_semi_transparent(&mut self) {
+        if self.command_fifo.len() < 9 {
+            return;
+        }
+
+        let cmd = self.command_fifo.pop_front().unwrap();
+        let v0 = self.command_fifo.pop_front().unwrap();
+        let t0clut = self.command_fifo.pop_front().unwrap();
+        let v1 = self.command_fifo.pop_front().unwrap();
+        let t1page = self.command_fifo.pop_front().unwrap();
+        let v2 = self.command_fifo.pop_front().unwrap();
+        let t2 = self.command_fifo.pop_front().unwrap();
+        let v3 = self.command_fifo.pop_front().unwrap();
+        let t3 = self.command_fifo.pop_front().unwrap();
+
+        let color = Color::from_u32(cmd);
+        let vertices = [
+            Vertex::from_u32(v0),
+            Vertex::from_u32(v1),
+            Vertex::from_u32(v2),
+            Vertex::from_u32(v3),
+        ];
+        let texcoords = [
+            TexCoord::from_u32(t0clut),
+            TexCoord::from_u32(t1page),
+            TexCoord::from_u32(t2),
+            TexCoord::from_u32(t3),
+        ];
+
+        let clut_x = ((t0clut >> 16) & 0x3F) * 16;
+        let clut_y = (t0clut >> 22) & 0x1FF;
+        let page_x = ((t1page >> 16) & 0xF) * 64;
+        let page_y = ((t1page >> 20) & 1) * 256;
+        let tex_depth = ((t1page >> 23) & 0x3) as u8;
+
+        let texture_info = TextureInfo {
+            page_x: page_x as u16,
+            page_y: page_y as u16,
+            clut_x: clut_x as u16,
+            clut_y: clut_y as u16,
+            depth: tex_depth.into(),
+        };
+
+        self.render_textured_quad(&vertices, &texcoords, &texture_info, &color, true);
     }
 }

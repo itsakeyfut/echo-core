@@ -19,11 +19,13 @@
 //! - Triangle rasterization (flat and gradient-shaded)
 //! - Quadrilateral rendering (as two triangles)
 //! - Line and polyline rendering
+//! - Texture-mapped primitives (4-bit, 8-bit, 15-bit)
 
 mod gradient;
 mod line;
 mod quad;
 mod rasterizer;
+mod texture;
 mod triangle;
 
 // Public re-exports

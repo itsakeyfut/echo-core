@@ -610,6 +610,334 @@ impl Rasterizer {
         (b << 10) | (g << 5) | r
     }
 
+    /// Convert 15-bit RGB to 24-bit RGB format
+    ///
+    /// Converts PlayStation's 5-bit per channel RGB to 8-bit per channel
+    /// by left-shifting each channel by 3 bits.
+    ///
+    /// # Arguments
+    ///
+    /// * `color` - 16-bit color in 5-5-5 RGB format
+    ///
+    /// # Returns
+    ///
+    /// Tuple (r, g, b) with 8-bit RGB values
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use psrx::core::gpu::Rasterizer;
+    /// # let rasterizer = Rasterizer::new();
+    /// // This is a private method, shown for documentation
+    /// // Red: 0x001F -> (248, 0, 0)
+    /// // White: 0x7FFF -> (248, 248, 248)
+    /// ```
+    fn rgb15_to_rgb24(color: u16) -> (u8, u8, u8) {
+        let r = ((color & 0x1F) << 3) as u8;
+        let g = (((color >> 5) & 0x1F) << 3) as u8;
+        let b = (((color >> 10) & 0x1F) << 3) as u8;
+        (r, g, b)
+    }
+
+    /// Read a pixel from VRAM safely
+    ///
+    /// Reads a 16-bit pixel value from VRAM, returning 0 if coordinates
+    /// are out of bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Reference to VRAM buffer
+    /// * `x` - X coordinate (0-1023)
+    /// * `y` - Y coordinate (0-511)
+    ///
+    /// # Returns
+    ///
+    /// 16-bit pixel value, or 0 if out of bounds
+    fn read_vram_pixel(vram: &[u16], x: i16, y: i16) -> u16 {
+        if !(0..1024).contains(&x) || !(0..512).contains(&y) {
+            return 0;
+        }
+        let index = (y as usize) * 1024 + (x as usize);
+        vram[index]
+    }
+
+    /// Draw a textured triangle with perspective-correct interpolation
+    ///
+    /// Renders a triangle with texture mapping, interpolating texture coordinates
+    /// across the surface using barycentric coordinates. Supports all three texture
+    /// depths (4-bit, 8-bit, 15-bit) and applies color modulation (tint).
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Mutable reference to VRAM buffer
+    /// * `v0` - First vertex position (x, y)
+    /// * `t0` - First vertex texture coordinates (u, v)
+    /// * `v1` - Second vertex position (x, y)
+    /// * `t1` - Second vertex texture coordinates (u, v)
+    /// * `v2` - Third vertex position (x, y)
+    /// * `t2` - Third vertex texture coordinates (u, v)
+    /// * `texture_info` - Texture page and CLUT information
+    /// * `tint_color` - Color to modulate with texture (r, g, b)
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Compute triangle bounding box clipped to drawing area
+    /// 2. For each pixel in bounding box:
+    ///    - Calculate barycentric weights (w0, w1, w2)
+    ///    - If inside triangle (all weights ≥ 0):
+    ///      - Interpolate texture coordinates: (u, v) = w0*t0 + w1*t1 + w2*t2
+    ///      - Sample texture at (u, v)
+    ///      - Apply color modulation: final_color = tex_color * tint_color / 128
+    ///      - Write pixel to VRAM
+    ///
+    /// # Color Modulation
+    ///
+    /// The tint color is multiplied with the texture color and divided by 128
+    /// (right-shifted by 7) to achieve the correct brightness. This allows
+    /// tinting and brightness adjustment:
+    /// - (128, 128, 128) = normal brightness
+    /// - (255, 255, 255) = ~2× brightness
+    /// - (64, 64, 64) = 50% brightness
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::gpu::{Rasterizer, TextureInfo, TextureDepth};
+    ///
+    /// let mut vram = vec![0u16; 1024 * 512];
+    /// let mut rasterizer = Rasterizer::new();
+    ///
+    /// let texture_info = TextureInfo {
+    ///     page_x: 64,
+    ///     page_y: 0,
+    ///     clut_x: 0,
+    ///     clut_y: 0,
+    ///     depth: TextureDepth::T4Bit,
+    /// };
+    ///
+    /// // Draw a textured triangle
+    /// rasterizer.draw_textured_triangle(
+    ///     &mut vram,
+    ///     (100, 100), (0, 0),
+    ///     (200, 100), (255, 0),
+    ///     (150, 200), (128, 255),
+    ///     &texture_info,
+    ///     (128, 128, 128),  // Normal brightness
+    /// );
+    /// ```
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_textured_triangle(
+        &mut self,
+        vram: &mut [u16],
+        v0: (i16, i16),
+        t0: (u8, u8),
+        v1: (i16, i16),
+        t1: (u8, u8),
+        v2: (i16, i16),
+        t2: (u8, u8),
+        texture_info: &crate::core::gpu::TextureInfo,
+        tint_color: (u8, u8, u8),
+    ) {
+        // Compute bounding box clipped to drawing area
+        let min_x = v0.0.min(v1.0).min(v2.0).max(self.clip_rect.0);
+        let max_x = v0.0.max(v1.0).max(v2.0).min(self.clip_rect.2);
+        let min_y = v0.1.min(v1.1).min(v2.1).max(self.clip_rect.1);
+        let max_y = v0.1.max(v1.1).max(v2.1).min(self.clip_rect.3);
+
+        // Rasterize using barycentric coordinates
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let (w0, w1, w2) = Self::barycentric(x, y, v0, v1, v2);
+
+                // Check if inside triangle
+                if w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0 {
+                    // Interpolate texture coordinates
+                    let u = (t0.0 as f32 * w0 + t1.0 as f32 * w1 + t2.0 as f32 * w2) as u8;
+                    let v = (t0.1 as f32 * w0 + t1.1 as f32 * w1 + t2.1 as f32 * w2) as u8;
+
+                    // Sample texture
+                    let tex_color = self.sample_texture(vram, u, v, texture_info);
+
+                    // Apply tint (modulate)
+                    // Multiply by tint and divide by 128 (shift right by 7)
+                    let r = ((tex_color.0 as u16 * tint_color.0 as u16) >> 7) as u8;
+                    let g = ((tex_color.1 as u16 * tint_color.1 as u16) >> 7) as u8;
+                    let b = ((tex_color.2 as u16 * tint_color.2 as u16) >> 7) as u8;
+
+                    let color = Self::rgb_to_rgb15(r, g, b);
+                    Self::write_pixel(vram, x, y, color);
+                }
+            }
+        }
+    }
+
+    /// Sample texture at given coordinates
+    ///
+    /// Dispatches to the appropriate texture sampling function based on
+    /// texture depth (4-bit, 8-bit, or 15-bit).
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Reference to VRAM buffer
+    /// * `u` - U texture coordinate
+    /// * `v` - V texture coordinate
+    /// * `info` - Texture information (page, CLUT, depth)
+    ///
+    /// # Returns
+    ///
+    /// Tuple (r, g, b) with 8-bit RGB values
+    fn sample_texture(
+        &self,
+        vram: &[u16],
+        u: u8,
+        v: u8,
+        info: &crate::core::gpu::TextureInfo,
+    ) -> (u8, u8, u8) {
+        use crate::core::gpu::TextureDepth;
+        match info.depth {
+            TextureDepth::T4Bit => self.sample_4bit_texture(vram, u, v, info),
+            TextureDepth::T8Bit => self.sample_8bit_texture(vram, u, v, info),
+            TextureDepth::T15Bit => self.sample_15bit_texture(vram, u, v, info),
+        }
+    }
+
+    /// Sample a 4-bit indexed color texture
+    ///
+    /// For 4-bit textures, each 16-bit VRAM word contains 4 palette indices
+    /// (4 bits each). The index is used to look up a color in the CLUT.
+    ///
+    /// # Texture Storage
+    ///
+    /// 4-bit textures pack 4 pixels per 16-bit word:
+    /// - Bits 0-3: Index for pixel 0
+    /// - Bits 4-7: Index for pixel 1
+    /// - Bits 8-11: Index for pixel 2
+    /// - Bits 12-15: Index for pixel 3
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Reference to VRAM buffer
+    /// * `u` - U texture coordinate
+    /// * `v` - V texture coordinate
+    /// * `info` - Texture information
+    ///
+    /// # Returns
+    ///
+    /// Tuple (r, g, b) with 8-bit RGB values from CLUT
+    fn sample_4bit_texture(
+        &self,
+        vram: &[u16],
+        u: u8,
+        v: u8,
+        info: &crate::core::gpu::TextureInfo,
+    ) -> (u8, u8, u8) {
+        // Calculate texture page address
+        // 4-bit textures: 4 pixels per 16-bit word, so divide U by 4
+        let tex_x = (info.page_x + (u as u16 / 4)) & 0x3FF;
+        let tex_y = (info.page_y + v as u16) & 0x1FF;
+
+        // Read 16-bit word containing 4 indices
+        let index_word = Self::read_vram_pixel(vram, tex_x as i16, tex_y as i16);
+
+        // Extract 4-bit index (which of the 4 pixels in this word)
+        let shift = (u % 4) * 4;
+        let index = (index_word >> shift) & 0xF;
+
+        // Look up color in CLUT
+        let clut_x = info.clut_x + index;
+        let clut_y = info.clut_y;
+        let color = Self::read_vram_pixel(vram, clut_x as i16, clut_y as i16);
+
+        Self::rgb15_to_rgb24(color)
+    }
+
+    /// Sample an 8-bit indexed color texture
+    ///
+    /// For 8-bit textures, each 16-bit VRAM word contains 2 palette indices
+    /// (8 bits each). The index is used to look up a color in the CLUT.
+    ///
+    /// # Texture Storage
+    ///
+    /// 8-bit textures pack 2 pixels per 16-bit word:
+    /// - Bits 0-7: Index for pixel 0 (even U)
+    /// - Bits 8-15: Index for pixel 1 (odd U)
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Reference to VRAM buffer
+    /// * `u` - U texture coordinate
+    /// * `v` - V texture coordinate
+    /// * `info` - Texture information
+    ///
+    /// # Returns
+    ///
+    /// Tuple (r, g, b) with 8-bit RGB values from CLUT
+    fn sample_8bit_texture(
+        &self,
+        vram: &[u16],
+        u: u8,
+        v: u8,
+        info: &crate::core::gpu::TextureInfo,
+    ) -> (u8, u8, u8) {
+        // Calculate texture page address
+        // 8-bit textures: 2 pixels per 16-bit word, so divide U by 2
+        let tex_x = (info.page_x + (u as u16 / 2)) & 0x3FF;
+        let tex_y = (info.page_y + v as u16) & 0x1FF;
+
+        // Read 16-bit word containing 2 indices
+        let index_word = Self::read_vram_pixel(vram, tex_x as i16, tex_y as i16);
+
+        // Extract 8-bit index (lower or upper byte depending on odd/even U)
+        let index = if u.is_multiple_of(2) {
+            index_word & 0xFF
+        } else {
+            (index_word >> 8) & 0xFF
+        };
+
+        // Look up color in CLUT
+        let clut_x = info.clut_x + index;
+        let clut_y = info.clut_y;
+        let color = Self::read_vram_pixel(vram, clut_x as i16, clut_y as i16);
+
+        Self::rgb15_to_rgb24(color)
+    }
+
+    /// Sample a 15-bit direct color texture
+    ///
+    /// For 15-bit textures, each pixel is stored directly as a 16-bit color
+    /// value in 5-5-5 RGB format. No CLUT lookup is needed.
+    ///
+    /// # Texture Storage
+    ///
+    /// 15-bit textures store 1 pixel per 16-bit word directly as RGB color.
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Reference to VRAM buffer
+    /// * `u` - U texture coordinate
+    /// * `v` - V texture coordinate
+    /// * `info` - Texture information
+    ///
+    /// # Returns
+    ///
+    /// Tuple (r, g, b) with 8-bit RGB values
+    fn sample_15bit_texture(
+        &self,
+        vram: &[u16],
+        u: u8,
+        v: u8,
+        info: &crate::core::gpu::TextureInfo,
+    ) -> (u8, u8, u8) {
+        // Calculate texture address
+        // 15-bit textures: 1 pixel per 16-bit word
+        let tex_x = (info.page_x + u as u16) & 0x3FF;
+        let tex_y = (info.page_y + v as u16) & 0x1FF;
+
+        // Read color directly
+        let color = Self::read_vram_pixel(vram, tex_x as i16, tex_y as i16);
+        Self::rgb15_to_rgb24(color)
+    }
+
     /// Sort triangle vertices by Y coordinate, preserving associated colors
     ///
     /// Returns vertices in ascending Y order (v0.y <= v1.y <= v2.y) along
@@ -930,5 +1258,227 @@ mod tests {
         assert_eq!(sc1, (0, 0, 255)); // Blue
         assert_eq!(s2, (10, 30)); // Highest Y
         assert_eq!(sc2, (255, 0, 0)); // Red
+    }
+
+    #[test]
+    fn test_rgb15_to_rgb24() {
+        // Test pure colors
+        assert_eq!(Rasterizer::rgb15_to_rgb24(0x001F), (248, 0, 0)); // Red
+        assert_eq!(Rasterizer::rgb15_to_rgb24(0x03E0), (0, 248, 0)); // Green
+        assert_eq!(Rasterizer::rgb15_to_rgb24(0x7C00), (0, 0, 248)); // Blue
+        assert_eq!(Rasterizer::rgb15_to_rgb24(0x7FFF), (248, 248, 248)); // White
+        assert_eq!(Rasterizer::rgb15_to_rgb24(0x0000), (0, 0, 0)); // Black
+    }
+
+    #[test]
+    fn test_texture_sampling_4bit() {
+        use crate::core::gpu::{TextureDepth, TextureInfo};
+
+        let mut vram = vec![0u16; 1024 * 512];
+        let rasterizer = Rasterizer::new();
+
+        // Setup CLUT at (0, 0) with 16 colors
+        for (i, pixel) in vram.iter_mut().enumerate().take(16) {
+            let r = ((i * 2) & 0x1F) as u16;
+            let g = ((i * 3) & 0x1F) as u16;
+            let b = ((i * 4) & 0x1F) as u16;
+            let color = (b << 10) | (g << 5) | r;
+            *pixel = color;
+        }
+
+        // Setup 4-bit texture at (64, 0)
+        // Store indices 0,1,2,3 in first word (4 pixels)
+        vram[64] = 0x3210;
+
+        let info = TextureInfo {
+            page_x: 64,
+            page_y: 0,
+            clut_x: 0,
+            clut_y: 0,
+            depth: TextureDepth::T4Bit,
+        };
+
+        // Sample pixel 0 (U=0) should get index 0
+        let color = rasterizer.sample_4bit_texture(&vram, 0, 0, &info);
+        let expected = Rasterizer::rgb15_to_rgb24(vram[0]);
+        assert_eq!(color, expected);
+
+        // Sample pixel 1 (U=1) should get index 1
+        let color = rasterizer.sample_4bit_texture(&vram, 1, 0, &info);
+        let expected = Rasterizer::rgb15_to_rgb24(vram[1]);
+        assert_eq!(color, expected);
+
+        // Sample pixel 2 (U=2) should get index 2
+        let color = rasterizer.sample_4bit_texture(&vram, 2, 0, &info);
+        let expected = Rasterizer::rgb15_to_rgb24(vram[2]);
+        assert_eq!(color, expected);
+
+        // Sample pixel 3 (U=3) should get index 3
+        let color = rasterizer.sample_4bit_texture(&vram, 3, 0, &info);
+        let expected = Rasterizer::rgb15_to_rgb24(vram[3]);
+        assert_eq!(color, expected);
+    }
+
+    #[test]
+    fn test_texture_sampling_8bit() {
+        use crate::core::gpu::{TextureDepth, TextureInfo};
+
+        let mut vram = vec![0u16; 1024 * 512];
+        let rasterizer = Rasterizer::new();
+
+        // Setup CLUT at (0, 0) with 256 colors
+        for (i, pixel) in vram.iter_mut().enumerate().take(256) {
+            let r = ((i / 8) & 0x1F) as u16;
+            let g = ((i / 4) & 0x1F) as u16;
+            let b = ((i / 2) & 0x1F) as u16;
+            let color = (b << 10) | (g << 5) | r;
+            *pixel = color;
+        }
+
+        // Setup 8-bit texture at (64, 0)
+        // Store indices 10 (low byte), 20 (high byte) in first word
+        vram[64] = (20 << 8) | 10;
+
+        let info = TextureInfo {
+            page_x: 64,
+            page_y: 0,
+            clut_x: 0,
+            clut_y: 0,
+            depth: TextureDepth::T8Bit,
+        };
+
+        // Sample pixel 0 (U=0, even) should get index 10
+        let color = rasterizer.sample_8bit_texture(&vram, 0, 0, &info);
+        let expected = Rasterizer::rgb15_to_rgb24(vram[10]);
+        assert_eq!(color, expected);
+
+        // Sample pixel 1 (U=1, odd) should get index 20
+        let color = rasterizer.sample_8bit_texture(&vram, 1, 0, &info);
+        let expected = Rasterizer::rgb15_to_rgb24(vram[20]);
+        assert_eq!(color, expected);
+    }
+
+    #[test]
+    fn test_texture_sampling_15bit() {
+        use crate::core::gpu::{TextureDepth, TextureInfo};
+
+        let mut vram = vec![0u16; 1024 * 512];
+        let rasterizer = Rasterizer::new();
+
+        // Setup 15-bit texture at (64, 0) with direct colors
+        vram[64] = 0x001F; // Red
+        vram[65] = 0x03E0; // Green
+        vram[66] = 0x7C00; // Blue
+
+        let info = TextureInfo {
+            page_x: 64,
+            page_y: 0,
+            clut_x: 0, // Not used for 15-bit
+            clut_y: 0, // Not used for 15-bit
+            depth: TextureDepth::T15Bit,
+        };
+
+        // Sample pixel 0 should get red
+        let color = rasterizer.sample_15bit_texture(&vram, 0, 0, &info);
+        assert_eq!(color, (248, 0, 0));
+
+        // Sample pixel 1 should get green
+        let color = rasterizer.sample_15bit_texture(&vram, 1, 0, &info);
+        assert_eq!(color, (0, 248, 0));
+
+        // Sample pixel 2 should get blue
+        let color = rasterizer.sample_15bit_texture(&vram, 2, 0, &info);
+        assert_eq!(color, (0, 0, 248));
+    }
+
+    #[test]
+    fn test_textured_triangle() {
+        use crate::core::gpu::{TextureDepth, TextureInfo};
+
+        let mut vram = vec![0u16; 1024 * 512];
+        let mut rasterizer = Rasterizer::new();
+
+        // Setup simple 15-bit texture at (64, 0)
+        for y in 0..256 {
+            for x in 0..64 {
+                let index = y * 1024 + (64 + x);
+                vram[index] = 0x7FFF; // White
+            }
+        }
+
+        let texture_info = TextureInfo {
+            page_x: 64,
+            page_y: 0,
+            clut_x: 0,
+            clut_y: 0,
+            depth: TextureDepth::T15Bit,
+        };
+
+        // Draw a textured triangle
+        rasterizer.draw_textured_triangle(
+            &mut vram,
+            (100, 100),
+            (0, 0),
+            (200, 100),
+            (63, 0),
+            (150, 200),
+            (31, 255),
+            &texture_info,
+            (128, 128, 128), // Normal brightness
+        );
+
+        // Check that pixels are drawn inside the triangle
+        let pixel = vram[150 * 1024 + 150];
+        assert_ne!(pixel, 0);
+    }
+
+    #[test]
+    fn test_textured_triangle_color_modulation() {
+        use crate::core::gpu::{TextureDepth, TextureInfo};
+
+        let mut vram = vec![0u16; 1024 * 512];
+        let mut rasterizer = Rasterizer::new();
+
+        // Setup 15-bit texture with white color
+        for y in 0..256 {
+            for x in 0..64 {
+                let index = y * 1024 + (64 + x);
+                vram[index] = 0x7FFF; // White (248, 248, 248)
+            }
+        }
+
+        let texture_info = TextureInfo {
+            page_x: 64,
+            page_y: 0,
+            clut_x: 0,
+            clut_y: 0,
+            depth: TextureDepth::T15Bit,
+        };
+
+        // Draw with red tint (255, 0, 0)
+        rasterizer.draw_textured_triangle(
+            &mut vram,
+            (100, 100),
+            (0, 0),
+            (200, 100),
+            (10, 0),
+            (150, 150),
+            (5, 10),
+            &texture_info,
+            (255, 0, 0), // Red tint
+        );
+
+        // Center pixel should have reddish tint
+        let pixel = vram[125 * 1024 + 150];
+        assert_ne!(pixel, 0);
+
+        // Extract color components
+        let r = pixel & 0x1F;
+        let g = (pixel >> 5) & 0x1F;
+        let b = (pixel >> 10) & 0x1F;
+
+        // Red should be higher than green and blue
+        assert!(r > g);
+        assert!(r > b);
     }
 }

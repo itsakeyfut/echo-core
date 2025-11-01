@@ -461,9 +461,17 @@ impl GPU {
             0x20 => self.parse_monochrome_triangle_opaque(),
             0x22 => self.parse_monochrome_triangle_semi_transparent(),
 
+            // Textured triangles
+            0x24 => self.parse_textured_triangle_opaque(),
+            0x26 => self.parse_textured_triangle_semi_transparent(),
+
             // Monochrome quadrilaterals
             0x28 => self.parse_monochrome_quad_opaque(),
             0x2A => self.parse_monochrome_quad_semi_transparent(),
+
+            // Textured quadrilaterals
+            0x2C => self.parse_textured_quad_opaque(),
+            0x2E => self.parse_textured_quad_semi_transparent(),
 
             // Shaded triangles
             0x30 => self.parse_shaded_triangle_opaque(),
