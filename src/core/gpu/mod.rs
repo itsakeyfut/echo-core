@@ -465,13 +465,21 @@ impl GPU {
             0x28 => self.parse_monochrome_quad_opaque(),
             0x2A => self.parse_monochrome_quad_semi_transparent(),
 
-            // Shaded triangles (placeholders)
+            // Shaded triangles
             0x30 => self.parse_shaded_triangle_opaque(),
             0x32 => self.parse_shaded_triangle_semi_transparent(),
 
-            // Shaded quads (placeholders)
+            // Shaded quads
             0x38 => self.parse_shaded_quad_opaque(),
             0x3A => self.parse_shaded_quad_semi_transparent(),
+
+            // Lines
+            0x40 => self.parse_line_opaque(),
+            0x42 => self.parse_line_semi_transparent(),
+
+            // Polylines
+            0x48 => self.parse_polyline_opaque(),
+            0x4A => self.parse_polyline_semi_transparent(),
 
             // VRAM transfer commands
             0xA0 => self.gp0_cpu_to_vram_transfer(),

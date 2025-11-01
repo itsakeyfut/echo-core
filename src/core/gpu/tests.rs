@@ -1214,3 +1214,275 @@ fn test_multiple_triangles() {
     // Colors should be different
     assert_ne!(pixel1, pixel2);
 }
+
+// ========== Line Drawing Tests ==========
+
+#[test]
+fn test_line_rendering() {
+    let mut gpu = GPU::new();
+
+    let v0 = Vertex { x: 10, y: 10 };
+    let v1 = Vertex { x: 50, y: 50 };
+    let color = Color {
+        r: 255,
+        g: 255,
+        b: 255,
+    };
+
+    gpu.render_line(v0, v1, color, false);
+
+    // Check start and end points
+    assert_ne!(gpu.read_vram(10, 10), 0);
+    assert_ne!(gpu.read_vram(50, 50), 0);
+
+    // Check a point on the line
+    assert_ne!(gpu.read_vram(30, 30), 0);
+}
+
+#[test]
+fn test_line_with_drawing_offset() {
+    let mut gpu = GPU::new();
+    gpu.draw_offset = (100, 100);
+
+    let v0 = Vertex { x: 10, y: 10 };
+    let v1 = Vertex { x: 50, y: 50 };
+    let color = Color {
+        r: 255,
+        g: 255,
+        b: 255,
+    };
+
+    gpu.render_line(v0, v1, color, false);
+
+    // Line should be drawn at offset position
+    assert_ne!(gpu.read_vram(110, 110), 0); // 10 + 100
+    assert_ne!(gpu.read_vram(150, 150), 0); // 50 + 100
+}
+
+#[test]
+fn test_polyline_rendering() {
+    let mut gpu = GPU::new();
+
+    let vertices = vec![
+        Vertex { x: 10, y: 10 },
+        Vertex { x: 50, y: 10 },
+        Vertex { x: 50, y: 50 },
+        Vertex { x: 10, y: 50 },
+        Vertex { x: 10, y: 10 },
+    ];
+    let color = Color { r: 255, g: 0, b: 0 };
+
+    gpu.render_polyline(&vertices, color, false);
+
+    // Check corners of the square
+    assert_ne!(gpu.read_vram(10, 10), 0);
+    assert_ne!(gpu.read_vram(50, 10), 0);
+    assert_ne!(gpu.read_vram(50, 50), 0);
+    assert_ne!(gpu.read_vram(10, 50), 0);
+
+    // Check edges
+    assert_ne!(gpu.read_vram(30, 10), 0); // Top edge
+    assert_ne!(gpu.read_vram(50, 30), 0); // Right edge
+}
+
+#[test]
+fn test_gp0_line_command() {
+    let mut gpu = GPU::new();
+
+    // GP0(0x40): Line command
+    // Word 0: 0x40FFFFFF (white line)
+    // Word 1: 0x000A000A (10, 10)
+    // Word 2: 0x0032 0032 (50, 50)
+    gpu.write_gp0(0x40FF_FFFF);
+    gpu.write_gp0(0x000A_000A);
+    gpu.write_gp0(0x0032_0032);
+
+    // Check line was drawn
+    assert_ne!(gpu.read_vram(10, 10), 0);
+    assert_ne!(gpu.read_vram(50, 50), 0);
+    assert_ne!(gpu.read_vram(30, 30), 0);
+}
+
+#[test]
+fn test_gp0_polyline_command() {
+    let mut gpu = GPU::new();
+
+    // GP0(0x48): Polyline command (opaque)
+    gpu.write_gp0(0x48FF_0000); // Red polyline
+    gpu.write_gp0(0x000A_000A); // Vertex (10, 10) - X=10, Y=10
+    gpu.write_gp0(0x0032_000A); // Vertex (10, 50) - X=10, Y=50
+    gpu.write_gp0(0x0032_0032); // Vertex (50, 50) - X=50, Y=50
+    gpu.write_gp0(0x5000_5000); // Terminator
+
+    // Check vertices
+    assert_ne!(gpu.read_vram(10, 10), 0);
+    assert_ne!(gpu.read_vram(10, 50), 0);
+    assert_ne!(gpu.read_vram(50, 50), 0);
+}
+
+// ========== Gradient Triangle Tests ==========
+
+#[test]
+fn test_gradient_triangle_rendering() {
+    let mut gpu = GPU::new();
+
+    let vertices = [
+        Vertex { x: 100, y: 100 },
+        Vertex { x: 200, y: 100 },
+        Vertex { x: 150, y: 200 },
+    ];
+    let colors = [
+        Color { r: 255, g: 0, b: 0 }, // Red
+        Color { r: 0, g: 255, b: 0 }, // Green
+        Color { r: 0, g: 0, b: 255 }, // Blue
+    ];
+
+    gpu.render_gradient_triangle(&vertices, &colors, false);
+
+    // Check that pixels are drawn
+    assert_ne!(gpu.read_vram(100, 100), 0); // Vertex 0
+    assert_ne!(gpu.read_vram(200, 100), 0); // Vertex 1
+    assert_ne!(gpu.read_vram(150, 200), 0); // Vertex 2
+
+    // Check center has interpolated color (not any pure color)
+    let center = gpu.read_vram(150, 133);
+    assert_ne!(center, 0);
+    assert_ne!(center, 0x001F); // Not pure red
+    assert_ne!(center, 0x03E0); // Not pure green
+    assert_ne!(center, 0x7C00); // Not pure blue
+}
+
+#[test]
+fn test_gradient_triangle_with_offset() {
+    let mut gpu = GPU::new();
+    gpu.draw_offset = (50, 50);
+
+    let vertices = [
+        Vertex { x: 10, y: 10 },
+        Vertex { x: 50, y: 10 },
+        Vertex { x: 30, y: 50 },
+    ];
+    let colors = [
+        Color { r: 255, g: 0, b: 0 },
+        Color { r: 0, g: 255, b: 0 },
+        Color { r: 0, g: 0, b: 255 },
+    ];
+
+    gpu.render_gradient_triangle(&vertices, &colors, false);
+
+    // Check with offset applied
+    assert_ne!(gpu.read_vram(60, 60), 0); // 10 + 50
+    assert_ne!(gpu.read_vram(100, 60), 0); // 50 + 50
+}
+
+#[test]
+fn test_gradient_quad_rendering() {
+    let mut gpu = GPU::new();
+
+    let vertices = [
+        Vertex { x: 100, y: 100 },
+        Vertex { x: 200, y: 100 },
+        Vertex { x: 200, y: 200 },
+        Vertex { x: 100, y: 200 },
+    ];
+    let colors = [
+        Color { r: 255, g: 0, b: 0 }, // Red
+        Color { r: 0, g: 255, b: 0 }, // Green
+        Color { r: 0, g: 0, b: 255 }, // Blue
+        Color {
+            r: 255,
+            g: 255,
+            b: 0,
+        }, // Yellow
+    ];
+
+    gpu.render_gradient_quad(&vertices, &colors, false);
+
+    // Check corners
+    assert_ne!(gpu.read_vram(100, 100), 0);
+    assert_ne!(gpu.read_vram(200, 100), 0);
+    assert_ne!(gpu.read_vram(200, 200), 0);
+    assert_ne!(gpu.read_vram(100, 200), 0);
+
+    // Check center is filled
+    assert_ne!(gpu.read_vram(150, 150), 0);
+}
+
+#[test]
+fn test_gp0_shaded_triangle_command() {
+    let mut gpu = GPU::new();
+
+    // GP0(0x30): Shaded triangle (opaque)
+    // Word 0: 0x30FF0000 (command + red color)
+    // Word 1: 0x00640064 (vertex1: X=100, Y=100)
+    // Word 2: 0x0000FF00 (green color)
+    // Word 3: 0x006400C8 (vertex2: X=200, Y=100)
+    // Word 4: 0x000000FF (blue color)
+    // Word 5: 0x00C80096 (vertex3: X=150, Y=200)
+    gpu.write_gp0(0x30FF_0000);
+    gpu.write_gp0(0x0064_0064);
+    gpu.write_gp0(0x0000_FF00);
+    gpu.write_gp0(0x0064_00C8);
+    gpu.write_gp0(0x0000_00FF);
+    gpu.write_gp0(0x00C8_0096);
+
+    // Check pixels are drawn
+    assert_ne!(gpu.read_vram(100, 100), 0);
+    assert_ne!(gpu.read_vram(200, 100), 0);
+    assert_ne!(gpu.read_vram(150, 150), 0);
+}
+
+#[test]
+fn test_gp0_shaded_quad_command() {
+    let mut gpu = GPU::new();
+
+    // GP0(0x38): Shaded quad (opaque)
+    gpu.write_gp0(0x38FF_0000); // Command + red
+    gpu.write_gp0(0x0064_0064); // (100, 100)
+    gpu.write_gp0(0x0000_FF00); // Green
+    gpu.write_gp0(0x00C8_0064); // (200, 100)
+    gpu.write_gp0(0x0000_00FF); // Blue
+    gpu.write_gp0(0x00C8_00C8); // (200, 200)
+    gpu.write_gp0(0x00FF_FF00); // Yellow
+    gpu.write_gp0(0x0064_00C8); // (100, 200)
+
+    // Check corners
+    assert_ne!(gpu.read_vram(100, 100), 0);
+    assert_ne!(gpu.read_vram(200, 100), 0);
+    assert_ne!(gpu.read_vram(200, 200), 0);
+    assert_ne!(gpu.read_vram(100, 200), 0);
+
+    // Check center
+    assert_ne!(gpu.read_vram(150, 150), 0);
+}
+
+#[test]
+fn test_gradient_smooth_interpolation() {
+    let mut gpu = GPU::new();
+
+    // Create a gradient with distinct colors (avoid pure black which is 0x0000)
+    let vertices = [
+        Vertex { x: 100, y: 100 },
+        Vertex { x: 200, y: 100 },
+        Vertex { x: 150, y: 200 },
+    ];
+    let colors = [
+        Color { r: 255, g: 0, b: 0 }, // Red
+        Color { r: 0, g: 255, b: 0 }, // Green
+        Color { r: 0, g: 0, b: 255 }, // Blue
+    ];
+
+    gpu.render_gradient_triangle(&vertices, &colors, false);
+
+    // Verify vertices have colors
+    assert_ne!(gpu.read_vram(100, 100), 0); // Red vertex
+    assert_ne!(gpu.read_vram(200, 100), 0); // Green vertex
+    assert_ne!(gpu.read_vram(150, 200), 0); // Blue vertex
+
+    // Verify center has interpolated color
+    let center = gpu.read_vram(150, 133);
+    assert_ne!(center, 0);
+    assert_ne!(center, 0x001F); // Not pure red
+    assert_ne!(center, 0x03E0); // Not pure green
+    assert_ne!(center, 0x7C00); // Not pure blue
+}
