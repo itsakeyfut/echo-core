@@ -58,6 +58,7 @@ mod tests;
 mod types;
 
 // Public re-exports
+pub use render::Rasterizer;
 pub use types::*;
 
 /// GPU state representing the CXD8561 graphics processor
@@ -84,6 +85,11 @@ pub struct GPU {
     /// Stored as a flat Vec for cache efficiency. Pixels are stored in row-major order
     /// (left-to-right, top-to-bottom). Each pixel is a 16-bit value in 5-5-5 RGB format.
     pub(in crate::core::gpu) vram: Vec<u16>,
+
+    /// Software rasterizer for drawing primitives
+    ///
+    /// Handles the actual pixel-level rasterization of triangles and other primitives.
+    pub(in crate::core::gpu) rasterizer: Rasterizer,
 
     /// Drawing mode state
     pub(in crate::core::gpu) draw_mode: DrawMode,
@@ -156,9 +162,10 @@ impl GPU {
     /// assert_eq!(gpu.read_vram(0, 0), 0x0000); // Black
     /// ```
     pub fn new() -> Self {
-        Self {
-            // Initialize VRAM to all black (0x0000)
+        // Create GPU with rasterizer
+        let mut gpu = Self {
             vram: vec![0x0000; Self::VRAM_SIZE],
+            rasterizer: Rasterizer::new(),
             draw_mode: DrawMode::default(),
             draw_area: DrawingArea::default(),
             draw_offset: (0, 0),
@@ -168,7 +175,11 @@ impl GPU {
             command_fifo: VecDeque::new(),
             status: GPUStatus::default(),
             vram_transfer: None,
-        }
+        };
+
+        // Initialize rasterizer with default clip rect
+        gpu.update_rasterizer_clip_rect();
+        gpu
     }
 
     /// Reset GPU to initial state
@@ -288,6 +299,71 @@ impl GPU {
         let x = (x & 0x3FF) as usize; // 0-1023
         let y = (y & 0x1FF) as usize; // 0-511
         y * Self::VRAM_WIDTH + x
+    }
+
+    /// Update the rasterizer's clipping rectangle from the drawing area
+    ///
+    /// This should be called whenever the drawing area is modified
+    /// to keep the rasterizer's clip rect in sync.
+    pub(in crate::core::gpu) fn update_rasterizer_clip_rect(&mut self) {
+        self.rasterizer.set_clip_rect(
+            self.draw_area.left as i16,
+            self.draw_area.top as i16,
+            self.draw_area.right as i16,
+            self.draw_area.bottom as i16,
+        );
+    }
+
+    /// Generate RGB24 framebuffer for display
+    ///
+    /// Extracts the display area from VRAM and converts it to 24-bit RGB
+    /// format suitable for display. Each pixel is converted from 15-bit
+    /// (5-5-5 RGB) to 24-bit (8-8-8 RGB) by left-shifting each channel.
+    ///
+    /// # Returns
+    ///
+    /// A Vec<u8> containing RGB24 data (width × height × 3 bytes).
+    /// Pixels are in row-major order (left-to-right, top-to-bottom).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::GPU;
+    ///
+    /// let mut gpu = GPU::new();
+    /// gpu.write_vram(10, 10, 0x7FFF); // White pixel
+    ///
+    /// let framebuffer = gpu.get_framebuffer();
+    /// // framebuffer is 320 × 240 × 3 = 230,400 bytes
+    /// assert_eq!(framebuffer.len(), 320 * 240 * 3);
+    /// ```
+    pub fn get_framebuffer(&self) -> Vec<u8> {
+        let width = self.display_area.width as usize;
+        let height = self.display_area.height as usize;
+        let mut framebuffer = vec![0u8; width * height * 3];
+
+        for y in 0..height {
+            for x in 0..width {
+                // Calculate VRAM coordinates with wrapping
+                let vram_x = (self.display_area.x as usize + x) % 1024;
+                let vram_y = (self.display_area.y as usize + y) % 512;
+                let vram_index = vram_y * 1024 + vram_x;
+                let pixel = self.vram[vram_index];
+
+                // Convert 15-bit (5-5-5) to 24-bit (8-8-8) RGB
+                // Left-shift by 3 to expand from 5-bit to 8-bit
+                let r = ((pixel & 0x1F) << 3) as u8;
+                let g = (((pixel >> 5) & 0x1F) << 3) as u8;
+                let b = (((pixel >> 10) & 0x1F) << 3) as u8;
+
+                let fb_index = (y * width + x) * 3;
+                framebuffer[fb_index] = r;
+                framebuffer[fb_index + 1] = g;
+                framebuffer[fb_index + 2] = b;
+            }
+        }
+
+        framebuffer
     }
 
     /// Get current GPU status register value
