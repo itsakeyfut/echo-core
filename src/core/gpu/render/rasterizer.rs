@@ -562,14 +562,20 @@ impl Rasterizer {
         v1: (i16, i16),
         v2: (i16, i16),
     ) -> (f32, f32, f32) {
-        let denom = ((v1.1 - v2.1) * (v0.0 - v2.0) + (v2.0 - v1.0) * (v0.1 - v2.1)) as f32;
+        // Promote to i32 before multiplication to prevent i16 overflow
+        let denom = (((v1.1 - v2.1) as i32) * ((v0.0 - v2.0) as i32)
+            + ((v2.0 - v1.0) as i32) * ((v0.1 - v2.1) as i32)) as f32;
 
         if denom.abs() < 0.001 {
             return (0.0, 0.0, 0.0);
         }
 
-        let w0 = ((v1.1 - v2.1) * (px - v2.0) + (v2.0 - v1.0) * (py - v2.1)) as f32 / denom;
-        let w1 = ((v2.1 - v0.1) * (px - v2.0) + (v0.0 - v2.0) * (py - v2.1)) as f32 / denom;
+        let w0 = ((((v1.1 - v2.1) as i32) * ((px - v2.0) as i32)
+            + ((v2.0 - v1.0) as i32) * ((py - v2.1) as i32)) as f32)
+            / denom;
+        let w1 = ((((v2.1 - v0.1) as i32) * ((px - v2.0) as i32)
+            + ((v0.0 - v2.0) as i32) * ((py - v2.1) as i32)) as f32)
+            / denom;
         let w2 = 1.0 - w0 - w1;
 
         (w0, w1, w2)
