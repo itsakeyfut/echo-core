@@ -49,7 +49,7 @@
 /// # Examples
 ///
 /// ```
-/// use psrx::core::gpu::render::Rasterizer;
+/// use psrx::core::gpu::Rasterizer;
 ///
 /// let mut vram = vec![0u16; 1024 * 512];
 /// let mut rasterizer = Rasterizer::new();
