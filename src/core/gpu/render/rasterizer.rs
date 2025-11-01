@@ -145,8 +145,9 @@ impl Rasterizer {
         } else {
             // General case: split at v1.y
             // Find the X coordinate on the v0-v2 edge at v1.y
-            let v3_x =
-                v0.0 + ((v1.1 - v0.1) as i32 * (v2.0 - v0.0) as i32 / (v2.1 - v0.1) as i32) as i16;
+            let numerator = (v1.1 - v0.1) as i64 * (v2.0 - v0.0) as i64;
+            let denominator = (v2.1 - v0.1) as i64;
+            let v3_x = v0.0 + (numerator / denominator) as i16;
             let v3 = (v3_x, v1.1);
 
             // Draw both halves
