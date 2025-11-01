@@ -21,4 +21,8 @@
 //! - Future: Line and rectangle rendering
 
 mod quad;
+mod rasterizer;
 mod triangle;
+
+// Public re-exports
+pub use rasterizer::Rasterizer;
