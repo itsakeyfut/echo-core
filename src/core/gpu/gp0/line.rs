@@ -126,7 +126,13 @@ impl GPU {
 
             // Safety limit to prevent infinite loops
             if vertices.len() >= 256 {
-                log::warn!("Polyline exceeded 256 vertices, terminating");
+                log::warn!("Polyline exceeded 256 vertices, discarding remainder");
+                // Drain remaining vertices and terminator to avoid FIFO desync
+                while let Some(word) = self.command_fifo.pop_front() {
+                    if word == 0x5000_5000 || word == 0x5555_5555 {
+                        break;
+                    }
+                }
                 break;
             }
         }
@@ -174,7 +180,13 @@ impl GPU {
 
             // Safety limit
             if vertices.len() >= 256 {
-                log::warn!("Polyline exceeded 256 vertices, terminating");
+                log::warn!("Polyline exceeded 256 vertices, discarding remainder");
+                // Drain remaining vertices and terminator to avoid FIFO desync
+                while let Some(word) = self.command_fifo.pop_front() {
+                    if word == 0x5000_5000 || word == 0x5555_5555 {
+                        break;
+                    }
+                }
                 break;
             }
         }
