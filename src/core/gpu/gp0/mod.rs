@@ -18,7 +18,8 @@
 //! This module implements all GP0 command processing including:
 //! - VRAM transfer operations (CPU↔VRAM, VRAM↔VRAM)
 //! - Polygon rendering (triangles, quadrilaterals)
-//! - Line and rectangle rendering (future)
+//! - Line rendering
 
+mod line;
 mod polygon;
 mod transfer;

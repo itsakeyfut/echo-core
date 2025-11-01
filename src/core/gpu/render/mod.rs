@@ -16,10 +16,12 @@
 //! Rendering Engine
 //!
 //! This module implements the actual rasterization and rendering of GPU primitives:
-//! - Triangle rasterization
+//! - Triangle rasterization (flat and gradient-shaded)
 //! - Quadrilateral rendering (as two triangles)
-//! - Future: Line and rectangle rendering
+//! - Line and polyline rendering
 
+mod gradient;
+mod line;
 mod quad;
 mod rasterizer;
 mod triangle;
