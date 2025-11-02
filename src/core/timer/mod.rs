@@ -351,6 +351,9 @@ impl TimerChannel {
 pub struct Timers {
     /// The 3 timer channels
     channels: [TimerChannel; 3],
+
+    /// Accumulator for Timer 2 divide-by-8 mode
+    timer2_div_accum: u32,
 }
 
 impl Timers {
@@ -372,6 +375,7 @@ impl Timers {
                 TimerChannel::new(1),
                 TimerChannel::new(2),
             ],
+            timer2_div_accum: 0,
         }
     }
 
@@ -423,17 +427,23 @@ impl Timers {
         irqs[0] = self.channels[0].tick(cycles, false);
 
         // Timer 1: System clock or hblank
-        let timer1_sync = if self.channels[1].mode.clock_source == 1 {
-            hblank
+        // When in HBlank mode, only advance on actual HBlank edges, not CPU cycles
+        let (timer1_cycles, timer1_sync) = if self.channels[1].mode.clock_source == 1 {
+            (if hblank { 1 } else { 0 }, hblank)
         } else {
-            false
+            (cycles, false)
         };
-        irqs[1] = self.channels[1].tick(cycles, timer1_sync);
+        irqs[1] = self.channels[1].tick(timer1_cycles, timer1_sync);
 
         // Timer 2: System clock or system/8
+        // Use accumulator to avoid losing fractional cycles
         let timer2_cycles = if self.channels[2].mode.clock_source == 1 {
-            cycles / 8
+            self.timer2_div_accum += cycles;
+            let whole = self.timer2_div_accum / 8;
+            self.timer2_div_accum %= 8;
+            whole
         } else {
+            self.timer2_div_accum = 0;
             cycles
         };
         irqs[2] = self.channels[2].tick(timer2_cycles, false);
