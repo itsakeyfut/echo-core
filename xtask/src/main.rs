@@ -76,6 +76,11 @@ enum Commands {
     PreCommit,
     /// Install git hooks
     InstallHooks,
+    /// Trigger Claude code review on a PR
+    Review {
+        /// PR number to review
+        pr_number: u32,
+    },
 }
 
 fn main() -> Result<()> {
@@ -103,6 +108,7 @@ fn main() -> Result<()> {
         } => run_bios_boot(&bios_path, instructions, release),
         Commands::PreCommit => run_pre_commit(),
         Commands::InstallHooks => install_hooks(),
+        Commands::Review { pr_number } => run_review(pr_number),
     }
 }
 
@@ -448,6 +454,130 @@ where
             Err(e)
         }
     }
+}
+
+fn run_review(pr_number: u32) -> Result<()> {
+    use std::fs;
+
+    println!("{}", "=== Triggering Claude Code Review ===".bold().blue());
+
+    // Check if gh CLI is installed
+    let gh_check = Command::new("gh")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    if gh_check.is_err() || !gh_check.unwrap().success() {
+        println!("{} GitHub CLI (gh) is not installed", "✗".red().bold());
+        println!("\n{} Install GitHub CLI:", "ℹ".blue());
+        println!("  macOS:   brew install gh");
+        println!("  Linux:   https://github.com/cli/cli/blob/trunk/docs/install_linux.md");
+        println!("  Windows: https://github.com/cli/cli#windows");
+        println!("\nThen authenticate: gh auth login");
+        anyhow::bail!("GitHub CLI not found");
+    }
+
+    // Check if authenticated
+    let auth_check = Command::new("gh")
+        .arg("auth")
+        .arg("status")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+
+    if !auth_check.success() {
+        println!("{} Not authenticated with GitHub CLI", "✗".red().bold());
+        println!("\n{} Please authenticate: gh auth login", "ℹ".blue());
+        anyhow::bail!("Not authenticated with GitHub CLI");
+    }
+
+    // Load .env file
+    let env_path = ".env";
+    if !std::path::Path::new(env_path).exists() {
+        println!("{} .env file not found", "✗".red().bold());
+        println!("\n{} Create .env file with:", "ℹ".blue());
+        println!("  ANTHROPIC_API_KEY=sk-ant-api03-xxxxx");
+        anyhow::bail!(".env file not found");
+    }
+
+    // Read .env file
+    let env_content = fs::read_to_string(env_path)?;
+    let mut api_key = None;
+
+    for line in env_content.lines() {
+        let line = line.trim();
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            if key.trim() == "ANTHROPIC_API_KEY" {
+                api_key = Some(value.trim().to_string());
+                break;
+            }
+        }
+    }
+
+    let api_key =
+        api_key.ok_or_else(|| anyhow::anyhow!("ANTHROPIC_API_KEY not found in .env file"))?;
+
+    if api_key.is_empty() || api_key == "sk-ant-api03-xxxxx" {
+        println!("{} ANTHROPIC_API_KEY not set in .env", "✗".red().bold());
+        println!("\n{} Add to .env file:", "ℹ".blue());
+        println!("  ANTHROPIC_API_KEY=sk-ant-api03-xxxxx");
+        anyhow::bail!("ANTHROPIC_API_KEY not configured");
+    }
+
+    println!("{} GitHub CLI: OK", "✓".green());
+    println!("{} Authenticated: OK", "✓".green());
+    println!("{} API Key: {}...", "✓".green(), &api_key[..20]);
+    println!(
+        "{} PR Number: #{}",
+        "→".blue(),
+        pr_number.to_string().bold()
+    );
+    println!();
+
+    // Trigger workflow
+    println!("{} Triggering workflow...", "→".blue());
+
+    let mut cmd = Command::new("gh");
+    cmd.arg("workflow")
+        .arg("run")
+        .arg("claude-review.yml")
+        .arg("-f")
+        .arg(format!("pr_number={}", pr_number))
+        .arg("-f")
+        .arg(format!("api_key={}", api_key));
+
+    let status = cmd
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()?;
+
+    if !status.success() {
+        println!("\n{} Failed to trigger workflow", "✗".red().bold());
+        println!("\n{} Troubleshooting:", "ℹ".blue());
+        println!("  1. Check workflow file: .github/workflows/claude-review.yml");
+        println!("  2. Verify you have write access to the repository");
+        println!("  3. Run: gh auth status");
+        anyhow::bail!("Failed to trigger workflow");
+    }
+
+    println!();
+    println!("{} Workflow triggered successfully!", "✓".green().bold());
+    println!();
+    println!("{} View workflow runs:", "→".blue());
+    println!("  gh run list --workflow=claude-review.yml");
+    println!();
+    println!(
+        "{} Review will appear as a comment on PR #{} in ~1-2 minutes",
+        "⏳".yellow(),
+        pr_number
+    );
+    println!();
+
+    Ok(())
 }
 
 fn execute_command(cmd: &mut Command) -> Result<()> {
