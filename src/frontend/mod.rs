@@ -99,7 +99,19 @@ impl Frontend {
     /// let frontend = Frontend::new(system);
     /// ```
     pub fn new(system: System) -> Self {
+        // Check for WSL and provide helpful message
+        if let Ok(wsl_distro) = std::env::var("WSL_DISTRO_NAME") {
+            log::warn!("Running in WSL ({}). Make sure X11 or Wayland is configured.", wsl_distro);
+            log::warn!("For X11: Set DISPLAY environment variable (e.g., export DISPLAY=:0)");
+            log::warn!("For WSLg: Ensure you're on Windows 11 with WSLg support");
+        }
+
         let window = MainWindow::new().expect("Failed to create Slint MainWindow");
+
+        log::info!("Slint window created successfully");
+
+        // Enable debug mode by default to see GPU/CPU info
+        window.set_debug_mode(true);
 
         Self {
             window,
@@ -109,7 +121,7 @@ impl Frontend {
             fps: 0.0,
             frame_times: Vec::new(),
             last_perf_log: Instant::now(),
-            debug_mode: false,
+            debug_mode: true, // Enable debug mode
             paused: false,
         }
     }
@@ -150,6 +162,14 @@ impl Frontend {
     pub fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Set running state
         self.window.set_running(true);
+
+        // Show the window explicitly
+        self.window.show().map_err(|e| {
+            log::error!("Failed to show window: {}", e);
+            format!("Failed to show window: {}", e)
+        })?;
+
+        log::info!("Window displayed, starting emulation loop");
 
         // Note: Keyboard input will be handled through Slint UI callbacks in future versions
         // For now, users can close the window using the window controls
@@ -214,10 +234,12 @@ impl Frontend {
 
             // Check if window was closed
             if !self.window.window().is_visible() {
+                log::info!("Window closed by user");
                 break;
             }
         }
 
+        log::info!("Exiting emulation loop");
         self.window.set_running(false);
         Ok(())
     }

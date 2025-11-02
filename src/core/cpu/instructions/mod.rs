@@ -84,6 +84,17 @@ impl CPU {
             0x2A => self.op_swl(instruction, bus),  // SWL
             0x2B => self.op_sw(instruction, bus),   // SW
             0x2E => self.op_swr(instruction, bus),  // SWR
+            0x2F => self.op_cache(instruction),     // CACHE (treated as NOP)
+            0x3F => {
+                // Invalid opcode 0x3F (all 1s in opcode field)
+                // This typically appears when reading from unpopulated memory (0xFFFFFFFF)
+                // Treat as NOP for compatibility with BIOS hardware detection
+                log::trace!(
+                    "Invalid opcode 0x3F at PC=0x{:08X} (unpopulated memory, treated as NOP)",
+                    self.pc
+                );
+                Ok(())
+            }
             _ => {
                 log::warn!(
                     "Unimplemented opcode: 0x{:02X} at PC=0x{:08X}",
@@ -140,6 +151,16 @@ impl CPU {
             0x27 => self.op_nor(rs, rt, rd),      // NOR
             0x2A => self.op_slt(rs, rt, rd),      // SLT
             0x2B => self.op_sltu(rs, rt, rd),     // SLTU
+            0x3F => {
+                // Reserved SPECIAL function 0x3F
+                // This appears in some BIOS code but has no documented function
+                // Treating as NOP for compatibility
+                log::debug!(
+                    "Reserved SPECIAL function 0x3F at PC=0x{:08X} (treated as NOP)",
+                    self.pc
+                );
+                Ok(())
+            }
             _ => {
                 log::warn!(
                     "Unimplemented SPECIAL function: 0x{:02X} at PC=0x{:08X}",
@@ -149,6 +170,44 @@ impl CPU {
                 Ok(())
             }
         }
+    }
+
+    /// CACHE instruction (opcode 0x2F)
+    ///
+    /// Cache control instruction for the MIPS R3000A.
+    /// For basic emulation, this is treated as a NOP since we don't
+    /// fully emulate cache behavior.
+    ///
+    /// Format: CACHE op, offset(base)
+    /// I-type: | 0x2F (6) | base (5) | op (5) | offset (16) |
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) - Always succeeds (NOP)
+    ///
+    /// # Note
+    ///
+    /// The PlayStation BIOS uses CACHE instructions for cache management.
+    /// Since we don't emulate the instruction cache or data cache in detail,
+    /// we can safely ignore these instructions for basic compatibility.
+    fn op_cache(&mut self, instruction: u32) -> Result<()> {
+        let base = ((instruction >> 21) & 0x1F) as u8;
+        let op = ((instruction >> 16) & 0x1F) as u8;
+        let offset = (instruction & 0xFFFF) as i16;
+
+        log::trace!(
+            "CACHE instruction: op={}, base=r{}, offset={} (treated as NOP)",
+            op,
+            base,
+            offset
+        );
+
+        // Treated as NOP - no cache emulation needed for basic functionality
+        Ok(())
     }
 
     /// Handle COP0 instructions (opcode 0x10)

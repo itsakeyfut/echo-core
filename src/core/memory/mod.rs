@@ -126,12 +126,17 @@ impl Bus {
     const RAM_END: u32 = 0x001FFFFF;
 
     /// Scratchpad physical address range
+    /// Note: The actual scratchpad is 1KB (0x000-0x3FF), but the full 4KB region
+    /// (0x000-0xFFF) is addressable. Accesses to 0x400-0xFFF mirror 0x000-0x3FF.
     const SCRATCHPAD_START: u32 = 0x1F800000;
-    const SCRATCHPAD_END: u32 = 0x1F8003FF;
+    const SCRATCHPAD_END: u32 = 0x1F800FFF;
 
     /// I/O ports physical address range
+    /// Note: 0x1F801000-0x1F801FFF is the main I/O area
+    ///       0x1F802000-0x1F802FFF is Expansion Region 2 I/O
+    ///       0x1F803000-0x1F9FFFFF is reserved/duplication but accessed by BIOS
     const IO_START: u32 = 0x1F801000;
-    const IO_END: u32 = 0x1F802FFF;
+    const IO_END: u32 = 0x1F9FFFFF;
 
     /// BIOS ROM physical address range
     const BIOS_START: u32 = 0x1FC00000;
@@ -140,9 +145,14 @@ impl Bus {
     /// Cache Control register address
     const CACHE_CONTROL: u32 = 0x1FFE0130;
 
-    /// Expansion Region 1 physical address range
-    const EXP1_START: u32 = 0x1F000000;
-    const EXP1_END: u32 = 0x1F7FFFFF;
+    /// Expansion Region 1 physical address range (lower part)
+    /// This is the main expansion area, typically unused on retail PSX
+    const EXP1_LOW_START: u32 = 0x00200000;
+    const EXP1_LOW_END: u32 = 0x1EFFFFFF;
+
+    /// Expansion Region 2 physical address range
+    const EXP2_START: u32 = 0x1F000000;
+    const EXP2_END: u32 = 0x1F7FFFFF;
 
     /// Expansion Region 3 physical address range
     const EXP3_START: u32 = 0x1FA00000;
@@ -341,14 +351,15 @@ impl Bus {
 
         if (Self::RAM_START..=Self::RAM_END).contains(&paddr) {
             MemoryRegion::RAM
-        } else if (Self::EXP1_START..=Self::EXP1_END).contains(&paddr) {
+        } else if (Self::EXP1_LOW_START..=Self::EXP1_LOW_END).contains(&paddr)
+            || (Self::EXP2_START..=Self::EXP2_END).contains(&paddr)
+            || (Self::EXP3_START..=Self::EXP3_END).contains(&paddr)
+        {
             MemoryRegion::Expansion
         } else if (Self::SCRATCHPAD_START..=Self::SCRATCHPAD_END).contains(&paddr) {
             MemoryRegion::Scratchpad
         } else if (Self::IO_START..=Self::IO_END).contains(&paddr) {
             MemoryRegion::IO
-        } else if (Self::EXP3_START..=Self::EXP3_END).contains(&paddr) {
-            MemoryRegion::Expansion
         } else if (Self::BIOS_START..=Self::BIOS_END).contains(&paddr) {
             MemoryRegion::BIOS
         } else if paddr == Self::CACHE_CONTROL {
@@ -390,7 +401,7 @@ impl Bus {
                 Ok(self.ram[offset])
             }
             MemoryRegion::Scratchpad => {
-                let offset = (paddr - Self::SCRATCHPAD_START) as usize;
+                let offset = ((paddr - Self::SCRATCHPAD_START) & 0x3FF) as usize;
                 Ok(self.scratchpad[offset])
             }
             MemoryRegion::BIOS => {
@@ -467,7 +478,7 @@ impl Bus {
                 Ok(u16::from_le_bytes(bytes))
             }
             MemoryRegion::Scratchpad => {
-                let offset = (paddr - Self::SCRATCHPAD_START) as usize;
+                let offset = ((paddr - Self::SCRATCHPAD_START) & 0x3FF) as usize;
                 let bytes = [self.scratchpad[offset], self.scratchpad[offset + 1]];
                 Ok(u16::from_le_bytes(bytes))
             }
@@ -551,7 +562,7 @@ impl Bus {
                 Ok(u32::from_le_bytes(bytes))
             }
             MemoryRegion::Scratchpad => {
-                let offset = (paddr - Self::SCRATCHPAD_START) as usize;
+                let offset = ((paddr - Self::SCRATCHPAD_START) & 0x3FF) as usize;
                 let bytes = [
                     self.scratchpad[offset],
                     self.scratchpad[offset + 1],
@@ -640,7 +651,7 @@ impl Bus {
                 Ok(())
             }
             MemoryRegion::Scratchpad => {
-                let offset = (paddr - Self::SCRATCHPAD_START) as usize;
+                let offset = ((paddr - Self::SCRATCHPAD_START) & 0x3FF) as usize;
                 self.scratchpad[offset] = value;
                 Ok(())
             }
@@ -724,7 +735,7 @@ impl Bus {
                 Ok(())
             }
             MemoryRegion::Scratchpad => {
-                let offset = (paddr - Self::SCRATCHPAD_START) as usize;
+                let offset = ((paddr - Self::SCRATCHPAD_START) & 0x3FF) as usize;
                 self.scratchpad[offset] = bytes[0];
                 self.scratchpad[offset + 1] = bytes[1];
                 Ok(())
@@ -811,7 +822,7 @@ impl Bus {
                 Ok(())
             }
             MemoryRegion::Scratchpad => {
-                let offset = (paddr - Self::SCRATCHPAD_START) as usize;
+                let offset = ((paddr - Self::SCRATCHPAD_START) & 0x3FF) as usize;
                 self.scratchpad[offset] = bytes[0];
                 self.scratchpad[offset + 1] = bytes[1];
                 self.scratchpad[offset + 2] = bytes[2];
