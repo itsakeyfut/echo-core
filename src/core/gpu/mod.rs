@@ -494,6 +494,14 @@ impl GPU {
             0xC0 => self.gp0_vram_to_cpu_transfer(),
             0x80 => self.gp0_vram_to_vram_transfer(),
 
+            // Drawing mode settings
+            0xE1 => self.gp0_draw_mode(),
+            0xE2 => self.gp0_texture_window(),
+            0xE3 => self.gp0_draw_area_top_left(),
+            0xE4 => self.gp0_draw_area_bottom_right(),
+            0xE5 => self.gp0_draw_offset(),
+            0xE6 => self.gp0_mask_settings(),
+
             _ => {
                 log::warn!("Unimplemented GP0 command: 0x{:02X}", command);
                 self.command_fifo.pop_front();
