@@ -282,6 +282,14 @@ impl System {
     pub fn bus_mut(&mut self) -> &mut Bus {
         &mut self.bus
     }
+
+    /// Get reference to GPU
+    ///
+    /// # Returns
+    /// Reference to GPU instance (wrapped in Rc<RefCell>)
+    pub fn gpu(&self) -> Rc<RefCell<GPU>> {
+        Rc::clone(&self.gpu)
+    }
 }
 
 impl Default for System {
