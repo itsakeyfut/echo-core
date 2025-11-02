@@ -70,6 +70,14 @@ pub struct Frontend {
     frame_count: u32,
     /// Current FPS value
     fps: f32,
+    /// Performance tracking: frame times for averaging
+    frame_times: Vec<Duration>,
+    /// Last performance log time
+    last_perf_log: Instant,
+    /// Debug mode enabled
+    debug_mode: bool,
+    /// Pause state
+    paused: bool,
 }
 
 impl Frontend {
@@ -99,6 +107,10 @@ impl Frontend {
             last_frame_time: Instant::now(),
             frame_count: 0,
             fps: 0.0,
+            frame_times: Vec::new(),
+            last_perf_log: Instant::now(),
+            debug_mode: false,
+            paused: false,
         }
     }
 
@@ -139,19 +151,27 @@ impl Frontend {
         // Set running state
         self.window.set_running(true);
 
+        // Note: Keyboard input will be handled through Slint UI callbacks in future versions
+        // For now, users can close the window using the window controls
+
         // Main loop
         loop {
-            // Run one frame of emulation
-            if let Err(e) = self.system.run_frame() {
-                log::error!("Emulation error: {}", e);
-                self.window.set_running(false);
-                return Err(Box::new(e));
+            let frame_start = Instant::now();
+
+            // Run one frame of emulation (unless paused)
+            if !self.paused {
+                if let Err(e) = self.system.run_frame() {
+                    log::error!("Emulation error: {}", e);
+                    self.window.set_running(false);
+                    return Err(Box::new(e));
+                }
             }
 
             // Get framebuffer from GPU
             let gpu = self.system.gpu();
             let framebuffer = gpu.borrow().get_framebuffer();
             let display_area = gpu.borrow().display_area();
+            let gpu_status = gpu.borrow().status();
             drop(gpu); // Release borrow
 
             let width = display_area.width as usize;
@@ -165,6 +185,26 @@ impl Frontend {
 
             // Update FPS counter
             self.update_fps();
+
+            // Update debug info
+            if self.debug_mode {
+                let pc = self.system.pc();
+                self.window.set_cpu_pc(format!("PC: 0x{:08X}", pc).into());
+                self.window
+                    .set_gpu_status(format!("GPU: 0x{:08X}", gpu_status).into());
+            }
+
+            // Track frame time
+            let frame_time = frame_start.elapsed();
+            self.frame_times.push(frame_time);
+
+            // Update performance text
+            self.window.set_performance_text(
+                format!("Frame: {:.2}ms", frame_time.as_secs_f64() * 1000.0).into(),
+            );
+
+            // Log performance every 5 seconds
+            self.log_performance();
 
             // Process UI events
             slint::platform::update_timers_and_animations();
@@ -180,6 +220,31 @@ impl Frontend {
 
         self.window.set_running(false);
         Ok(())
+    }
+
+    /// Log performance metrics
+    ///
+    /// Logs average frame time and FPS every 5 seconds
+    fn log_performance(&mut self) {
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.last_perf_log);
+
+        // Log performance every 5 seconds
+        if elapsed >= Duration::from_secs(5) && !self.frame_times.is_empty() {
+            let avg_frame_time =
+                self.frame_times.iter().sum::<Duration>() / self.frame_times.len() as u32;
+            let avg_fps = 1.0 / avg_frame_time.as_secs_f64();
+
+            log::info!(
+                "Performance: avg {:.2}ms/frame ({:.1} fps)",
+                avg_frame_time.as_secs_f64() * 1000.0,
+                avg_fps
+            );
+
+            // Reset counters
+            self.frame_times.clear();
+            self.last_perf_log = now;
+        }
     }
 
     /// Convert RGB24 framebuffer to Slint RGBA8 image
