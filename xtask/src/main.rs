@@ -487,10 +487,7 @@ fn run_review(pr_number: u32) -> Result<()> {
         .status()?;
 
     if !auth_check.success() {
-        println!(
-            "{} Not authenticated with GitHub CLI",
-            "✗".red().bold()
-        );
+        println!("{} Not authenticated with GitHub CLI", "✗".red().bold());
         println!("\n{} Please authenticate: gh auth login", "ℹ".blue());
         anyhow::bail!("Not authenticated with GitHub CLI");
     }
@@ -521,15 +518,11 @@ fn run_review(pr_number: u32) -> Result<()> {
         }
     }
 
-    let api_key = api_key.ok_or_else(|| {
-        anyhow::anyhow!("ANTHROPIC_API_KEY not found in .env file")
-    })?;
+    let api_key =
+        api_key.ok_or_else(|| anyhow::anyhow!("ANTHROPIC_API_KEY not found in .env file"))?;
 
     if api_key.is_empty() || api_key == "sk-ant-api03-xxxxx" {
-        println!(
-            "{} ANTHROPIC_API_KEY not set in .env",
-            "✗".red().bold()
-        );
+        println!("{} ANTHROPIC_API_KEY not set in .env", "✗".red().bold());
         println!("\n{} Add to .env file:", "ℹ".blue());
         println!("  ANTHROPIC_API_KEY=sk-ant-api03-xxxxx");
         anyhow::bail!("ANTHROPIC_API_KEY not configured");
@@ -538,7 +531,11 @@ fn run_review(pr_number: u32) -> Result<()> {
     println!("{} GitHub CLI: OK", "✓".green());
     println!("{} Authenticated: OK", "✓".green());
     println!("{} API Key: {}...", "✓".green(), &api_key[..20]);
-    println!("{} PR Number: #{}", "→".blue(), pr_number.to_string().bold());
+    println!(
+        "{} PR Number: #{}",
+        "→".blue(),
+        pr_number.to_string().bold()
+    );
     println!();
 
     // Trigger workflow
@@ -573,7 +570,11 @@ fn run_review(pr_number: u32) -> Result<()> {
     println!("{} View workflow runs:", "→".blue());
     println!("  gh run list --workflow=claude-review.yml");
     println!();
-    println!("{} Review will appear as a comment on PR #{} in ~1-2 minutes", "⏳".yellow(), pr_number);
+    println!(
+        "{} Review will appear as a comment on PR #{} in ~1-2 minutes",
+        "⏳".yellow(),
+        pr_number
+    );
     println!();
 
     Ok(())
