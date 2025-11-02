@@ -996,7 +996,7 @@ impl Rasterizer {
     /// # Examples
     ///
     /// ```
-    /// use psrx::core::gpu::{Rasterizer, TextureInfo, TextureDepth};
+    /// use psrx::core::gpu::{Rasterizer, TextureInfo, TextureDepth, TextureWindow};
     ///
     /// let mut vram = vec![0u16; 1024 * 512];
     /// let mut rasterizer = Rasterizer::new();
@@ -1009,6 +1009,8 @@ impl Rasterizer {
     ///     depth: TextureDepth::T4Bit,
     /// };
     ///
+    /// let texture_window = TextureWindow::default();
+    ///
     /// // Draw a textured triangle
     /// rasterizer.draw_textured_triangle(
     ///     &mut vram,
@@ -1016,6 +1018,7 @@ impl Rasterizer {
     ///     (200, 100), (255, 0),
     ///     (150, 200), (128, 255),
     ///     &texture_info,
+    ///     &texture_window,
     ///     (128, 128, 128),  // Normal brightness
     /// );
     /// ```
@@ -1087,13 +1090,11 @@ impl Rasterizer {
     ///
     /// # Examples
     ///
-    /// ```
-    /// # use psrx::core::gpu::{Rasterizer, TextureWindow};
-    /// let rasterizer = Rasterizer::new();
+    /// ```ignore
+    /// // This is a private method used internally by the rasterizer
     /// let window = TextureWindow { mask_x: 3, mask_y: 3, offset_x: 2, offset_y: 2 };
-    ///
     /// // With mask=3 (0x18 in pixels), offset=2 (0x10 in pixels)
-    /// let (u, v) = rasterizer.apply_texture_window(100, 100, &window);
+    /// // Coordinates are masked according to the texture window formula
     /// ```
     fn apply_texture_window(
         &self,
