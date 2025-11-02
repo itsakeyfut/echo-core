@@ -404,4 +404,103 @@ impl Frontend {
 
         Image::from_rgba8(pixel_buffer)
     }
+
+    /// Handle keyboard input and map to controller buttons
+    ///
+    /// Maps keyboard keys to PlayStation controller buttons.
+    ///
+    /// # Key Mapping
+    ///
+    /// - **D-Pad**: WASD or Arrow Keys
+    /// - **Face Buttons**: IJKL or ZXCV
+    ///   - I/Z = Triangle
+    ///   - L/C = Circle
+    ///   - K/X = Cross
+    ///   - J/V = Square
+    /// - **Shoulder Buttons**: Q/E (L1/R1), 1/3 (L2/R2)
+    /// - **Start/Select**: Enter (Start), Shift (Select)
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Key string (e.g., "w", "ArrowUp", "Enter")
+    /// * `pressed` - true if key is pressed, false if released
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::system::System;
+    /// use psrx::frontend::Frontend;
+    ///
+    /// let system = System::new();
+    /// let mut frontend = Frontend::new(system);
+    ///
+    /// // Simulate pressing Cross button (X key)
+    /// frontend.handle_keyboard_input("x", true);
+    ///
+    /// // Simulate releasing Cross button
+    /// frontend.handle_keyboard_input("x", false);
+    /// ```
+    pub fn handle_keyboard_input(&mut self, key: &str, pressed: bool) {
+        use crate::core::controller::buttons;
+
+        let state = self.state.borrow_mut();
+        let controller_ports = state.system.controller_ports();
+        let mut ports_borrow = controller_ports.borrow_mut();
+
+        if let Some(controller) = ports_borrow.get_controller_mut(0) {
+            let button = match key {
+                // D-Pad
+                "w" | "W" | "ArrowUp" => Some(buttons::UP),
+                "s" | "S" | "ArrowDown" => Some(buttons::DOWN),
+                "a" | "A" | "ArrowLeft" => Some(buttons::LEFT),
+                "d" | "D" | "ArrowRight" => Some(buttons::RIGHT),
+
+                // Face buttons (IJKL or ZXCV)
+                "i" | "I" | "z" | "Z" => Some(buttons::TRIANGLE),
+                "l" | "L" | "c" | "C" => Some(buttons::CIRCLE),
+                "k" | "K" | "x" | "X" => Some(buttons::CROSS),
+                "j" | "J" | "v" | "V" => Some(buttons::SQUARE),
+
+                // Shoulder buttons
+                "q" | "Q" => Some(buttons::L1),
+                "e" | "E" => Some(buttons::R1),
+                "1" => Some(buttons::L2),
+                "3" => Some(buttons::R2),
+
+                // Start/Select
+                "Enter" => Some(buttons::START),
+                "Shift" => Some(buttons::SELECT),
+
+                _ => None,
+            };
+
+            if let Some(btn) = button {
+                controller.set_button_state(btn, pressed);
+                log::debug!(
+                    "Button {} (key: {}) {}",
+                    match btn {
+                        buttons::UP => "UP",
+                        buttons::DOWN => "DOWN",
+                        buttons::LEFT => "LEFT",
+                        buttons::RIGHT => "RIGHT",
+                        buttons::TRIANGLE => "TRIANGLE",
+                        buttons::CIRCLE => "CIRCLE",
+                        buttons::CROSS => "CROSS",
+                        buttons::SQUARE => "SQUARE",
+                        buttons::L1 => "L1",
+                        buttons::R1 => "R1",
+                        buttons::L2 => "L2",
+                        buttons::R2 => "R2",
+                        buttons::START => "START",
+                        buttons::SELECT => "SELECT",
+                        _ => "UNKNOWN",
+                    },
+                    key,
+                    if pressed { "pressed" } else { "released" }
+                );
+            }
+        } else {
+            log::warn!("No controller found at port 1");
+        }
+    }
 }
