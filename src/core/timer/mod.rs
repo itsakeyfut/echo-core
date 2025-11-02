@@ -78,9 +78,9 @@ pub struct TimerMode {
     pub irq_pulse_mode: bool,
 
     /// Clock source (bits 8-9)
-    /// - Timer 0: 0=system clock, 1=pixel clock
-    /// - Timer 1: 0=system clock, 1=hblank
-    /// - Timer 2: 0=system clock, 1=system/8
+    /// - Timer 0: bit 8: 0=system clock, 1=pixel clock (values 0,2=sys, 1,3=pixel)
+    /// - Timer 1: bit 8: 0=system clock, 1=hblank (values 0,2=sys, 1,3=hblank)
+    /// - Timer 2: bit 9: 0=system clock, 1=system/8 (values 0,1=sys, 2,3=sys/8)
     pub clock_source: u8,
 
     /// IRQ flag (bit 10) - Read-only, writable to reset
@@ -429,7 +429,8 @@ impl Timers {
 
         // Timer 1: System clock or hblank
         // When in HBlank mode, only advance on actual HBlank edges, not CPU cycles
-        let (timer1_cycles, timer1_sync) = if self.channels[1].mode.clock_source == 1 {
+        // Check low bit (bit 8): values 1 and 3 both select HBlank mode
+        let (timer1_cycles, timer1_sync) = if self.channels[1].mode.clock_source & 0x01 != 0 {
             (if hblank { 1 } else { 0 }, hblank)
         } else {
             (cycles, false)
@@ -438,7 +439,8 @@ impl Timers {
 
         // Timer 2: System clock or system/8
         // Use accumulator to avoid losing fractional cycles
-        let timer2_cycles = if self.channels[2].mode.clock_source == 1 {
+        // Check high bit (bit 9): values 2 and 3 both select system/8 mode
+        let timer2_cycles = if self.channels[2].mode.clock_source & 0x02 != 0 {
             self.timer2_div_accum += cycles;
             let whole = self.timer2_div_accum / 8;
             self.timer2_div_accum %= 8;
@@ -615,8 +617,8 @@ mod tests {
     fn test_timer_clock_source_division() {
         let mut timers = Timers::new();
 
-        // Timer 2 with clock source = 1 (system/8)
-        timers.channel_mut(2).write_mode(0x0100); // Clock source bit 8
+        // Timer 2 with clock source = 2 (system/8 mode, bit 9 set)
+        timers.channel_mut(2).write_mode(0x0200); // Clock source bit 9
 
         timers.tick(80, false, false);
 
