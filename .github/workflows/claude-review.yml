@@ -133,6 +133,7 @@ jobs:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         anthropic_model: "claude-sonnet-4-5-20250929"
         timeout_minutes: 15
+        mode: agent
         direct_prompt: |
           # Code Review for PSRX PlayStation 1 Emulator
 
