@@ -324,6 +324,223 @@ pub struct TextureInfo {
     pub depth: TextureDepth,
 }
 
+/// Semi-transparency blending modes
+///
+/// The PlayStation GPU supports 4 semi-transparency (alpha blending) modes
+/// for rendering translucent effects like glass, water, and explosions.
+///
+/// # Blending Formula
+///
+/// Each mode specifies how to combine the background color (B) with the
+/// foreground color (F):
+/// - **Average**: (B/2 + F/2) - 50% blend
+/// - **Additive**: (B + F) - additive blending (brightens)
+/// - **Subtractive**: (B - F) - subtractive blending (darkens)
+/// - **AddQuarter**: (B + F/4) - adds 25% of foreground
+///
+/// # Color Components
+///
+/// Blending operates on each RGB channel independently in 5-bit precision (0-31).
+/// Results are clamped to prevent overflow.
+///
+/// # Examples
+///
+/// ```
+/// use psrx::core::gpu::BlendMode;
+///
+/// let mode = BlendMode::from_bits(0); // Average mode
+/// let blended = mode.blend(0x7FFF, 0x0000); // White bg, black fg
+/// // Result: ~50% gray
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlendMode {
+    /// Average: 0.5×B + 0.5×F (50% blend)
+    ///
+    /// The most common blending mode, producing a 50/50 mix of the
+    /// background and foreground colors. Used for semi-transparent surfaces.
+    Average,
+
+    /// Additive: 1.0×B + 1.0×F (additive blending)
+    ///
+    /// Adds the foreground color to the background. Creates brightening
+    /// effects like fire, explosions, and light beams. Results are clamped to max (31).
+    Additive,
+
+    /// Subtractive: 1.0×B - 1.0×F (subtractive blending)
+    ///
+    /// Subtracts the foreground color from the background. Creates darkening
+    /// effects like shadows. Results are clamped to min (0).
+    Subtractive,
+
+    /// AddQuarter: 1.0×B + 0.25×F (add 25% of foreground)
+    ///
+    /// Adds 25% of the foreground to the background. Creates subtle
+    /// brightening effects. Results are clamped to max (31).
+    AddQuarter,
+}
+
+impl BlendMode {
+    /// Create BlendMode from semi-transparency bits
+    ///
+    /// Converts the 2-bit semi-transparency value from GPU commands or
+    /// draw mode settings to a BlendMode enum.
+    ///
+    /// # Arguments
+    ///
+    /// * `bits` - Semi-transparency mode (0-3)
+    ///
+    /// # Returns
+    ///
+    /// Corresponding BlendMode enum value
+    ///
+    /// # Mapping
+    ///
+    /// - 0 → Average (0.5×B + 0.5×F)
+    /// - 1 → Additive (1.0×B + 1.0×F)
+    /// - 2 → Subtractive (1.0×B - 1.0×F)
+    /// - 3 → AddQuarter (1.0×B + 0.25×F)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::gpu::BlendMode;
+    ///
+    /// assert_eq!(BlendMode::from_bits(0), BlendMode::Average);
+    /// assert_eq!(BlendMode::from_bits(1), BlendMode::Additive);
+    /// assert_eq!(BlendMode::from_bits(2), BlendMode::Subtractive);
+    /// assert_eq!(BlendMode::from_bits(3), BlendMode::AddQuarter);
+    /// ```
+    pub fn from_bits(bits: u8) -> Self {
+        match bits & 3 {
+            0 => BlendMode::Average,
+            1 => BlendMode::Additive,
+            2 => BlendMode::Subtractive,
+            3 => BlendMode::AddQuarter,
+            _ => unreachable!(),
+        }
+    }
+
+    /// Blend background and foreground colors
+    ///
+    /// Performs semi-transparent blending of two 15-bit RGB colors according
+    /// to the blend mode. Each RGB channel is processed independently in 5-bit
+    /// precision, and results are clamped to the valid range (0-31).
+    ///
+    /// # Arguments
+    ///
+    /// * `background` - Background color in 5-5-5 RGB format
+    /// * `foreground` - Foreground color in 5-5-5 RGB format
+    ///
+    /// # Returns
+    ///
+    /// Blended color in 5-5-5 RGB format
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Unpack 15-bit colors to separate 5-bit R, G, B channels
+    /// 2. Apply blend formula to each channel independently
+    /// 3. Clamp results to 0-31 range
+    /// 4. Pack back to 15-bit RGB format
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::gpu::BlendMode;
+    ///
+    /// let bg = 0x7FFF; // White (31, 31, 31)
+    /// let fg = 0x0000; // Black (0, 0, 0)
+    ///
+    /// let result = BlendMode::Average.blend(bg, fg);
+    /// // Result should be ~50% gray (15, 15, 15)
+    /// ```
+    pub fn blend(&self, background: u16, foreground: u16) -> u16 {
+        let (br, bg, bb) = Self::unpack_rgb15(background);
+        let (fr, fg, fb) = Self::unpack_rgb15(foreground);
+
+        let (r, g, b) = match self {
+            BlendMode::Average => (
+                ((br + fr) >> 1).min(31),
+                ((bg + fg) >> 1).min(31),
+                ((bb + fb) >> 1).min(31),
+            ),
+            BlendMode::Additive => ((br + fr).min(31), (bg + fg).min(31), (bb + fb).min(31)),
+            BlendMode::Subtractive => (
+                br.saturating_sub(fr),
+                bg.saturating_sub(fg),
+                bb.saturating_sub(fb),
+            ),
+            BlendMode::AddQuarter => (
+                (br + fr / 4).min(31),
+                (bg + fg / 4).min(31),
+                (bb + fb / 4).min(31),
+            ),
+        };
+
+        Self::pack_rgb15(r, g, b)
+    }
+
+    /// Unpack 15-bit RGB color to separate 5-bit channels
+    ///
+    /// Extracts the red, green, and blue components from a 15-bit color value.
+    ///
+    /// # Arguments
+    ///
+    /// * `color` - 16-bit color in 5-5-5 RGB format
+    ///
+    /// # Returns
+    ///
+    /// Tuple (r, g, b) with 5-bit values (0-31)
+    ///
+    /// # Format
+    ///
+    /// - Bits 0-4: Red (5 bits)
+    /// - Bits 5-9: Green (5 bits)
+    /// - Bits 10-14: Blue (5 bits)
+    /// - Bit 15: Mask bit (ignored)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use psrx::core::gpu::BlendMode;
+    /// // This is a private method, shown for documentation
+    /// // 0x7FFF (white) -> (31, 31, 31)
+    /// // 0x001F (red) -> (31, 0, 0)
+    /// ```
+    fn unpack_rgb15(color: u16) -> (u16, u16, u16) {
+        let r = color & 0x1F;
+        let g = (color >> 5) & 0x1F;
+        let b = (color >> 10) & 0x1F;
+        (r, g, b)
+    }
+
+    /// Pack 5-bit RGB channels into 15-bit color
+    ///
+    /// Combines separate red, green, and blue components into a single
+    /// 15-bit color value.
+    ///
+    /// # Arguments
+    ///
+    /// * `r` - Red channel (0-31)
+    /// * `g` - Green channel (0-31)
+    /// * `b` - Blue channel (0-31)
+    ///
+    /// # Returns
+    ///
+    /// 16-bit color in 5-5-5 RGB format (bit 15 is 0)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use psrx::core::gpu::BlendMode;
+    /// // This is a private method, shown for documentation
+    /// // (31, 0, 0) -> 0x001F (red)
+    /// // (31, 31, 31) -> 0x7FFF (white)
+    /// ```
+    fn pack_rgb15(r: u16, g: u16, b: u16) -> u16 {
+        (b << 10) | (g << 5) | r
+    }
+}
+
 /// Drawing mode configuration
 ///
 /// Specifies how primitives are rendered, including texture mapping settings,

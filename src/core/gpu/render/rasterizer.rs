@@ -290,6 +290,69 @@ impl Rasterizer {
         }
     }
 
+    /// Draw a horizontal scanline with blending
+    ///
+    /// Fills pixels from x1 to x2 on the specified scanline with semi-transparency,
+    /// clipping to the drawing area.
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Mutable reference to VRAM buffer
+    /// * `y` - Scanline Y coordinate
+    /// * `x1` - Start X coordinate
+    /// * `x2` - End X coordinate
+    /// * `color` - Foreground color to blend
+    /// * `blend_mode` - Blending mode to use
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // This is a private method used internally by the rasterizer
+    /// use psrx::core::gpu::{Rasterizer, BlendMode};
+    ///
+    /// let mut vram = vec![0x7FFF; 1024 * 512]; // White background
+    /// let mut rasterizer = Rasterizer::new();
+    ///
+    /// // Draw semi-transparent scanline
+    /// rasterizer.draw_scanline_blended(&mut vram, 100, 50, 150, 0x0000, BlendMode::Average);
+    /// ```
+    fn draw_scanline_blended(
+        &mut self,
+        vram: &mut [u16],
+        y: i16,
+        mut x1: i16,
+        mut x2: i16,
+        color: u16,
+        blend_mode: crate::core::gpu::BlendMode,
+    ) {
+        // Ensure x1 <= x2
+        if x1 > x2 {
+            std::mem::swap(&mut x1, &mut x2);
+        }
+
+        // Clip to drawing area
+        let (clip_left, clip_top, clip_right, clip_bottom) = self.clip_rect;
+
+        // Early reject if scanline is outside vertical bounds
+        if y < clip_top || y > clip_bottom {
+            return;
+        }
+
+        // Clip horizontal range
+        let x1 = x1.max(clip_left);
+        let x2 = x2.min(clip_right);
+
+        // Check if there's anything to draw after clipping
+        if x1 > x2 {
+            return;
+        }
+
+        // Draw pixels with blending
+        for x in x1..=x2 {
+            self.write_pixel_blended(vram, x, y, color, blend_mode);
+        }
+    }
+
     /// Write a single pixel to VRAM
     ///
     /// Performs bounds checking and writes the pixel if coordinates are valid.
@@ -312,6 +375,237 @@ impl Rasterizer {
         // Write pixel to VRAM
         // Bounds are checked above, so this is safe
         vram[index] = color;
+    }
+
+    /// Write a blended pixel to VRAM with semi-transparency
+    ///
+    /// Reads the existing background pixel, blends it with the foreground color
+    /// using the specified blend mode, and writes the result back to VRAM.
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Mutable reference to VRAM buffer
+    /// * `x` - X coordinate
+    /// * `y` - Y coordinate
+    /// * `color` - Foreground color to blend
+    /// * `blend_mode` - Blending mode to use
+    ///
+    /// # Blending Process
+    ///
+    /// 1. Check bounds (return early if out of bounds)
+    /// 2. Read existing background pixel from VRAM
+    /// 3. Blend background with foreground using blend mode
+    /// 4. Write blended result back to VRAM
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::gpu::{Rasterizer, BlendMode};
+    ///
+    /// let mut vram = vec![0x7FFF; 1024 * 512]; // White background
+    /// let mut rasterizer = Rasterizer::new();
+    ///
+    /// // Draw semi-transparent black pixel using average mode
+    /// rasterizer.write_pixel_blended(&mut vram, 100, 100, 0x0000, BlendMode::Average);
+    ///
+    /// // Result should be ~50% gray
+    /// let pixel = vram[100 * 1024 + 100];
+    /// assert_ne!(pixel, 0x7FFF); // Not pure white
+    /// assert_ne!(pixel, 0x0000); // Not pure black
+    /// ```
+    #[inline(always)]
+    pub fn write_pixel_blended(
+        &mut self,
+        vram: &mut [u16],
+        x: i16,
+        y: i16,
+        color: u16,
+        blend_mode: crate::core::gpu::BlendMode,
+    ) {
+        // Bounds check
+        if !(0..1024).contains(&x) || !(0..512).contains(&y) {
+            return;
+        }
+
+        let index = (y as usize) * 1024 + (x as usize);
+
+        // Read background pixel
+        let background = vram[index];
+
+        // Blend and write
+        let blended = blend_mode.blend(background, color);
+        vram[index] = blended;
+    }
+
+    /// Rasterize a semi-transparent solid color triangle
+    ///
+    /// Uses the same scanline algorithm as draw_triangle, but blends each pixel
+    /// with the existing background using the specified blend mode.
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Mutable reference to the VRAM buffer
+    /// * `v0` - First vertex (x, y)
+    /// * `v1` - Second vertex (x, y)
+    /// * `v2` - Third vertex (x, y)
+    /// * `color` - 16-bit color in 5-5-5 RGB format
+    /// * `blend_mode` - Blending mode to use
+    ///
+    /// # Algorithm
+    ///
+    /// Same as draw_triangle, but uses blended pixel writes:
+    /// 1. Sort vertices by Y coordinate (v0.y <= v1.y <= v2.y)
+    /// 2. Check for degenerate cases (zero height)
+    /// 3. Split triangle at middle vertex
+    /// 4. Rasterize top and bottom halves with blending
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::gpu::{Rasterizer, BlendMode};
+    ///
+    /// let mut vram = vec![0x7FFF; 1024 * 512]; // White background
+    /// let mut rasterizer = Rasterizer::new();
+    ///
+    /// // Draw semi-transparent black triangle
+    /// rasterizer.draw_triangle_blended(
+    ///     &mut vram,
+    ///     (100, 100),
+    ///     (200, 100),
+    ///     (150, 200),
+    ///     0x0000,  // Black
+    ///     BlendMode::Average,
+    /// );
+    ///
+    /// // Center should be ~50% gray
+    /// let pixel = vram[150 * 1024 + 150];
+    /// assert_ne!(pixel, 0x7FFF); // Not pure white
+    /// assert_ne!(pixel, 0x0000); // Not pure black
+    /// ```
+    pub fn draw_triangle_blended(
+        &mut self,
+        vram: &mut [u16],
+        v0: (i16, i16),
+        v1: (i16, i16),
+        v2: (i16, i16),
+        color: u16,
+        blend_mode: crate::core::gpu::BlendMode,
+    ) {
+        // Sort vertices by Y coordinate (v0.y <= v1.y <= v2.y)
+        let (v0, v1, v2) = Self::sort_vertices_by_y(v0, v1, v2);
+
+        // Check if triangle is degenerate (zero height)
+        if v0.1 == v2.1 {
+            return; // Zero height triangle - nothing to draw
+        }
+
+        // Split into top-flat and bottom-flat triangles
+        if v1.1 == v2.1 {
+            // Bottom is flat (v1 and v2 have same Y)
+            self.draw_bottom_flat_triangle_blended(vram, v0, v1, v2, color, blend_mode);
+        } else if v0.1 == v1.1 {
+            // Top is flat (v0 and v1 have same Y)
+            self.draw_top_flat_triangle_blended(vram, v0, v1, v2, color, blend_mode);
+        } else {
+            // General case: split at v1.y
+            // Find the X coordinate on the v0-v2 edge at v1.y
+            let numerator = (v1.1 - v0.1) as i64 * (v2.0 - v0.0) as i64;
+            let denominator = (v2.1 - v0.1) as i64;
+            let v3_x = v0.0 + (numerator / denominator) as i16;
+            let v3 = (v3_x, v1.1);
+
+            // Draw both halves
+            self.draw_bottom_flat_triangle_blended(vram, v0, v1, v3, color, blend_mode);
+            self.draw_top_flat_triangle_blended(vram, v1, v3, v2, color, blend_mode);
+        }
+    }
+
+    /// Draw a triangle with a flat bottom edge (blended)
+    ///
+    /// Rasterizes a triangle where v1 and v2 have the same Y coordinate.
+    /// Fills scanlines from v0.y down to v1.y/v2.y with blending.
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Mutable reference to VRAM buffer
+    /// * `v0` - Top vertex
+    /// * `v1` - Bottom-left vertex (v1.y == v2.y)
+    /// * `v2` - Bottom-right vertex (v1.y == v2.y)
+    /// * `color` - Fill color
+    /// * `blend_mode` - Blending mode to use
+    fn draw_bottom_flat_triangle_blended(
+        &mut self,
+        vram: &mut [u16],
+        v0: (i16, i16),
+        v1: (i16, i16),
+        v2: (i16, i16),
+        color: u16,
+        blend_mode: crate::core::gpu::BlendMode,
+    ) {
+        // Calculate inverse slopes (dx/dy)
+        let inv_slope1 = (v1.0 - v0.0) as f32 / (v1.1 - v0.1) as f32;
+        let inv_slope2 = (v2.0 - v0.0) as f32 / (v2.1 - v0.1) as f32;
+
+        let mut cur_x1 = v0.0 as f32;
+        let mut cur_x2 = v0.0 as f32;
+
+        // Scan from top to bottom
+        for scanline in v0.1..=v1.1 {
+            self.draw_scanline_blended(
+                vram,
+                scanline,
+                cur_x1 as i16,
+                cur_x2 as i16,
+                color,
+                blend_mode,
+            );
+            cur_x1 += inv_slope1;
+            cur_x2 += inv_slope2;
+        }
+    }
+
+    /// Draw a triangle with a flat top edge (blended)
+    ///
+    /// Rasterizes a triangle where v0 and v1 have the same Y coordinate.
+    /// Fills scanlines from v0.y/v1.y down to v2.y with blending.
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Mutable reference to VRAM buffer
+    /// * `v0` - Top-left vertex (v0.y == v1.y)
+    /// * `v1` - Top-right vertex (v0.y == v1.y)
+    /// * `v2` - Bottom vertex
+    /// * `color` - Fill color
+    /// * `blend_mode` - Blending mode to use
+    fn draw_top_flat_triangle_blended(
+        &mut self,
+        vram: &mut [u16],
+        v0: (i16, i16),
+        v1: (i16, i16),
+        v2: (i16, i16),
+        color: u16,
+        blend_mode: crate::core::gpu::BlendMode,
+    ) {
+        // Calculate inverse slopes (dx/dy)
+        let inv_slope1 = (v2.0 - v0.0) as f32 / (v2.1 - v0.1) as f32;
+        let inv_slope2 = (v2.0 - v1.0) as f32 / (v2.1 - v1.1) as f32;
+
+        let mut cur_x1 = v2.0 as f32;
+        let mut cur_x2 = v2.0 as f32;
+
+        // Scan from bottom to top
+        for scanline in (v0.1..=v2.1).rev() {
+            self.draw_scanline_blended(
+                vram,
+                scanline,
+                cur_x1 as i16,
+                cur_x2 as i16,
+                color,
+                blend_mode,
+            );
+            cur_x1 -= inv_slope1;
+            cur_x2 -= inv_slope2;
+        }
     }
 
     /// Draw a line from (x0, y0) to (x1, y1) using Bresenham's algorithm
@@ -1480,5 +1774,273 @@ mod tests {
         // Red should be higher than green and blue
         assert!(r > g);
         assert!(r > b);
+    }
+
+    // ===== Semi-Transparency / Blending Tests =====
+
+    #[test]
+    fn test_blend_mode_average() {
+        use crate::core::gpu::BlendMode;
+
+        let bg = 0x7FFF; // White (31, 31, 31)
+        let fg = 0x0000; // Black (0, 0, 0)
+
+        let result = BlendMode::Average.blend(bg, fg);
+
+        // Should be ~50% gray (15, 15, 15)
+        let r = result & 0x1F;
+        let g = (result >> 5) & 0x1F;
+        let b = (result >> 10) & 0x1F;
+
+        assert_eq!(r, 15);
+        assert_eq!(g, 15);
+        assert_eq!(b, 15);
+    }
+
+    #[test]
+    fn test_blend_mode_additive() {
+        use crate::core::gpu::BlendMode;
+
+        // Create colors using pack_rgb15
+        // bg = (1, 4, 2): r=1, g=4, b=2
+        let bg = (2 << 10) | (4 << 5) | 1; // = 0x0881
+                                           // fg = (2, 8, 4): r=2, g=8, b=4
+        let fg = (4 << 10) | (8 << 5) | 2; // = 0x1102
+
+        let result = BlendMode::Additive.blend(bg, fg);
+
+        let r = result & 0x1F;
+        let g = (result >> 5) & 0x1F;
+        let b = (result >> 10) & 0x1F;
+
+        // Should be (3, 12, 6)
+        assert_eq!(r, 3);
+        assert_eq!(g, 12);
+        assert_eq!(b, 6);
+    }
+
+    #[test]
+    fn test_blend_mode_additive_clamping() {
+        use crate::core::gpu::BlendMode;
+
+        let bg = 0x7FFF; // White (31, 31, 31)
+        let fg = 0x7FFF; // White (31, 31, 31)
+
+        let result = BlendMode::Additive.blend(bg, fg);
+
+        // Should clamp to max (31, 31, 31)
+        let r = result & 0x1F;
+        let g = (result >> 5) & 0x1F;
+        let b = (result >> 10) & 0x1F;
+
+        assert_eq!(r, 31);
+        assert_eq!(g, 31);
+        assert_eq!(b, 31);
+        assert_eq!(result, 0x7FFF);
+    }
+
+    #[test]
+    fn test_blend_mode_subtractive() {
+        use crate::core::gpu::BlendMode;
+
+        let bg = 0x7FFF; // White (31, 31, 31)
+                         // fg = (1, 4, 2): r=1, g=4, b=2
+        let fg = (2 << 10) | (4 << 5) | 1; // = 0x0881
+
+        let result = BlendMode::Subtractive.blend(bg, fg);
+
+        let r = result & 0x1F;
+        let g = (result >> 5) & 0x1F;
+        let b = (result >> 10) & 0x1F;
+
+        assert_eq!(r, 30); // 31 - 1
+        assert_eq!(g, 27); // 31 - 4
+        assert_eq!(b, 29); // 31 - 2
+    }
+
+    #[test]
+    fn test_blend_mode_subtractive_clamping() {
+        use crate::core::gpu::BlendMode;
+
+        // bg = (1, 4, 2): r=1, g=4, b=2
+        let bg = (2 << 10) | (4 << 5) | 1; // = 0x0881
+        let fg = 0x7FFF; // White (31, 31, 31)
+
+        let result = BlendMode::Subtractive.blend(bg, fg);
+
+        // Should clamp to 0 for all channels
+        let r = result & 0x1F;
+        let g = (result >> 5) & 0x1F;
+        let b = (result >> 10) & 0x1F;
+
+        assert_eq!(r, 0);
+        assert_eq!(g, 0);
+        assert_eq!(b, 0);
+        assert_eq!(result, 0x0000);
+    }
+
+    #[test]
+    fn test_blend_mode_add_quarter() {
+        use crate::core::gpu::BlendMode;
+
+        let bg = 0x0000; // Black (0, 0, 0)
+        let fg = 0x7FFF; // White (31, 31, 31)
+
+        let result = BlendMode::AddQuarter.blend(bg, fg);
+
+        // Should be ~25% white (7, 7, 7)
+        let r = result & 0x1F;
+        let g = (result >> 5) & 0x1F;
+        let b = (result >> 10) & 0x1F;
+
+        assert_eq!(r, 7); // 0 + 31/4 = 7
+        assert_eq!(g, 7);
+        assert_eq!(b, 7);
+    }
+
+    #[test]
+    fn test_blend_mode_from_bits() {
+        use crate::core::gpu::BlendMode;
+
+        assert_eq!(BlendMode::from_bits(0), BlendMode::Average);
+        assert_eq!(BlendMode::from_bits(1), BlendMode::Additive);
+        assert_eq!(BlendMode::from_bits(2), BlendMode::Subtractive);
+        assert_eq!(BlendMode::from_bits(3), BlendMode::AddQuarter);
+
+        // Test masking (only lower 2 bits should be used)
+        assert_eq!(BlendMode::from_bits(0b100), BlendMode::Average);
+        assert_eq!(BlendMode::from_bits(0b101), BlendMode::Additive);
+        assert_eq!(BlendMode::from_bits(0b110), BlendMode::Subtractive);
+        assert_eq!(BlendMode::from_bits(0b111), BlendMode::AddQuarter);
+    }
+
+    #[test]
+    fn test_write_pixel_blended() {
+        use crate::core::gpu::BlendMode;
+
+        let mut vram = vec![0x7FFF; 1024 * 512]; // White background
+        let mut rasterizer = Rasterizer::new();
+
+        // Write semi-transparent black pixel using average mode
+        rasterizer.write_pixel_blended(&mut vram, 100, 100, 0x0000, BlendMode::Average);
+
+        let pixel = vram[100 * 1024 + 100];
+
+        // Should be ~50% gray
+        assert_ne!(pixel, 0x7FFF); // Not pure white
+        assert_ne!(pixel, 0x0000); // Not pure black
+
+        let r = pixel & 0x1F;
+        let g = (pixel >> 5) & 0x1F;
+        let b = (pixel >> 10) & 0x1F;
+
+        assert_eq!(r, 15);
+        assert_eq!(g, 15);
+        assert_eq!(b, 15);
+    }
+
+    #[test]
+    fn test_write_pixel_blended_out_of_bounds() {
+        use crate::core::gpu::BlendMode;
+
+        let mut vram = vec![0x7FFF; 1024 * 512];
+        let mut rasterizer = Rasterizer::new();
+
+        // Should not crash or modify memory out of bounds
+        rasterizer.write_pixel_blended(&mut vram, -10, 100, 0x0000, BlendMode::Average);
+        rasterizer.write_pixel_blended(&mut vram, 1024, 100, 0x0000, BlendMode::Average);
+        rasterizer.write_pixel_blended(&mut vram, 100, -10, 0x0000, BlendMode::Average);
+        rasterizer.write_pixel_blended(&mut vram, 100, 512, 0x0000, BlendMode::Average);
+
+        // All pixels should still be white
+        assert_eq!(vram[0], 0x7FFF);
+        assert_eq!(vram[100 * 1024 + 100], 0x7FFF);
+    }
+
+    #[test]
+    fn test_draw_triangle_blended() {
+        use crate::core::gpu::BlendMode;
+
+        let mut vram = vec![0x7FFF; 1024 * 512]; // White background
+        let mut rasterizer = Rasterizer::new();
+
+        // Draw semi-transparent black triangle using average mode
+        rasterizer.draw_triangle_blended(
+            &mut vram,
+            (100, 100),
+            (200, 100),
+            (150, 200),
+            0x0000, // Black
+            BlendMode::Average,
+        );
+
+        // Check center pixel is blended
+        let center_pixel = vram[150 * 1024 + 150];
+        assert_ne!(center_pixel, 0x7FFF); // Not pure white
+        assert_ne!(center_pixel, 0x0000); // Not pure black
+
+        // Check pixel outside triangle is still white
+        let outside_pixel = vram[50 * 1024 + 50];
+        assert_eq!(outside_pixel, 0x7FFF);
+    }
+
+    #[test]
+    fn test_draw_triangle_blended_additive() {
+        use crate::core::gpu::BlendMode;
+
+        // bg = (1, 4, 2): r=1, g=4, b=2
+        let bg = (2 << 10) | (4 << 5) | 1; // = 0x0881
+        let mut vram = vec![bg; 1024 * 512];
+        let mut rasterizer = Rasterizer::new();
+
+        // fg = (2, 8, 4): r=2, g=8, b=4
+        let fg = (4 << 10) | (8 << 5) | 2; // = 0x1102
+
+        // Draw additive triangle
+        rasterizer.draw_triangle_blended(
+            &mut vram,
+            (100, 100),
+            (200, 100),
+            (150, 200),
+            fg,
+            BlendMode::Additive,
+        );
+
+        // Check center pixel has added color
+        let center_pixel = vram[150 * 1024 + 150];
+        let r = center_pixel & 0x1F;
+        let g = (center_pixel >> 5) & 0x1F;
+        let b = (center_pixel >> 10) & 0x1F;
+
+        // Should be (3, 12, 6)
+        assert_eq!(r, 3);
+        assert_eq!(g, 12);
+        assert_eq!(b, 6);
+    }
+
+    #[test]
+    fn test_draw_triangle_blended_clipping() {
+        use crate::core::gpu::BlendMode;
+
+        let mut vram = vec![0x7FFF; 1024 * 512]; // White background
+        let mut rasterizer = Rasterizer::new();
+        rasterizer.set_clip_rect(100, 100, 200, 200);
+
+        // Draw triangle that extends beyond clip area
+        rasterizer.draw_triangle_blended(
+            &mut vram,
+            (50, 50),
+            (250, 150),
+            (150, 250),
+            0x0000, // Black
+            BlendMode::Average,
+        );
+
+        // Pixel outside clip area should still be white
+        assert_eq!(vram[50 * 1024 + 50], 0x7FFF);
+
+        // Pixel inside both triangle and clip area should be blended
+        let inside_pixel = vram[150 * 1024 + 150];
+        assert_ne!(inside_pixel, 0x7FFF);
     }
 }
