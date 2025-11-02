@@ -52,6 +52,7 @@
 
 use crate::core::error::{EmulatorError, Result};
 use crate::core::gpu::GPU;
+use crate::core::system::ControllerPorts;
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::Read;
@@ -91,6 +92,12 @@ pub struct Bus {
     /// The GPU is shared between the System and Bus to allow memory-mapped
     /// register access while maintaining Rust's safety guarantees.
     gpu: Option<Rc<RefCell<GPU>>>,
+
+    /// Controller Ports reference (shared via Rc<RefCell>)
+    ///
+    /// The ControllerPorts are shared between the System and Bus to allow
+    /// memory-mapped register access while maintaining Rust's safety guarantees.
+    controller_ports: Option<Rc<RefCell<ControllerPorts>>>,
 }
 
 /// Memory region identification
@@ -164,6 +171,21 @@ impl Bus {
     /// GPU GP1/GPUSTAT register (control and status)
     const GPU_GP1: u32 = 0x1F801814;
 
+    /// Controller JOY_TX_DATA / JOY_RX_DATA register
+    const JOY_DATA: u32 = 0x1F801040;
+
+    /// Controller JOY_STAT register
+    const JOY_STAT: u32 = 0x1F801044;
+
+    /// Controller JOY_MODE register
+    const JOY_MODE: u32 = 0x1F801048;
+
+    /// Controller JOY_CTRL register
+    const JOY_CTRL: u32 = 0x1F80104A;
+
+    /// Controller JOY_BAUD register
+    const JOY_BAUD: u32 = 0x1F80104E;
+
     /// Create a new Bus instance
     ///
     /// Initializes all memory regions with zeros.
@@ -189,6 +211,7 @@ impl Bus {
             bios: vec![0u8; Self::BIOS_SIZE],
             cache_control: 0,
             gpu: None,
+            controller_ports: None,
         }
     }
 
@@ -215,6 +238,31 @@ impl Bus {
     /// ```
     pub fn set_gpu(&mut self, gpu: Rc<RefCell<GPU>>) {
         self.gpu = Some(gpu);
+    }
+
+    /// Set Controller Ports reference for memory-mapped I/O
+    ///
+    /// Establishes the connection between the Bus and ControllerPorts for handling
+    /// controller register accesses at memory-mapped addresses.
+    ///
+    /// # Arguments
+    ///
+    /// * `controller_ports` - Shared reference to ControllerPorts
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::memory::Bus;
+    /// use psrx::core::system::ControllerPorts;
+    /// use std::rc::Rc;
+    /// use std::cell::RefCell;
+    ///
+    /// let mut bus = Bus::new();
+    /// let controller_ports = Rc::new(RefCell::new(ControllerPorts::new()));
+    /// bus.set_controller_ports(controller_ports.clone());
+    /// ```
+    pub fn set_controller_ports(&mut self, controller_ports: Rc<RefCell<ControllerPorts>>) {
+        self.controller_ports = Some(controller_ports);
     }
 
     /// Reset the bus to initial state
@@ -913,6 +961,66 @@ impl Bus {
                 Ok(0xFFFFFFFF) // All interrupts enabled
             }
 
+            // Controller JOY_RX_DATA register (0x1F801040)
+            Self::JOY_DATA => {
+                if let Some(controller_ports) = &self.controller_ports {
+                    let value = controller_ports.borrow_mut().read_rx_data() as u32;
+                    log::trace!("JOY_RX_DATA read at 0x{:08X} -> 0x{:02X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("JOY_RX_DATA access before controller_ports initialized");
+                    Ok(0xFF)
+                }
+            }
+
+            // Controller JOY_STAT register (0x1F801044)
+            Self::JOY_STAT => {
+                if let Some(controller_ports) = &self.controller_ports {
+                    let value = controller_ports.borrow().read_stat();
+                    log::trace!("JOY_STAT read at 0x{:08X} -> 0x{:08X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("JOY_STAT access before controller_ports initialized");
+                    Ok(0x05) // TX ready, RX ready
+                }
+            }
+
+            // Controller JOY_MODE register (0x1F801048)
+            Self::JOY_MODE => {
+                if let Some(controller_ports) = &self.controller_ports {
+                    let value = controller_ports.borrow().read_mode() as u32;
+                    log::trace!("JOY_MODE read at 0x{:08X} -> 0x{:04X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("JOY_MODE access before controller_ports initialized");
+                    Ok(0x000D)
+                }
+            }
+
+            // Controller JOY_CTRL register (0x1F80104A)
+            Self::JOY_CTRL => {
+                if let Some(controller_ports) = &self.controller_ports {
+                    let value = controller_ports.borrow().read_ctrl() as u32;
+                    log::trace!("JOY_CTRL read at 0x{:08X} -> 0x{:04X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("JOY_CTRL access before controller_ports initialized");
+                    Ok(0)
+                }
+            }
+
+            // Controller JOY_BAUD register (0x1F80104E)
+            Self::JOY_BAUD => {
+                if let Some(controller_ports) = &self.controller_ports {
+                    let value = controller_ports.borrow().read_baud() as u32;
+                    log::trace!("JOY_BAUD read at 0x{:08X} -> 0x{:04X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("JOY_BAUD access before controller_ports initialized");
+                    Ok(0)
+                }
+            }
+
             // Other I/O ports (stub for now)
             _ => {
                 log::info!("I/O port read at 0x{:08X}", paddr);
@@ -969,6 +1077,54 @@ impl Bus {
             0x1F801074 => {
                 log::debug!("I_MASK write at 0x{:08X} = 0x{:08X}", paddr, value);
                 Ok(()) // Set interrupt mask (we handle them directly in CPU)
+            }
+
+            // Controller JOY_TX_DATA register (0x1F801040)
+            Self::JOY_DATA => {
+                if let Some(controller_ports) = &self.controller_ports {
+                    controller_ports.borrow_mut().write_tx_data(value as u8);
+                    log::trace!("JOY_TX_DATA write at 0x{:08X} = 0x{:02X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("JOY_TX_DATA write before controller_ports initialized");
+                    Ok(())
+                }
+            }
+
+            // Controller JOY_MODE register (0x1F801048)
+            Self::JOY_MODE => {
+                if let Some(controller_ports) = &self.controller_ports {
+                    controller_ports.borrow_mut().write_mode(value as u16);
+                    log::trace!("JOY_MODE write at 0x{:08X} = 0x{:04X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("JOY_MODE write before controller_ports initialized");
+                    Ok(())
+                }
+            }
+
+            // Controller JOY_CTRL register (0x1F80104A)
+            Self::JOY_CTRL => {
+                if let Some(controller_ports) = &self.controller_ports {
+                    controller_ports.borrow_mut().write_ctrl(value as u16);
+                    log::trace!("JOY_CTRL write at 0x{:08X} = 0x{:04X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("JOY_CTRL write before controller_ports initialized");
+                    Ok(())
+                }
+            }
+
+            // Controller JOY_BAUD register (0x1F80104E)
+            Self::JOY_BAUD => {
+                if let Some(controller_ports) = &self.controller_ports {
+                    controller_ports.borrow_mut().write_baud(value as u16);
+                    log::trace!("JOY_BAUD write at 0x{:08X} = 0x{:04X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("JOY_BAUD write before controller_ports initialized");
+                    Ok(())
+                }
             }
 
             // Other I/O ports (stub for now)
