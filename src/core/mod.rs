@@ -20,8 +20,10 @@
 //! - Memory bus
 //! - GPU (Graphics Processing Unit)
 //! - SPU (Sound Processing Unit)
+//! - Controller (Input devices)
 //! - System integration
 
+pub mod controller;
 pub mod cpu;
 pub mod error;
 pub mod gpu;
@@ -30,6 +32,7 @@ pub mod spu;
 pub mod system;
 
 // Re-export commonly used types
+pub use controller::Controller;
 pub use cpu::CPU;
 pub use error::{EmulatorError, GpuError, Result};
 pub use gpu::GPU;
