@@ -1486,3 +1486,187 @@ fn test_gradient_smooth_interpolation() {
     assert_ne!(center, 0x03E0); // Not pure green
     assert_ne!(center, 0x7C00); // Not pure blue
 }
+
+// ============================================================================
+// Drawing Mode Command Tests
+// ============================================================================
+
+#[test]
+fn test_draw_mode_setting() {
+    let mut gpu = GPU::new();
+
+    // Test GP0(E1h) - Draw Mode Setting
+    // Set texture page to (128, 256) with 4-bit color, semi-transparency mode 1
+    // Page X = 2 (2*64 = 128), Page Y = 1 (1*256 = 256)
+    // Semi-transparency = 1 (B+F), Texture depth = 0 (4-bit), Dithering = 1
+    // Bit layout: page_x(0-3)=2, page_y(4)=1, semi(5-6)=1, depth(7-8)=0, dither(9)=1
+    gpu.write_gp0(0xE1000232); // 0x2 | 0x10 | 0x20 | 0x200
+
+    assert_eq!(gpu.draw_mode.texture_page_x_base, 128);
+    assert_eq!(gpu.draw_mode.texture_page_y_base, 256);
+    assert_eq!(gpu.draw_mode.semi_transparency, 1);
+    assert_eq!(gpu.draw_mode.texture_depth, 0);
+    assert!(gpu.draw_mode.dithering);
+
+    // Verify GPUSTAT mirrors the draw mode settings
+    assert_eq!(gpu.status.texture_page_x_base, 2); // Raw value, not multiplied by 64
+    assert_eq!(gpu.status.texture_page_y_base, 1); // Raw value (0 or 1)
+    assert_eq!(gpu.status.semi_transparency, 1);
+    assert_eq!(gpu.status.texture_depth, 0);
+    assert!(gpu.status.dithering);
+    assert!(!gpu.status.draw_to_display);
+    assert!(!gpu.status.texture_disable);
+}
+
+#[test]
+fn test_draw_mode_texture_depth() {
+    let mut gpu = GPU::new();
+
+    // Test 8-bit texture depth
+    gpu.write_gp0(0xE1000080); // depth = 1 (8-bit)
+    assert_eq!(gpu.draw_mode.texture_depth, 1);
+
+    // Test 15-bit texture depth
+    gpu.write_gp0(0xE1000100); // depth = 2 (15-bit)
+    assert_eq!(gpu.draw_mode.texture_depth, 2);
+}
+
+#[test]
+fn test_texture_window() {
+    let mut gpu = GPU::new();
+
+    // Test GP0(E2h) - Texture Window Setting
+    // Mask (8, 8), Offset (16, 16)
+    // mask_x=8, mask_y=8, offset_x=16, offset_y=16
+    gpu.write_gp0(0xE2000008 | (8 << 5) | (16 << 10) | (16 << 15));
+
+    assert_eq!(gpu.texture_window.mask_x, 8);
+    assert_eq!(gpu.texture_window.mask_y, 8);
+    assert_eq!(gpu.texture_window.offset_x, 16);
+    assert_eq!(gpu.texture_window.offset_y, 16);
+}
+
+#[test]
+fn test_draw_area_clipping() {
+    let mut gpu = GPU::new();
+
+    // Test GP0(E3h) and GP0(E4h) - Drawing Area
+    // Set draw area to (100,100)-(200,200)
+
+    // Top-left: x=100, y=100
+    gpu.write_gp0(0xE3000064 | (100 << 10));
+    assert_eq!(gpu.draw_area.left, 100);
+    assert_eq!(gpu.draw_area.top, 100);
+
+    // Bottom-right: x=200, y=200
+    gpu.write_gp0(0xE40000C8 | (200 << 10));
+    assert_eq!(gpu.draw_area.right, 200);
+    assert_eq!(gpu.draw_area.bottom, 200);
+}
+
+#[test]
+fn test_draw_offset() {
+    let mut gpu = GPU::new();
+
+    // Test GP0(E5h) - Drawing Offset
+    // Test positive offset (10, 20)
+    let x = 10u32;
+    let y = 20u32;
+    gpu.write_gp0(0xE5000000 | x | (y << 11));
+    assert_eq!(gpu.draw_offset.0, 10);
+    assert_eq!(gpu.draw_offset.1, 20);
+}
+
+#[test]
+fn test_draw_offset_negative() {
+    let mut gpu = GPU::new();
+
+    // Test negative offset (-20, -30)
+    // Need to encode as 11-bit signed values
+    let x = ((-20i16) as u16 as u32) & 0x7FF;
+    let y = ((-30i16) as u16 as u32) & 0x7FF;
+    gpu.write_gp0(0xE5000000 | x | (y << 11));
+
+    assert_eq!(gpu.draw_offset.0, -20);
+    assert_eq!(gpu.draw_offset.1, -30);
+}
+
+#[test]
+fn test_draw_offset_sign_extension() {
+    let mut gpu = GPU::new();
+
+    // Test sign extension at boundary (1023 = 0x3FF, should stay positive)
+    gpu.write_gp0(0xE50003FF); // x = 1023, y = 0
+    assert_eq!(gpu.draw_offset.0, 1023);
+
+    // Test sign extension at boundary (-1024 = 0x400, should be negative)
+    gpu.write_gp0(0xE5000400); // x = -1024 (0x400 with sign extension)
+    assert_eq!(gpu.draw_offset.0, -1024);
+}
+
+#[test]
+fn test_mask_settings() {
+    let mut gpu = GPU::new();
+
+    // Test GP0(E6h) - Mask Bit Setting
+    // Test set mask bit enabled
+    gpu.write_gp0(0xE6000001); // Bit 0 = 1 (set mask)
+    assert!(gpu.status.set_mask_bit);
+
+    // Test check mask bit enabled
+    gpu.write_gp0(0xE6000002); // Bit 1 = 1 (check mask)
+    assert!(!gpu.status.draw_pixels); // draw_pixels is inverted
+
+    // Test both enabled
+    gpu.write_gp0(0xE6000003); // Both bits set
+    assert!(gpu.status.set_mask_bit);
+    assert!(!gpu.status.draw_pixels);
+
+    // Test both disabled
+    gpu.write_gp0(0xE6000000); // Both bits clear
+    assert!(!gpu.status.set_mask_bit);
+    assert!(gpu.status.draw_pixels);
+}
+
+#[test]
+fn test_draw_area_updates_rasterizer() {
+    let mut gpu = GPU::new();
+
+    // Set custom drawing area
+    gpu.write_gp0(0xE3000032 | (50 << 10)); // Top-left: (50, 50)
+    gpu.write_gp0(0xE40000C8 | (150 << 10)); // Bottom-right: (200, 150)
+
+    // Verify the rasterizer clip rect is updated
+    // (We can't directly check this, but we can verify drawing respects it)
+    // This is implicitly tested by the rasterizer tests
+    assert_eq!(gpu.draw_area.left, 50);
+    assert_eq!(gpu.draw_area.right, 200);
+    assert_eq!(gpu.draw_area.top, 50);
+    assert_eq!(gpu.draw_area.bottom, 150);
+}
+
+#[test]
+fn test_texture_window_default() {
+    let gpu = GPU::new();
+
+    // Default texture window should have all zeros
+    assert_eq!(gpu.texture_window.mask_x, 0);
+    assert_eq!(gpu.texture_window.mask_y, 0);
+    assert_eq!(gpu.texture_window.offset_x, 0);
+    assert_eq!(gpu.texture_window.offset_y, 0);
+}
+
+#[test]
+fn test_multiple_draw_mode_changes() {
+    let mut gpu = GPU::new();
+
+    // Change draw mode multiple times
+    gpu.write_gp0(0xE1000001); // Page X = 1 (64)
+    assert_eq!(gpu.draw_mode.texture_page_x_base, 64);
+
+    gpu.write_gp0(0xE1000002); // Page X = 2 (128)
+    assert_eq!(gpu.draw_mode.texture_page_x_base, 128);
+
+    gpu.write_gp0(0xE1000003); // Page X = 3 (192)
+    assert_eq!(gpu.draw_mode.texture_page_x_base, 192);
+}

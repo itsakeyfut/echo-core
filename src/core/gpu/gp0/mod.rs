@@ -19,7 +19,9 @@
 //! - VRAM transfer operations (CPU↔VRAM, VRAM↔VRAM)
 //! - Polygon rendering (triangles, quadrilaterals)
 //! - Line rendering
+//! - Drawing mode settings (texture page, draw area, draw offset, etc.)
 
+mod drawing_mode;
 mod line;
 mod polygon;
 mod transfer;
