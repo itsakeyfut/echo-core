@@ -15,12 +15,234 @@
 
 //! Frontend UI module
 //!
-//! This module will contain the user interface implementation using Slint.
-//! For now, it's a stub that will be implemented in Phase 2.
+//! This module implements the Slint-based user interface for the emulator.
+//! It handles:
+//! - Window creation and management
+//! - Framebuffer rendering (GPU → Screen)
+//! - FPS counter and status display
+//! - Main emulation loop timing
 //!
-//! # TODO
-//! - Implement Slint UI in Phase 2
-//! - Display system (GPU output)
-//! - Input handling (controller)
-//! - Menu system
-//! - Settings
+//! # Architecture
+//!
+//! The frontend wraps the core `System` and provides a visual interface:
+//!
+//! ```text
+//! Frontend
+//!   ├─ MainWindow (Slint UI)
+//!   │   ├─ Framebuffer display
+//!   │   └─ Status bar (FPS, running state)
+//!   └─ System (emulator core)
+//!       └─ GPU (framebuffer source)
+//! ```
+//!
+//! # Example
+//!
+//! ```no_run
+//! use psrx::core::system::System;
+//! use psrx::frontend::Frontend;
+//!
+//! let mut system = System::new();
+//! system.load_bios("bios.bin").unwrap();
+//! system.reset();
+//!
+//! let frontend = Frontend::new(system);
+//! frontend.run().unwrap();
+//! ```
+
+use crate::core::system::System;
+use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
+use std::time::{Duration, Instant};
+
+slint::include_modules!();
+
+/// Frontend for the PlayStation emulator
+///
+/// Provides a Slint-based UI that displays the GPU framebuffer and status information.
+/// Runs the emulation loop at approximately 60 FPS.
+pub struct Frontend {
+    /// Slint window instance
+    window: MainWindow,
+    /// Core emulator system
+    system: System,
+    /// Last frame time for FPS calculation
+    last_frame_time: Instant,
+    /// Frame counter for FPS calculation
+    frame_count: u32,
+    /// Current FPS value
+    fps: f32,
+}
+
+impl Frontend {
+    /// Create a new frontend instance
+    ///
+    /// # Arguments
+    /// * `system` - The emulator system to run
+    ///
+    /// # Returns
+    /// A new Frontend instance
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::system::System;
+    /// use psrx::frontend::Frontend;
+    ///
+    /// let system = System::new();
+    /// let frontend = Frontend::new(system);
+    /// ```
+    pub fn new(system: System) -> Self {
+        let window = MainWindow::new().expect("Failed to create Slint MainWindow");
+
+        Self {
+            window,
+            system,
+            last_frame_time: Instant::now(),
+            frame_count: 0,
+            fps: 0.0,
+        }
+    }
+
+    /// Run the emulator with UI
+    ///
+    /// This method runs the main emulation loop:
+    /// 1. Execute one frame of emulation (~564,480 CPU cycles)
+    /// 2. Get framebuffer from GPU
+    /// 3. Convert and display framebuffer
+    /// 4. Update FPS counter
+    /// 5. Process UI events
+    /// 6. Sleep to maintain ~60 FPS
+    ///
+    /// The loop continues until the window is closed.
+    ///
+    /// # Returns
+    /// Ok(()) if the window was closed normally, or an error if emulation failed
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - Emulation encounters a fatal error
+    /// - GPU framebuffer cannot be retrieved
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::system::System;
+    /// use psrx::frontend::Frontend;
+    ///
+    /// let mut system = System::new();
+    /// system.load_bios("bios.bin").unwrap();
+    /// system.reset();
+    ///
+    /// let frontend = Frontend::new(system);
+    /// frontend.run().unwrap();
+    /// ```
+    pub fn run(mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Set running state
+        self.window.set_running(true);
+
+        // Main loop
+        loop {
+            // Run one frame of emulation
+            if let Err(e) = self.system.run_frame() {
+                log::error!("Emulation error: {}", e);
+                self.window.set_running(false);
+                return Err(Box::new(e));
+            }
+
+            // Get framebuffer from GPU
+            let gpu = self.system.gpu();
+            let framebuffer = gpu.borrow().get_framebuffer();
+            let display_area = gpu.borrow().display_area();
+            drop(gpu); // Release borrow
+
+            let width = display_area.width as usize;
+            let height = display_area.height as usize;
+
+            // Convert to Slint image
+            let image = self.framebuffer_to_image(&framebuffer, width, height);
+
+            // Update display
+            self.window.set_framebuffer(image);
+
+            // Update FPS counter
+            self.update_fps();
+
+            // Process UI events
+            slint::platform::update_timers_and_animations();
+
+            // Limit to ~60fps (16.67ms per frame)
+            std::thread::sleep(Duration::from_millis(16));
+
+            // Check if window was closed
+            if !self.window.window().is_visible() {
+                break;
+            }
+        }
+
+        self.window.set_running(false);
+        Ok(())
+    }
+
+    /// Convert RGB24 framebuffer to Slint RGBA8 image
+    ///
+    /// Takes a framebuffer in RGB24 format (3 bytes per pixel) and converts it
+    /// to RGBA8 format (4 bytes per pixel) for display in Slint.
+    ///
+    /// # Arguments
+    /// * `framebuffer` - RGB24 data from GPU (width * height * 3 bytes)
+    /// * `width` - Framebuffer width in pixels
+    /// * `height` - Framebuffer height in pixels
+    ///
+    /// # Returns
+    /// Slint Image in RGBA8 format
+    ///
+    /// # Panics
+    /// Panics if framebuffer size doesn't match width * height * 3
+    fn framebuffer_to_image(&self, framebuffer: &[u8], width: usize, height: usize) -> Image {
+        // Convert RGB24 to RGBA8
+        let mut rgba_buffer = vec![0u8; width * height * 4];
+
+        for y in 0..height {
+            for x in 0..width {
+                let src_idx = (y * width + x) * 3;
+                let dst_idx = (y * width + x) * 4;
+
+                // Copy RGB and add alpha channel
+                rgba_buffer[dst_idx] = framebuffer[src_idx]; // R
+                rgba_buffer[dst_idx + 1] = framebuffer[src_idx + 1]; // G
+                rgba_buffer[dst_idx + 2] = framebuffer[src_idx + 2]; // B
+                rgba_buffer[dst_idx + 3] = 255; // A (fully opaque)
+            }
+        }
+
+        // Create Slint image
+        let pixel_buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+            &rgba_buffer,
+            width as u32,
+            height as u32,
+        );
+
+        Image::from_rgba8(pixel_buffer)
+    }
+
+    /// Update FPS counter
+    ///
+    /// Calculates FPS based on frames rendered in the last second.
+    /// Updates the UI text once per second.
+    fn update_fps(&mut self) {
+        self.frame_count += 1;
+
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.last_frame_time);
+
+        // Update FPS display once per second
+        if elapsed >= Duration::from_secs(1) {
+            self.fps = self.frame_count as f32 / elapsed.as_secs_f32();
+            self.window
+                .set_fps_text(format!("FPS: {:.1}", self.fps).into());
+
+            // Reset counters
+            self.frame_count = 0;
+            self.last_frame_time = now;
+        }
+    }
+}

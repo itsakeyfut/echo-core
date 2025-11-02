@@ -406,6 +406,29 @@ impl GPU {
         status
     }
 
+    /// Get the display area configuration
+    ///
+    /// Returns the current display area settings which define the region of VRAM
+    /// that is output to the display.
+    ///
+    /// # Returns
+    ///
+    /// Display area configuration (position and dimensions)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::GPU;
+    ///
+    /// let gpu = GPU::new();
+    /// let display_area = gpu.display_area();
+    /// assert_eq!(display_area.width, 320);
+    /// assert_eq!(display_area.height, 240);
+    /// ```
+    pub fn display_area(&self) -> DisplayArea {
+        self.display_area
+    }
+
     /// Tick GPU (called once per CPU cycle)
     ///
     /// Advances the GPU state by the specified number of cycles.
