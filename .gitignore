@@ -8,3 +8,10 @@ plan/
 *.BIN
 SCPH*.BIN
 SCPH*.bin
+
+# Environment configuration (keep .env.example)
+.env
+
+# CPU trace logs (generated during debugging)
+bios_trace.log
+*.trace.log

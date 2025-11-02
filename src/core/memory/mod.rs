@@ -126,12 +126,17 @@ impl Bus {
     const RAM_END: u32 = 0x001FFFFF;
 
     /// Scratchpad physical address range
+    /// Note: The actual scratchpad is 1KB (0x000-0x3FF), but the full 4KB region
+    /// (0x000-0xFFF) is addressable. Accesses to 0x400-0xFFF mirror 0x000-0x3FF.
     const SCRATCHPAD_START: u32 = 0x1F800000;
-    const SCRATCHPAD_END: u32 = 0x1F8003FF;
+    const SCRATCHPAD_END: u32 = 0x1F800FFF;
 
     /// I/O ports physical address range
+    /// Note: 0x1F801000-0x1F801FFF is the main I/O area
+    ///       0x1F802000-0x1F802FFF is Expansion Region 2 I/O
+    ///       0x1F803000-0x1F9FFFFF is reserved/duplication but accessed by BIOS
     const IO_START: u32 = 0x1F801000;
-    const IO_END: u32 = 0x1F802FFF;
+    const IO_END: u32 = 0x1F9FFFFF;
 
     /// BIOS ROM physical address range
     const BIOS_START: u32 = 0x1FC00000;
@@ -140,9 +145,14 @@ impl Bus {
     /// Cache Control register address
     const CACHE_CONTROL: u32 = 0x1FFE0130;
 
-    /// Expansion Region 1 physical address range
-    const EXP1_START: u32 = 0x1F000000;
-    const EXP1_END: u32 = 0x1F7FFFFF;
+    /// Expansion Region 1 physical address range (lower part)
+    /// This is the main expansion area, typically unused on retail PSX
+    const EXP1_LOW_START: u32 = 0x00200000;
+    const EXP1_LOW_END: u32 = 0x1EFFFFFF;
+
+    /// Expansion Region 2 physical address range
+    const EXP2_START: u32 = 0x1F000000;
+    const EXP2_END: u32 = 0x1F7FFFFF;
 
     /// Expansion Region 3 physical address range
     const EXP3_START: u32 = 0x1FA00000;
@@ -227,7 +237,10 @@ impl Bus {
     /// ```
     pub fn reset(&mut self) {
         // Clear RAM (volatile memory)
+        // Note: We clear to 0x00000000 (NOP). The BIOS will properly initialize
+        // exception vectors and other system structures during boot.
         self.ram.fill(0);
+
         // Clear scratchpad (volatile memory)
         self.scratchpad.fill(0);
         // Reset cache control to default
@@ -341,14 +354,15 @@ impl Bus {
 
         if (Self::RAM_START..=Self::RAM_END).contains(&paddr) {
             MemoryRegion::RAM
-        } else if (Self::EXP1_START..=Self::EXP1_END).contains(&paddr) {
+        } else if (Self::EXP1_LOW_START..=Self::EXP1_LOW_END).contains(&paddr)
+            || (Self::EXP2_START..=Self::EXP2_END).contains(&paddr)
+            || (Self::EXP3_START..=Self::EXP3_END).contains(&paddr)
+        {
             MemoryRegion::Expansion
         } else if (Self::SCRATCHPAD_START..=Self::SCRATCHPAD_END).contains(&paddr) {
             MemoryRegion::Scratchpad
         } else if (Self::IO_START..=Self::IO_END).contains(&paddr) {
             MemoryRegion::IO
-        } else if (Self::EXP3_START..=Self::EXP3_END).contains(&paddr) {
-            MemoryRegion::Expansion
         } else if (Self::BIOS_START..=Self::BIOS_END).contains(&paddr) {
             MemoryRegion::BIOS
         } else if paddr == Self::CACHE_CONTROL {
@@ -390,7 +404,7 @@ impl Bus {
                 Ok(self.ram[offset])
             }
             MemoryRegion::Scratchpad => {
-                let offset = (paddr - Self::SCRATCHPAD_START) as usize;
+                let offset = ((paddr - Self::SCRATCHPAD_START) & 0x3FF) as usize;
                 Ok(self.scratchpad[offset])
             }
             MemoryRegion::BIOS => {
@@ -467,7 +481,7 @@ impl Bus {
                 Ok(u16::from_le_bytes(bytes))
             }
             MemoryRegion::Scratchpad => {
-                let offset = (paddr - Self::SCRATCHPAD_START) as usize;
+                let offset = ((paddr - Self::SCRATCHPAD_START) & 0x3FF) as usize;
                 let bytes = [self.scratchpad[offset], self.scratchpad[offset + 1]];
                 Ok(u16::from_le_bytes(bytes))
             }
@@ -551,7 +565,7 @@ impl Bus {
                 Ok(u32::from_le_bytes(bytes))
             }
             MemoryRegion::Scratchpad => {
-                let offset = (paddr - Self::SCRATCHPAD_START) as usize;
+                let offset = ((paddr - Self::SCRATCHPAD_START) & 0x3FF) as usize;
                 let bytes = [
                     self.scratchpad[offset],
                     self.scratchpad[offset + 1],
@@ -640,7 +654,7 @@ impl Bus {
                 Ok(())
             }
             MemoryRegion::Scratchpad => {
-                let offset = (paddr - Self::SCRATCHPAD_START) as usize;
+                let offset = ((paddr - Self::SCRATCHPAD_START) & 0x3FF) as usize;
                 self.scratchpad[offset] = value;
                 Ok(())
             }
@@ -724,7 +738,7 @@ impl Bus {
                 Ok(())
             }
             MemoryRegion::Scratchpad => {
-                let offset = (paddr - Self::SCRATCHPAD_START) as usize;
+                let offset = ((paddr - Self::SCRATCHPAD_START) & 0x3FF) as usize;
                 self.scratchpad[offset] = bytes[0];
                 self.scratchpad[offset + 1] = bytes[1];
                 Ok(())
@@ -811,7 +825,7 @@ impl Bus {
                 Ok(())
             }
             MemoryRegion::Scratchpad => {
-                let offset = (paddr - Self::SCRATCHPAD_START) as usize;
+                let offset = ((paddr - Self::SCRATCHPAD_START) & 0x3FF) as usize;
                 self.scratchpad[offset] = bytes[0];
                 self.scratchpad[offset + 1] = bytes[1];
                 self.scratchpad[offset + 2] = bytes[2];
@@ -887,9 +901,21 @@ impl Bus {
                 }
             }
 
+            // Interrupt Status register (I_STAT)
+            0x1F801070 => {
+                log::debug!("I_STAT read at 0x{:08X} -> 0x00000000", paddr);
+                Ok(0) // No interrupts pending (we handle them directly in CPU)
+            }
+
+            // Interrupt Mask register (I_MASK)
+            0x1F801074 => {
+                log::debug!("I_MASK read at 0x{:08X} -> 0xFFFFFFFF", paddr);
+                Ok(0xFFFFFFFF) // All interrupts enabled
+            }
+
             // Other I/O ports (stub for now)
             _ => {
-                log::trace!("I/O port read at 0x{:08X}", paddr);
+                log::info!("I/O port read at 0x{:08X}", paddr);
                 Ok(0)
             }
         }
@@ -911,7 +937,7 @@ impl Bus {
         match paddr {
             // GPU GP0 register (0x1F801810) - commands and data
             Self::GPU_GP0 => {
-                log::trace!("GP0 write (0x{:08X}) = 0x{:08X}", paddr, value);
+                log::info!("GP0 write = 0x{:08X}", value);
                 if let Some(gpu) = &self.gpu {
                     gpu.borrow_mut().write_gp0(value);
                     Ok(())
@@ -923,7 +949,7 @@ impl Bus {
 
             // GPU GP1 register (0x1F801814) - control commands
             Self::GPU_GP1 => {
-                log::trace!("GP1 write (0x{:08X}) = 0x{:08X}", paddr, value);
+                log::info!("GP1 write = 0x{:08X}", value);
                 if let Some(gpu) = &self.gpu {
                     gpu.borrow_mut().write_gp1(value);
                     Ok(())
@@ -933,9 +959,21 @@ impl Bus {
                 }
             }
 
+            // Interrupt Status register (I_STAT)
+            0x1F801070 => {
+                log::debug!("I_STAT write at 0x{:08X} = 0x{:08X} (ack)", paddr, value);
+                Ok(()) // Acknowledge interrupts (we handle them directly in CPU)
+            }
+
+            // Interrupt Mask register (I_MASK)
+            0x1F801074 => {
+                log::debug!("I_MASK write at 0x{:08X} = 0x{:08X}", paddr, value);
+                Ok(()) // Set interrupt mask (we handle them directly in CPU)
+            }
+
             // Other I/O ports (stub for now)
             _ => {
-                log::trace!("I/O port write at 0x{:08X} = 0x{:08X}", paddr, value);
+                log::info!("I/O port write at 0x{:08X} = 0x{:08X}", paddr, value);
                 Ok(())
             }
         }

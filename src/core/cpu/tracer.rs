@@ -144,11 +144,24 @@ impl CpuTracer {
             return Ok(());
         }
 
+        // Log first trace call
+        static FIRST_TRACE_LOGGED: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
+        if !FIRST_TRACE_LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+            log::info!("CpuTracer::trace() called for the first time");
+        }
+
         let pc = cpu.pc();
-        let instruction = bus.read32(pc)?;
+        let instruction = match bus.read32(pc) {
+            Ok(inst) => inst,
+            Err(e) => {
+                log::warn!("Failed to read instruction at PC=0x{:08X}: {}", pc, e);
+                return Err(e);
+            }
+        };
         let disasm = Disassembler::disassemble(instruction, pc);
 
-        writeln!(
+        if let Err(e) = writeln!(
             self.output,
             "PC=0x{:08X} [0x{:08X}] {:30} | r1={:08X} r2={:08X} r3={:08X}",
             pc,
@@ -157,7 +170,10 @@ impl CpuTracer {
             cpu.reg(1),
             cpu.reg(2),
             cpu.reg(3)
-        )?;
+        ) {
+            log::warn!("Failed to write trace line: {}", e);
+            return Err(e.into());
+        }
 
         Ok(())
     }
@@ -230,6 +246,13 @@ impl CpuTracer {
     }
 }
 
+impl Drop for CpuTracer {
+    fn drop(&mut self) {
+        // Flush any remaining data when tracer is dropped
+        let _ = self.output.flush();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,13 +260,17 @@ mod tests {
 
     #[test]
     fn test_tracer_creation() {
-        let tracer = CpuTracer::new("/tmp/test_trace.log");
+        let temp_dir = std::env::temp_dir();
+        let trace_path = temp_dir.join("test_trace.log");
+        let tracer = CpuTracer::new(trace_path.to_str().unwrap());
         assert!(tracer.is_ok());
     }
 
     #[test]
     fn test_tracer_enable_disable() {
-        let mut tracer = CpuTracer::new("/tmp/test_trace_enable.log").unwrap();
+        let temp_dir = std::env::temp_dir();
+        let trace_path = temp_dir.join("test_trace_enable.log");
+        let mut tracer = CpuTracer::new(trace_path.to_str().unwrap()).unwrap();
         assert!(tracer.is_enabled());
 
         tracer.set_enabled(false);
@@ -261,14 +288,16 @@ mod tests {
         // Write a NOP instruction
         bus.write_bios_for_test(0, &[0x00, 0x00, 0x00, 0x00]);
 
-        let mut tracer = CpuTracer::new("/tmp/test_trace_basic.log").unwrap();
+        let temp_dir = std::env::temp_dir();
+        let trace_path = temp_dir.join("test_trace_basic.log");
+        let mut tracer = CpuTracer::new(trace_path.to_str().unwrap()).unwrap();
         let result = tracer.trace(&cpu, &bus);
         assert!(result.is_ok());
 
         tracer.flush().unwrap();
 
         // Verify trace file contains expected content
-        let mut file = File::open("/tmp/test_trace_basic.log").unwrap();
+        let mut file = File::open(&trace_path).unwrap();
         let mut contents = String::new();
         file.read_to_string(&mut contents).unwrap();
 
@@ -281,7 +310,9 @@ mod tests {
         let cpu = CPU::new();
         let bus = Bus::new();
 
-        let mut tracer = CpuTracer::new("/tmp/test_trace_disabled.log").unwrap();
+        let temp_dir = std::env::temp_dir();
+        let trace_path = temp_dir.join("test_trace_disabled.log");
+        let mut tracer = CpuTracer::new(trace_path.to_str().unwrap()).unwrap();
         tracer.set_enabled(false);
 
         // This should succeed but not write anything
@@ -301,14 +332,16 @@ mod tests {
         // Write a NOP instruction
         bus.write_bios_for_test(0, &[0x00, 0x00, 0x00, 0x00]);
 
-        let mut tracer = CpuTracer::new("/tmp/test_trace_custom.log").unwrap();
+        let temp_dir = std::env::temp_dir();
+        let trace_path = temp_dir.join("test_trace_custom.log");
+        let mut tracer = CpuTracer::new(trace_path.to_str().unwrap()).unwrap();
         let result = tracer.trace_with_regs(&cpu, &bus, &[4, 5]);
         assert!(result.is_ok());
 
         tracer.flush().unwrap();
 
         // Verify trace file contains custom register values
-        let mut file = File::open("/tmp/test_trace_custom.log").unwrap();
+        let mut file = File::open(&trace_path).unwrap();
         let mut contents = String::new();
         file.read_to_string(&mut contents).unwrap();
 
