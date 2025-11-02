@@ -87,7 +87,7 @@ impl GPU {
         // For now, ignore semi_transparent (will be implemented in #36)
         let _ = semi_transparent;
 
-        // Rasterize the textured triangle
+        // Rasterize the textured triangle with texture window
         self.rasterizer.draw_textured_triangle(
             &mut self.vram,
             v0,
@@ -97,6 +97,7 @@ impl GPU {
             v2,
             t2,
             texture_info,
+            &self.texture_window,
             (color.r, color.g, color.b),
         );
     }

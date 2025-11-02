@@ -1030,6 +1030,7 @@ impl Rasterizer {
         v2: (i16, i16),
         t2: (u8, u8),
         texture_info: &crate::core::gpu::TextureInfo,
+        texture_window: &crate::core::gpu::TextureWindow,
         tint_color: (u8, u8, u8),
     ) {
         // Compute bounding box clipped to drawing area
@@ -1049,8 +1050,8 @@ impl Rasterizer {
                     let u = (t0.0 as f32 * w0 + t1.0 as f32 * w1 + t2.0 as f32 * w2) as u8;
                     let v = (t0.1 as f32 * w0 + t1.1 as f32 * w1 + t2.1 as f32 * w2) as u8;
 
-                    // Sample texture
-                    let tex_color = self.sample_texture(vram, u, v, texture_info);
+                    // Sample texture with texture window
+                    let tex_color = self.sample_texture(vram, u, v, texture_info, texture_window);
 
                     // Apply tint (modulate)
                     // Multiply by tint and divide by 128 (shift right by 7)
@@ -1065,6 +1066,54 @@ impl Rasterizer {
         }
     }
 
+    /// Apply texture window masking to texture coordinates
+    ///
+    /// The texture window controls how texture coordinates wrap within a specified
+    /// rectangular region. This implements the PSX hardware texture window formula:
+    ///
+    /// ```text
+    /// Texcoord = (Texcoord AND (NOT (Mask*8))) OR ((Offset AND Mask)*8)
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `u` - U texture coordinate (0-255)
+    /// * `v` - V texture coordinate (0-255)
+    /// * `window` - Texture window settings
+    ///
+    /// # Returns
+    ///
+    /// Modified (u, v) coordinates with window masking applied
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use psrx::core::gpu::{Rasterizer, TextureWindow};
+    /// let rasterizer = Rasterizer::new();
+    /// let window = TextureWindow { mask_x: 3, mask_y: 3, offset_x: 2, offset_y: 2 };
+    ///
+    /// // With mask=3 (0x18 in pixels), offset=2 (0x10 in pixels)
+    /// let (u, v) = rasterizer.apply_texture_window(100, 100, &window);
+    /// ```
+    fn apply_texture_window(
+        &self,
+        u: u8,
+        v: u8,
+        window: &crate::core::gpu::TextureWindow,
+    ) -> (u8, u8) {
+        // Mask and offset are in 8-pixel steps, so multiply by 8
+        let mask_x = window.mask_x * 8;
+        let mask_y = window.mask_y * 8;
+        let offset_x = window.offset_x * 8;
+        let offset_y = window.offset_y * 8;
+
+        // Apply texture window formula
+        let u = (u & !mask_x) | (offset_x & mask_x);
+        let v = (v & !mask_y) | (offset_y & mask_y);
+
+        (u, v)
+    }
+
     /// Sample texture at given coordinates
     ///
     /// Dispatches to the appropriate texture sampling function based on
@@ -1076,6 +1125,7 @@ impl Rasterizer {
     /// * `u` - U texture coordinate
     /// * `v` - V texture coordinate
     /// * `info` - Texture information (page, CLUT, depth)
+    /// * `window` - Texture window settings for coordinate wrapping
     ///
     /// # Returns
     ///
@@ -1086,7 +1136,11 @@ impl Rasterizer {
         u: u8,
         v: u8,
         info: &crate::core::gpu::TextureInfo,
+        window: &crate::core::gpu::TextureWindow,
     ) -> (u8, u8, u8) {
+        // Apply texture window masking
+        let (u, v) = self.apply_texture_window(u, v, window);
+
         use crate::core::gpu::TextureDepth;
         match info.depth {
             TextureDepth::T4Bit => self.sample_4bit_texture(vram, u, v, info),
@@ -1708,7 +1762,8 @@ mod tests {
             depth: TextureDepth::T15Bit,
         };
 
-        // Draw a textured triangle
+        // Draw a textured triangle with default texture window
+        let texture_window = crate::core::gpu::TextureWindow::default();
         rasterizer.draw_textured_triangle(
             &mut vram,
             (100, 100),
@@ -1718,6 +1773,7 @@ mod tests {
             (150, 200),
             (31, 255),
             &texture_info,
+            &texture_window,
             (128, 128, 128), // Normal brightness
         );
 
@@ -1750,6 +1806,7 @@ mod tests {
         };
 
         // Draw with red tint (255, 0, 0)
+        let texture_window = crate::core::gpu::TextureWindow::default();
         rasterizer.draw_textured_triangle(
             &mut vram,
             (100, 100),
@@ -1759,6 +1816,7 @@ mod tests {
             (150, 150),
             (5, 10),
             &texture_info,
+            &texture_window,
             (255, 0, 0), // Red tint
         );
 
