@@ -15,5 +15,6 @@
 
 /// Build script for compiling Slint UI definitions
 fn main() {
-    slint_build::compile("ui/main.slint").unwrap();
+    slint_build::compile("ui/main.slint")
+        .expect("Failed to compile Slint UI definition at ui/main.slint");
 }

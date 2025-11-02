@@ -91,7 +91,7 @@ impl Frontend {
     /// let frontend = Frontend::new(system);
     /// ```
     pub fn new(system: System) -> Self {
-        let window = MainWindow::new().unwrap();
+        let window = MainWindow::new().expect("Failed to create Slint MainWindow");
 
         Self {
             window,
