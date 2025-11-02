@@ -904,13 +904,13 @@ impl Bus {
             // Interrupt Status register (I_STAT)
             0x1F801070 => {
                 log::debug!("I_STAT read at 0x{:08X} -> 0x00000000", paddr);
-                Ok(0)  // No interrupts pending (we handle them directly in CPU)
+                Ok(0) // No interrupts pending (we handle them directly in CPU)
             }
 
             // Interrupt Mask register (I_MASK)
             0x1F801074 => {
                 log::debug!("I_MASK read at 0x{:08X} -> 0xFFFFFFFF", paddr);
-                Ok(0xFFFFFFFF)  // All interrupts enabled
+                Ok(0xFFFFFFFF) // All interrupts enabled
             }
 
             // Other I/O ports (stub for now)
@@ -953,8 +953,7 @@ impl Bus {
                 if let Some(gpu) = &self.gpu {
                     gpu.borrow_mut().write_gp1(value);
                     Ok(())
-                }
-                else {
+                } else {
                     log::warn!("GP1 write before GPU initialized");
                     Ok(())
                 }
@@ -963,13 +962,13 @@ impl Bus {
             // Interrupt Status register (I_STAT)
             0x1F801070 => {
                 log::debug!("I_STAT write at 0x{:08X} = 0x{:08X} (ack)", paddr, value);
-                Ok(())  // Acknowledge interrupts (we handle them directly in CPU)
+                Ok(()) // Acknowledge interrupts (we handle them directly in CPU)
             }
 
             // Interrupt Mask register (I_MASK)
             0x1F801074 => {
                 log::debug!("I_MASK write at 0x{:08X} = 0x{:08X}", paddr, value);
-                Ok(())  // Set interrupt mask (we handle them directly in CPU)
+                Ok(()) // Set interrupt mask (we handle them directly in CPU)
             }
 
             // Other I/O ports (stub for now)

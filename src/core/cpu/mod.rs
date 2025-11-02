@@ -289,7 +289,6 @@ impl CPU {
         let pc = self.pc;
         self.current_instruction = bus.read32(pc)?;
 
-
         // Update PC (delay slot handling)
         self.pc = self.next_pc;
         self.next_pc = self.next_pc.wrapping_add(4);

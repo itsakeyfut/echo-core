@@ -221,11 +221,12 @@ impl Frontend {
             // Enable CPU tracing if configured via environment variables
             let trace_enabled = env::var("PSRX_TRACE_ENABLED")
                 .unwrap_or_else(|_| "false".to_string())
-                .to_lowercase() == "true";
+                .to_lowercase()
+                == "true";
 
             if trace_enabled {
-                let trace_file = env::var("PSRX_TRACE_FILE")
-                    .unwrap_or_else(|_| "bios_trace.log".to_string());
+                let trace_file =
+                    env::var("PSRX_TRACE_FILE").unwrap_or_else(|_| "bios_trace.log".to_string());
 
                 let trace_limit: usize = env::var("PSRX_TRACE_LIMIT")
                     .unwrap_or_else(|_| "10000".to_string())
@@ -251,87 +252,83 @@ impl Frontend {
         let window_weak = self.window.as_weak();
         let state_rc = self.state.clone();
 
-        timer.start(
-            TimerMode::Repeated,
-            Duration::from_millis(16),
-            move || {
-                let frame_start = Instant::now();
+        timer.start(TimerMode::Repeated, Duration::from_millis(16), move || {
+            let frame_start = Instant::now();
 
-                // Run one frame of emulation
-                let mut state = state_rc.borrow_mut();
-                if let Err(e) = state.system.run_frame() {
-                    log::error!("Emulation error: {}", e);
-                    if let Some(window) = window_weak.upgrade() {
-                        window.set_running(false);
-                    }
-                    return;
-                }
-
-                // Get framebuffer from GPU
-                let gpu = state.system.gpu();
-                let framebuffer = gpu.borrow().get_framebuffer();
-                let display_area = gpu.borrow().display_area();
-                let gpu_status = gpu.borrow().status();
-                drop(gpu);
-
-                let width = display_area.width as usize;
-                let height = display_area.height as usize;
-
-                // Convert to Slint image
-                let image = Self::framebuffer_to_image(&framebuffer, width, height);
-
-                // Update display
+            // Run one frame of emulation
+            let mut state = state_rc.borrow_mut();
+            if let Err(e) = state.system.run_frame() {
+                log::error!("Emulation error: {}", e);
                 if let Some(window) = window_weak.upgrade() {
-                    window.set_framebuffer(image);
+                    window.set_running(false);
+                }
+                return;
+            }
 
-                    // Update FPS counter
-                    state.frame_count += 1;
-                    let now = Instant::now();
-                    let elapsed = now.duration_since(state.last_frame_time);
+            // Get framebuffer from GPU
+            let gpu = state.system.gpu();
+            let framebuffer = gpu.borrow().get_framebuffer();
+            let display_area = gpu.borrow().display_area();
+            let gpu_status = gpu.borrow().status();
+            drop(gpu);
 
-                    if elapsed >= Duration::from_secs(1) {
-                        let fps = state.frame_count as f32 / elapsed.as_secs_f32();
-                        window.set_fps_text(format!("FPS: {:.1}", fps).into());
-                        state.frame_count = 0;
-                        state.last_frame_time = now;
-                    }
+            let width = display_area.width as usize;
+            let height = display_area.height as usize;
 
-                    // Update debug info
-                    let pc = state.system.pc();
-                    window.set_cpu_pc(format!("PC: 0x{:08X}", pc).into());
-                    window.set_gpu_status(format!("GPU: 0x{:08X}", gpu_status).into());
+            // Convert to Slint image
+            let image = Self::framebuffer_to_image(&framebuffer, width, height);
 
-                    // Track frame time
-                    let frame_time = frame_start.elapsed();
-                    state.frame_times.push(frame_time);
+            // Update display
+            if let Some(window) = window_weak.upgrade() {
+                window.set_framebuffer(image);
 
-                    window.set_performance_text(
-                        format!("Frame: {:.2}ms", frame_time.as_secs_f64() * 1000.0).into(),
-                    );
+                // Update FPS counter
+                state.frame_count += 1;
+                let now = Instant::now();
+                let elapsed = now.duration_since(state.last_frame_time);
 
-                    // Log performance every 5 seconds
-                    Self::log_performance(&mut state);
+                if elapsed >= Duration::from_secs(1) {
+                    let fps = state.frame_count as f32 / elapsed.as_secs_f32();
+                    window.set_fps_text(format!("FPS: {:.1}", fps).into());
+                    state.frame_count = 0;
+                    state.last_frame_time = now;
+                }
 
-                    // Log PC and GPU status periodically
-                    use std::sync::OnceLock;
-                    static LAST_DEBUG_LOG: OnceLock<std::sync::Mutex<std::time::Instant>> =
-                        OnceLock::new();
-                    let last_log = LAST_DEBUG_LOG
-                        .get_or_init(|| std::sync::Mutex::new(std::time::Instant::now()));
-                    if let Ok(mut last) = last_log.lock() {
-                        if now.duration_since(*last).as_secs() >= 2 {
-                            log::debug!(
-                                "PC: 0x{:08X}, GPU Status: 0x{:08X}, Display disabled: {}",
-                                pc,
-                                gpu_status,
-                                (gpu_status >> 23) & 1
-                            );
-                            *last = now;
-                        }
+                // Update debug info
+                let pc = state.system.pc();
+                window.set_cpu_pc(format!("PC: 0x{:08X}", pc).into());
+                window.set_gpu_status(format!("GPU: 0x{:08X}", gpu_status).into());
+
+                // Track frame time
+                let frame_time = frame_start.elapsed();
+                state.frame_times.push(frame_time);
+
+                window.set_performance_text(
+                    format!("Frame: {:.2}ms", frame_time.as_secs_f64() * 1000.0).into(),
+                );
+
+                // Log performance every 5 seconds
+                Self::log_performance(&mut state);
+
+                // Log PC and GPU status periodically
+                use std::sync::OnceLock;
+                static LAST_DEBUG_LOG: OnceLock<std::sync::Mutex<std::time::Instant>> =
+                    OnceLock::new();
+                let last_log =
+                    LAST_DEBUG_LOG.get_or_init(|| std::sync::Mutex::new(std::time::Instant::now()));
+                if let Ok(mut last) = last_log.lock() {
+                    if now.duration_since(*last).as_secs() >= 2 {
+                        log::debug!(
+                            "PC: 0x{:08X}, GPU Status: 0x{:08X}, Display disabled: {}",
+                            pc,
+                            gpu_status,
+                            (gpu_status >> 23) & 1
+                        );
+                        *last = now;
                     }
                 }
-            },
-        );
+            }
+        });
 
         // Run Slint event loop (blocks until window is closed)
         log::info!("Entering Slint event loop");
