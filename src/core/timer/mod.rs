@@ -167,7 +167,7 @@ impl TimerChannel {
     /// Read mode register
     ///
     /// Returns the mode register value. Reading the mode register
-    /// resets the reached_target and reached_max flags.
+    /// resets the IRQ flag, reached_target, and reached_max flags.
     pub fn read_mode(&mut self) -> u16 {
         let mut value = 0u16;
 
@@ -186,6 +186,7 @@ impl TimerChannel {
         // Reading mode resets flags
         self.reached_target = false;
         self.reached_max = false;
+        self.irq_flag = false;
 
         value
     }
