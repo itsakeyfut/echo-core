@@ -55,9 +55,10 @@ fn get_bios_path() -> String {
 #[test]
 #[ignore] // Requires BIOS file - run with: cargo test -- --ignored
 fn test_bios_boot() {
-    env_logger::builder()
+    let _ = env_logger::builder()
         .filter_level(log::LevelFilter::Info)
-        .init();
+        .is_test(true)
+        .try_init();
 
     let bios_path = get_bios_path();
     let mut system = System::new();
@@ -127,9 +128,10 @@ fn test_bios_boot() {
 #[test]
 #[ignore] // Requires BIOS file - run with: cargo test -- --ignored
 fn test_logo_display() {
-    env_logger::builder()
+    let _ = env_logger::builder()
         .filter_level(log::LevelFilter::Info)
-        .init();
+        .is_test(true)
+        .try_init();
 
     let bios_path = get_bios_path();
     let mut system = System::new();
@@ -193,9 +195,10 @@ fn test_logo_display() {
 #[test]
 #[ignore] // Requires BIOS file and takes time - run with: cargo test -- --ignored
 fn test_bios_stability() {
-    env_logger::builder()
+    let _ = env_logger::builder()
         .filter_level(log::LevelFilter::Warn)
-        .init();
+        .is_test(true)
+        .try_init();
 
     let bios_path = get_bios_path();
     let mut system = System::new();
