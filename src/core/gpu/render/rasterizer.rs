@@ -1091,12 +1091,17 @@ impl Rasterizer {
     /// # Examples
     ///
     /// ```ignore
-    /// // This is a private method used internally by the rasterizer
+    /// // This method is pub(crate) for internal testing
+    /// use psrx::core::gpu::{Rasterizer, TextureWindow};
+    ///
+    /// let rasterizer = Rasterizer::new();
     /// let window = TextureWindow { mask_x: 3, mask_y: 3, offset_x: 2, offset_y: 2 };
+    ///
     /// // With mask=3 (0x18 in pixels), offset=2 (0x10 in pixels)
-    /// // Coordinates are masked according to the texture window formula
+    /// let (u, v) = rasterizer.apply_texture_window(100, 100, &window);
+    /// // Returns masked coordinates according to texture window formula
     /// ```
-    fn apply_texture_window(
+    pub(crate) fn apply_texture_window(
         &self,
         u: u8,
         v: u8,

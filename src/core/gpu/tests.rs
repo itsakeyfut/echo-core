@@ -1507,6 +1507,15 @@ fn test_draw_mode_setting() {
     assert_eq!(gpu.draw_mode.semi_transparency, 1);
     assert_eq!(gpu.draw_mode.texture_depth, 0);
     assert!(gpu.draw_mode.dithering);
+
+    // Verify GPUSTAT mirrors the draw mode settings
+    assert_eq!(gpu.status.texture_page_x_base, 2); // Raw value, not multiplied by 64
+    assert_eq!(gpu.status.texture_page_y_base, 1); // Raw value (0 or 1)
+    assert_eq!(gpu.status.semi_transparency, 1);
+    assert_eq!(gpu.status.texture_depth, 0);
+    assert!(gpu.status.dithering);
+    assert!(!gpu.status.draw_to_display);
+    assert!(!gpu.status.texture_disable);
 }
 
 #[test]

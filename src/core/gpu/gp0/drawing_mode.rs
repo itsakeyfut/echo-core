@@ -104,6 +104,15 @@ impl GPU {
         self.draw_mode.texture_x_flip = texture_x_flip;
         self.draw_mode.texture_y_flip = texture_y_flip;
 
+        // Update GPU status to mirror draw mode (GPUSTAT must reflect GP0 settings)
+        self.status.texture_page_x_base = (cmd & 0xF) as u8;
+        self.status.texture_page_y_base = ((cmd >> 4) & 1) as u8;
+        self.status.semi_transparency = semi_transparency;
+        self.status.texture_depth = texture_depth;
+        self.status.dithering = dithering;
+        self.status.draw_to_display = draw_to_display;
+        self.status.texture_disable = texture_disable;
+
         log::debug!(
             "Draw mode: page=({}, {}) depth={} semi={} dither={} tex_disable={}",
             texture_page_x_base,
