@@ -459,9 +459,9 @@ impl BlendMode {
 
         let (r, g, b) = match self {
             BlendMode::Average => (
-                (br / 2 + fr / 2).min(31),
-                (bg / 2 + fg / 2).min(31),
-                (bb / 2 + fb / 2).min(31),
+                ((br + fr) >> 1).min(31),
+                ((bg + fg) >> 1).min(31),
+                ((bb + fb) >> 1).min(31),
             ),
             BlendMode::Additive => ((br + fr).min(31), (bg + fg).min(31), (bb + fb).min(31)),
             BlendMode::Subtractive => (
