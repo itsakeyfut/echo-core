@@ -53,6 +53,7 @@
 use crate::core::error::{EmulatorError, Result};
 use crate::core::gpu::GPU;
 use crate::core::system::ControllerPorts;
+use crate::core::timer::Timers;
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::Read;
@@ -98,6 +99,12 @@ pub struct Bus {
     /// The ControllerPorts are shared between the System and Bus to allow
     /// memory-mapped register access while maintaining Rust's safety guarantees.
     controller_ports: Option<Rc<RefCell<ControllerPorts>>>,
+
+    /// Timers reference (shared via Rc<RefCell>)
+    ///
+    /// The Timers are shared between the System and Bus to allow
+    /// memory-mapped register access while maintaining Rust's safety guarantees.
+    timers: Option<Rc<RefCell<Timers>>>,
 }
 
 /// Memory region identification
@@ -186,6 +193,27 @@ impl Bus {
     /// Controller JOY_BAUD register
     const JOY_BAUD: u32 = 0x1F80104E;
 
+    /// Timer 0 Counter register
+    const TIMER0_COUNTER: u32 = 0x1F801100;
+    /// Timer 0 Mode register
+    const TIMER0_MODE: u32 = 0x1F801104;
+    /// Timer 0 Target register
+    const TIMER0_TARGET: u32 = 0x1F801108;
+
+    /// Timer 1 Counter register
+    const TIMER1_COUNTER: u32 = 0x1F801110;
+    /// Timer 1 Mode register
+    const TIMER1_MODE: u32 = 0x1F801114;
+    /// Timer 1 Target register
+    const TIMER1_TARGET: u32 = 0x1F801118;
+
+    /// Timer 2 Counter register
+    const TIMER2_COUNTER: u32 = 0x1F801120;
+    /// Timer 2 Mode register
+    const TIMER2_MODE: u32 = 0x1F801124;
+    /// Timer 2 Target register
+    const TIMER2_TARGET: u32 = 0x1F801128;
+
     /// Create a new Bus instance
     ///
     /// Initializes all memory regions with zeros.
@@ -212,6 +240,7 @@ impl Bus {
             cache_control: 0,
             gpu: None,
             controller_ports: None,
+            timers: None,
         }
     }
 
@@ -263,6 +292,31 @@ impl Bus {
     /// ```
     pub fn set_controller_ports(&mut self, controller_ports: Rc<RefCell<ControllerPorts>>) {
         self.controller_ports = Some(controller_ports);
+    }
+
+    /// Set Timers reference for memory-mapped I/O
+    ///
+    /// Establishes the connection between the Bus and Timers for handling
+    /// timer register accesses at memory-mapped addresses.
+    ///
+    /// # Arguments
+    ///
+    /// * `timers` - Shared reference to Timers
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::memory::Bus;
+    /// use psrx::core::timer::Timers;
+    /// use std::rc::Rc;
+    /// use std::cell::RefCell;
+    ///
+    /// let mut bus = Bus::new();
+    /// let timers = Rc::new(RefCell::new(Timers::new()));
+    /// bus.set_timers(timers.clone());
+    /// ```
+    pub fn set_timers(&mut self, timers: Rc<RefCell<Timers>>) {
+        self.timers = Some(timers);
     }
 
     /// Reset the bus to initial state
@@ -1021,6 +1075,114 @@ impl Bus {
                 }
             }
 
+            // Timer 0 Counter (0x1F801100)
+            Self::TIMER0_COUNTER => {
+                if let Some(timers) = &self.timers {
+                    let value = timers.borrow().channel(0).read_counter() as u32;
+                    log::trace!("TIMER0_COUNTER read at 0x{:08X} -> 0x{:04X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("TIMER0_COUNTER access before timers initialized");
+                    Ok(0)
+                }
+            }
+
+            // Timer 0 Mode (0x1F801104)
+            Self::TIMER0_MODE => {
+                if let Some(timers) = &self.timers {
+                    let value = timers.borrow_mut().channel_mut(0).read_mode() as u32;
+                    log::trace!("TIMER0_MODE read at 0x{:08X} -> 0x{:04X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("TIMER0_MODE access before timers initialized");
+                    Ok(0)
+                }
+            }
+
+            // Timer 0 Target (0x1F801108)
+            Self::TIMER0_TARGET => {
+                if let Some(timers) = &self.timers {
+                    let value = timers.borrow().channel(0).read_target() as u32;
+                    log::trace!("TIMER0_TARGET read at 0x{:08X} -> 0x{:04X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("TIMER0_TARGET access before timers initialized");
+                    Ok(0)
+                }
+            }
+
+            // Timer 1 Counter (0x1F801110)
+            Self::TIMER1_COUNTER => {
+                if let Some(timers) = &self.timers {
+                    let value = timers.borrow().channel(1).read_counter() as u32;
+                    log::trace!("TIMER1_COUNTER read at 0x{:08X} -> 0x{:04X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("TIMER1_COUNTER access before timers initialized");
+                    Ok(0)
+                }
+            }
+
+            // Timer 1 Mode (0x1F801114)
+            Self::TIMER1_MODE => {
+                if let Some(timers) = &self.timers {
+                    let value = timers.borrow_mut().channel_mut(1).read_mode() as u32;
+                    log::trace!("TIMER1_MODE read at 0x{:08X} -> 0x{:04X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("TIMER1_MODE access before timers initialized");
+                    Ok(0)
+                }
+            }
+
+            // Timer 1 Target (0x1F801118)
+            Self::TIMER1_TARGET => {
+                if let Some(timers) = &self.timers {
+                    let value = timers.borrow().channel(1).read_target() as u32;
+                    log::trace!("TIMER1_TARGET read at 0x{:08X} -> 0x{:04X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("TIMER1_TARGET access before timers initialized");
+                    Ok(0)
+                }
+            }
+
+            // Timer 2 Counter (0x1F801120)
+            Self::TIMER2_COUNTER => {
+                if let Some(timers) = &self.timers {
+                    let value = timers.borrow().channel(2).read_counter() as u32;
+                    log::trace!("TIMER2_COUNTER read at 0x{:08X} -> 0x{:04X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("TIMER2_COUNTER access before timers initialized");
+                    Ok(0)
+                }
+            }
+
+            // Timer 2 Mode (0x1F801124)
+            Self::TIMER2_MODE => {
+                if let Some(timers) = &self.timers {
+                    let value = timers.borrow_mut().channel_mut(2).read_mode() as u32;
+                    log::trace!("TIMER2_MODE read at 0x{:08X} -> 0x{:04X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("TIMER2_MODE access before timers initialized");
+                    Ok(0)
+                }
+            }
+
+            // Timer 2 Target (0x1F801128)
+            Self::TIMER2_TARGET => {
+                if let Some(timers) = &self.timers {
+                    let value = timers.borrow().channel(2).read_target() as u32;
+                    log::trace!("TIMER2_TARGET read at 0x{:08X} -> 0x{:04X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("TIMER2_TARGET access before timers initialized");
+                    Ok(0)
+                }
+            }
+
             // Other I/O ports (stub for now)
             _ => {
                 log::info!("I/O port read at 0x{:08X}", paddr);
@@ -1123,6 +1285,132 @@ impl Bus {
                     Ok(())
                 } else {
                     log::warn!("JOY_BAUD write before controller_ports initialized");
+                    Ok(())
+                }
+            }
+
+            // Timer 0 Counter (0x1F801100)
+            Self::TIMER0_COUNTER => {
+                if let Some(timers) = &self.timers {
+                    timers
+                        .borrow_mut()
+                        .channel_mut(0)
+                        .write_counter(value as u16);
+                    log::trace!("TIMER0_COUNTER write at 0x{:08X} = 0x{:04X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("TIMER0_COUNTER write before timers initialized");
+                    Ok(())
+                }
+            }
+
+            // Timer 0 Mode (0x1F801104)
+            Self::TIMER0_MODE => {
+                if let Some(timers) = &self.timers {
+                    timers.borrow_mut().channel_mut(0).write_mode(value as u16);
+                    log::trace!("TIMER0_MODE write at 0x{:08X} = 0x{:04X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("TIMER0_MODE write before timers initialized");
+                    Ok(())
+                }
+            }
+
+            // Timer 0 Target (0x1F801108)
+            Self::TIMER0_TARGET => {
+                if let Some(timers) = &self.timers {
+                    timers
+                        .borrow_mut()
+                        .channel_mut(0)
+                        .write_target(value as u16);
+                    log::trace!("TIMER0_TARGET write at 0x{:08X} = 0x{:04X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("TIMER0_TARGET write before timers initialized");
+                    Ok(())
+                }
+            }
+
+            // Timer 1 Counter (0x1F801110)
+            Self::TIMER1_COUNTER => {
+                if let Some(timers) = &self.timers {
+                    timers
+                        .borrow_mut()
+                        .channel_mut(1)
+                        .write_counter(value as u16);
+                    log::trace!("TIMER1_COUNTER write at 0x{:08X} = 0x{:04X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("TIMER1_COUNTER write before timers initialized");
+                    Ok(())
+                }
+            }
+
+            // Timer 1 Mode (0x1F801114)
+            Self::TIMER1_MODE => {
+                if let Some(timers) = &self.timers {
+                    timers.borrow_mut().channel_mut(1).write_mode(value as u16);
+                    log::trace!("TIMER1_MODE write at 0x{:08X} = 0x{:04X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("TIMER1_MODE write before timers initialized");
+                    Ok(())
+                }
+            }
+
+            // Timer 1 Target (0x1F801118)
+            Self::TIMER1_TARGET => {
+                if let Some(timers) = &self.timers {
+                    timers
+                        .borrow_mut()
+                        .channel_mut(1)
+                        .write_target(value as u16);
+                    log::trace!("TIMER1_TARGET write at 0x{:08X} = 0x{:04X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("TIMER1_TARGET write before timers initialized");
+                    Ok(())
+                }
+            }
+
+            // Timer 2 Counter (0x1F801120)
+            Self::TIMER2_COUNTER => {
+                if let Some(timers) = &self.timers {
+                    timers
+                        .borrow_mut()
+                        .channel_mut(2)
+                        .write_counter(value as u16);
+                    log::trace!("TIMER2_COUNTER write at 0x{:08X} = 0x{:04X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("TIMER2_COUNTER write before timers initialized");
+                    Ok(())
+                }
+            }
+
+            // Timer 2 Mode (0x1F801124)
+            Self::TIMER2_MODE => {
+                if let Some(timers) = &self.timers {
+                    timers.borrow_mut().channel_mut(2).write_mode(value as u16);
+                    log::trace!("TIMER2_MODE write at 0x{:08X} = 0x{:04X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("TIMER2_MODE write before timers initialized");
+                    Ok(())
+                }
+            }
+
+            // Timer 2 Target (0x1F801128)
+            Self::TIMER2_TARGET => {
+                if let Some(timers) = &self.timers {
+                    timers
+                        .borrow_mut()
+                        .channel_mut(2)
+                        .write_target(value as u16);
+                    log::trace!("TIMER2_TARGET write at 0x{:08X} = 0x{:04X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("TIMER2_TARGET write before timers initialized");
                     Ok(())
                 }
             }

@@ -24,6 +24,7 @@ use super::error::Result;
 use super::gpu::GPU;
 use super::memory::Bus;
 use super::spu::SPU;
+use super::timer::Timers;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -255,6 +256,7 @@ impl Default for ControllerPorts {
 /// - GPU: Graphics processing unit
 /// - SPU: Sound processing unit
 /// - Controller Ports: Input device interface
+/// - Timers: 3 timer/counter channels
 ///
 /// # Example
 /// ```no_run
@@ -275,6 +277,8 @@ pub struct System {
     spu: SPU,
     /// Controller ports (shared via Rc<RefCell> for memory-mapped access)
     controller_ports: Rc<RefCell<ControllerPorts>>,
+    /// Timers (shared via Rc<RefCell> for memory-mapped access)
+    timers: Rc<RefCell<Timers>>,
     /// Total cycles executed
     cycles: u64,
     /// Running state
@@ -304,10 +308,14 @@ impl System {
         // Create ControllerPorts wrapped in Rc<RefCell> for shared access
         let controller_ports = Rc::new(RefCell::new(ControllerPorts::new()));
 
-        // Create bus and connect GPU and ControllerPorts for memory-mapped I/O
+        // Create Timers wrapped in Rc<RefCell> for shared access
+        let timers = Rc::new(RefCell::new(Timers::new()));
+
+        // Create bus and connect GPU, ControllerPorts, and Timers for memory-mapped I/O
         let mut bus = Bus::new();
         bus.set_gpu(gpu.clone());
         bus.set_controller_ports(controller_ports.clone());
+        bus.set_timers(timers.clone());
 
         Self {
             cpu: CPU::new(),
@@ -315,6 +323,7 @@ impl System {
             gpu,
             spu: SPU::new(),
             controller_ports,
+            timers,
             cycles: 0,
             running: false,
             tracer: None,
@@ -411,6 +420,11 @@ impl System {
 
         // Tick GPU (synchronized with CPU cycles)
         self.gpu.borrow_mut().tick(cpu_cycles);
+
+        // Tick timers (synchronized with CPU cycles)
+        // TODO: Implement proper hblank and vblank signals from GPU
+        let _timer_irqs = self.timers.borrow_mut().tick(cpu_cycles, false, false);
+        // TODO: Handle timer IRQs when interrupt controller is implemented
 
         // TODO: Step SPU in future phases
         // self.spu.step()?;
