@@ -656,12 +656,13 @@ fn test_multiple_instructions() {
 fn test_branch_helper() {
     let mut cpu = CPU::new();
 
-    let initial_next_pc = cpu.next_pc;
+    let initial_pc = cpu.pc();
 
     // Branch forward by 100 bytes
+    // branch() uses self.pc as the base (which represents the delay slot address)
     cpu.branch(100);
 
-    assert_eq!(cpu.next_pc, initial_next_pc.wrapping_add(100));
+    assert_eq!(cpu.next_pc, initial_pc.wrapping_add(100));
     assert!(cpu.in_delay_slot());
 }
 
@@ -669,12 +670,13 @@ fn test_branch_helper() {
 fn test_branch_backward() {
     let mut cpu = CPU::new();
 
-    let initial_next_pc = cpu.next_pc;
+    let initial_pc = cpu.pc();
 
     // Branch backward by 100 bytes
+    // branch() uses self.pc as the base (which represents the delay slot address)
     cpu.branch(-100);
 
-    assert_eq!(cpu.next_pc, initial_next_pc.wrapping_sub(100));
+    assert_eq!(cpu.next_pc, initial_pc.wrapping_sub(100));
     assert!(cpu.in_delay_slot());
 }
 
@@ -1849,8 +1851,10 @@ fn test_jalr_instruction() {
 #[test]
 fn test_beq_taken() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    // pc points to delay slot, next_pc points to instruction after delay slot
+    cpu.pc = 0x80000004; // Delay slot address (branch instruction was at 0x80000000)
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, 100);
     cpu.set_reg(2, 100);
 
@@ -1858,7 +1862,8 @@ fn test_beq_taken() {
     let beq_instr = 0x10220002; // offset = 2 words
     cpu.op_beq(beq_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+    // Branch target = pc + offset = 0x80000004 + 8 = 0x8000000C
+    assert_eq!(cpu.next_pc, 0x8000000C); // Branch taken
     assert!(cpu.in_delay_slot());
 }
 
@@ -1881,8 +1886,9 @@ fn test_beq_not_taken() {
 #[test]
 fn test_bne_taken() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, 100);
     cpu.set_reg(2, 200);
 
@@ -1890,15 +1896,17 @@ fn test_bne_taken() {
     let bne_instr = 0x14220002;
     cpu.op_bne(bne_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+    // Branch target = pc + offset = 0x80000004 + 8 = 0x8000000C
+    assert_eq!(cpu.next_pc, 0x8000000C); // Branch taken
     assert!(cpu.in_delay_slot());
 }
 
 #[test]
 fn test_bne_not_taken() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, 100);
     cpu.set_reg(2, 100);
 
@@ -1906,236 +1914,259 @@ fn test_bne_not_taken() {
     let bne_instr = 0x14220002;
     cpu.op_bne(bne_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+    assert_eq!(cpu.next_pc, 0x80000008); // Branch not taken
     assert!(!cpu.in_delay_slot());
 }
 
 #[test]
 fn test_blez_taken_zero() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, 0);
 
     // BLEZ r1, 8
     let blez_instr = 0x18200002;
     cpu.op_blez(blez_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+    // Branch target = pc + offset = 0x80000004 + 8 = 0x8000000C
+    assert_eq!(cpu.next_pc, 0x8000000C); // Branch taken
     assert!(cpu.in_delay_slot());
 }
 
 #[test]
 fn test_blez_taken_negative() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, (-10i32) as u32);
 
     // BLEZ r1, 8
     let blez_instr = 0x18200002;
     cpu.op_blez(blez_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+    // Branch target = pc + offset = 0x80000004 + 8 = 0x8000000C
+    assert_eq!(cpu.next_pc, 0x8000000C); // Branch taken
     assert!(cpu.in_delay_slot());
 }
 
 #[test]
 fn test_blez_not_taken() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, 10);
 
     // BLEZ r1, 8
     let blez_instr = 0x18200002;
     cpu.op_blez(blez_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+    assert_eq!(cpu.next_pc, 0x80000008); // Branch not taken
     assert!(!cpu.in_delay_slot());
 }
 
 #[test]
 fn test_bgtz_taken() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, 10);
 
     // BGTZ r1, 8
     let bgtz_instr = 0x1C200002;
     cpu.op_bgtz(bgtz_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+    // Branch target = pc + offset = 0x80000004 + 8 = 0x8000000C
+    assert_eq!(cpu.next_pc, 0x8000000C); // Branch taken
     assert!(cpu.in_delay_slot());
 }
 
 #[test]
 fn test_bgtz_not_taken_zero() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, 0);
 
     // BGTZ r1, 8
     let bgtz_instr = 0x1C200002;
     cpu.op_bgtz(bgtz_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+    assert_eq!(cpu.next_pc, 0x80000008); // Branch not taken
     assert!(!cpu.in_delay_slot());
 }
 
 #[test]
 fn test_bgtz_not_taken_negative() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, (-10i32) as u32);
 
     // BGTZ r1, 8
     let bgtz_instr = 0x1C200002;
     cpu.op_bgtz(bgtz_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+    assert_eq!(cpu.next_pc, 0x80000008); // Branch not taken
     assert!(!cpu.in_delay_slot());
 }
 
 #[test]
 fn test_bltz_taken() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, (-10i32) as u32);
 
     // BLTZ r1, 8 (rt=0x00 for BLTZ)
     let bltz_instr = 0x04200002;
     cpu.execute_bcondz(bltz_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+    // Branch target = pc + offset = 0x80000004 + 8 = 0x8000000C
+    assert_eq!(cpu.next_pc, 0x8000000C); // Branch taken
     assert!(cpu.in_delay_slot());
 }
 
 #[test]
 fn test_bltz_not_taken() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, 10);
 
     // BLTZ r1, 8
     let bltz_instr = 0x04200002;
     cpu.execute_bcondz(bltz_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+    assert_eq!(cpu.next_pc, 0x80000008); // Branch not taken
     assert!(!cpu.in_delay_slot());
 }
 
 #[test]
 fn test_bgez_taken() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, 10);
 
     // BGEZ r1, 8 (rt=0x01 for BGEZ)
     let bgez_instr = 0x04210002;
     cpu.execute_bcondz(bgez_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
+    // Branch target = pc + offset = 0x80000004 + 8 = 0x8000000C
+    assert_eq!(cpu.next_pc, 0x8000000C); // Branch taken
     assert!(cpu.in_delay_slot());
 }
 
 #[test]
 fn test_bgez_taken_zero() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, 0);
 
     // BGEZ r1, 8
     let bgez_instr = 0x04210002;
     cpu.execute_bcondz(bgez_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken (zero is >= 0)
+    // Branch target = pc + offset = 0x80000004 + 8 = 0x8000000C
+    assert_eq!(cpu.next_pc, 0x8000000C); // Branch taken (zero is >= 0)
     assert!(cpu.in_delay_slot());
 }
 
 #[test]
 fn test_bgez_not_taken() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, (-10i32) as u32);
 
     // BGEZ r1, 8
     let bgez_instr = 0x04210002;
     cpu.execute_bcondz(bgez_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
+    assert_eq!(cpu.next_pc, 0x80000008); // Branch not taken
     assert!(!cpu.in_delay_slot());
 }
 
 #[test]
 fn test_bltzal_taken() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, (-10i32) as u32);
 
     // BLTZAL r1, 8 (rt=0x10 for BLTZAL)
     let bltzal_instr = 0x04300002;
     cpu.execute_bcondz(bltzal_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
-    assert_eq!(cpu.reg(31), 0x80000004); // Return address saved
+    // Branch target = pc + offset = 0x80000004 + 8 = 0x8000000C
+    assert_eq!(cpu.next_pc, 0x8000000C); // Branch taken
+    assert_eq!(cpu.reg(31), 0x80000008); // Return address saved (address after delay slot)
     assert!(cpu.in_delay_slot());
 }
 
 #[test]
 fn test_bltzal_not_taken() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, 10);
 
     // BLTZAL r1, 8
     let bltzal_instr = 0x04300002;
     cpu.execute_bcondz(bltzal_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
-    assert_eq!(cpu.reg(31), 0x80000004); // Return address still saved
+    assert_eq!(cpu.next_pc, 0x80000008); // Branch not taken
+    assert_eq!(cpu.reg(31), 0x80000008); // Return address still saved
     assert!(!cpu.in_delay_slot());
 }
 
 #[test]
 fn test_bgezal_taken() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, 10);
 
     // BGEZAL r1, 8 (rt=0x11 for BGEZAL)
     let bgezal_instr = 0x04310002;
     cpu.execute_bcondz(bgezal_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004 + 8); // Branch taken
-    assert_eq!(cpu.reg(31), 0x80000004); // Return address saved
+    // Branch target = pc + offset = 0x80000004 + 8 = 0x8000000C
+    assert_eq!(cpu.next_pc, 0x8000000C); // Branch taken
+    assert_eq!(cpu.reg(31), 0x80000008); // Return address saved (address after delay slot)
     assert!(cpu.in_delay_slot());
 }
 
 #[test]
 fn test_bgezal_not_taken() {
     let mut cpu = CPU::new();
-    cpu.pc = 0x80000000;
-    cpu.next_pc = 0x80000004;
+    // Set up CPU state as it would be after PC update in step()
+    cpu.pc = 0x80000004; // Delay slot address
+    cpu.next_pc = 0x80000008; // Address after delay slot
     cpu.set_reg(1, (-10i32) as u32);
 
     // BGEZAL r1, 8
     let bgezal_instr = 0x04310002;
     cpu.execute_bcondz(bgezal_instr).unwrap();
 
-    assert_eq!(cpu.next_pc, 0x80000004); // Branch not taken
-    assert_eq!(cpu.reg(31), 0x80000004); // Return address still saved
+    assert_eq!(cpu.next_pc, 0x80000008); // Branch not taken
+    assert_eq!(cpu.reg(31), 0x80000008); // Return address still saved
     assert!(!cpu.in_delay_slot());
 }
 

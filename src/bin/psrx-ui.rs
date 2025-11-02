@@ -34,6 +34,16 @@ struct Args {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load .env file if present (for development configuration)
+    // This allows developers to configure trace settings, log levels, etc.
+    // File is optional - if not present, will use defaults or OS environment variables
+    if let Err(e) = dotenvy::dotenv() {
+        // Only log if the error is NOT "file not found"
+        if !e.to_string().contains("not found") {
+            eprintln!("Warning: Failed to load .env file: {}", e);
+        }
+    }
+
     // Initialize logger with default level INFO
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 

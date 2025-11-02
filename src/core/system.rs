@@ -18,7 +18,7 @@
 //! This module ties together all emulator components (CPU, Memory, GPU, SPU)
 //! and provides the main emulation loop.
 
-use super::cpu::CPU;
+use super::cpu::{CpuTracer, CPU};
 use super::error::Result;
 use super::gpu::GPU;
 use super::memory::Bus;
@@ -57,6 +57,14 @@ pub struct System {
     cycles: u64,
     /// Running state
     running: bool,
+    /// CPU tracer for debugging (optional)
+    tracer: Option<CpuTracer>,
+    /// Maximum instructions to trace (0 = unlimited)
+    trace_limit: usize,
+    /// Number of instructions traced so far
+    trace_count: usize,
+    /// Cycles at last VBLANK
+    last_vblank_cycles: u64,
 }
 
 impl System {
@@ -82,6 +90,10 @@ impl System {
             spu: SPU::new(),
             cycles: 0,
             running: false,
+            tracer: None,
+            trace_limit: 0,
+            trace_count: 0,
+            last_vblank_cycles: 0,
         }
     }
 
@@ -121,6 +133,8 @@ impl System {
         self.spu = SPU::new();
         self.cycles = 0;
         self.running = true;
+        self.trace_count = 0;
+        self.last_vblank_cycles = 0;
     }
 
     /// Execute one CPU instruction
@@ -134,6 +148,38 @@ impl System {
     /// # Errors
     /// Returns error if instruction execution fails
     pub fn step(&mut self) -> Result<u32> {
+        // Trace instruction if tracer is enabled
+        if let Some(ref mut tracer) = self.tracer {
+            // Check if we should still trace
+            if self.trace_limit == 0 || self.trace_count < self.trace_limit {
+                if let Err(e) = tracer.trace(&self.cpu, &self.bus) {
+                    log::warn!("Failed to write trace: {}", e);
+                }
+                self.trace_count += 1;
+
+                // Flush every 100 instructions to ensure data is written
+                if self.trace_count.is_multiple_of(100) {
+                    log::debug!("Flushed trace at {} instructions", self.trace_count);
+                    let _ = tracer.flush();
+                }
+            } else if self.trace_count == self.trace_limit {
+                log::info!(
+                    "Trace limit reached ({} instructions), disabling tracer",
+                    self.trace_limit
+                );
+                // Flush and disable tracer
+                let _ = tracer.flush();
+                self.trace_count += 1; // Increment to prevent repeated logging
+            }
+        } else if self.trace_count == 0 {
+            // Log once if tracer is not enabled
+            static LOGGED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                log::warn!("Tracer is None in step() - tracing not active");
+            }
+        }
+
         let cpu_cycles = self.cpu.step(&mut self.bus)?;
 
         // Tick GPU (synchronized with CPU cycles)
@@ -143,6 +189,21 @@ impl System {
         // self.spu.step()?;
 
         self.cycles += cpu_cycles as u64;
+
+        // TODO: VBLANK interrupts disabled temporarily
+        // The BIOS needs to set up interrupt handlers before we can safely generate interrupts
+        // For now, we'll skip VBLANK generation to let the BIOS complete initialization
+        /*
+        // Check for VBLANK interrupt (approximately 60 Hz)
+        // VBLANK occurs every ~564,480 cycles (33.8688 MHz / 60 Hz)
+        const CYCLES_PER_VBLANK: u64 = 564_480;
+        if self.cycles - self.last_vblank_cycles >= CYCLES_PER_VBLANK {
+            self.last_vblank_cycles = self.cycles;
+            // Trigger VBLANK interrupt (interrupt 0, bit 0)
+            log::debug!("VBLANK interrupt triggered at cycle {}", self.cycles);
+            self.cpu.check_interrupts(0x01);
+        }
+        */
 
         Ok(cpu_cycles)
     }
@@ -204,14 +265,8 @@ impl System {
         let target_cycles = self.cycles + CYCLES_PER_FRAME;
 
         while self.cycles < target_cycles && self.running {
-            // Execute CPU instruction
-            let cpu_cycles = self.cpu.step(&mut self.bus)?;
-
-            // Tick GPU (GPU timing is synchronized with CPU cycles)
-            self.gpu.borrow_mut().tick(cpu_cycles);
-
-            // Advance total cycle count
-            self.cycles += cpu_cycles as u64;
+            // Execute CPU instruction (via step() to enable tracing)
+            self.step()?;
         }
 
         Ok(())
@@ -289,6 +344,84 @@ impl System {
     /// Reference to GPU instance (wrapped in Rc<RefCell>)
     pub fn gpu(&self) -> Rc<RefCell<GPU>> {
         Rc::clone(&self.gpu)
+    }
+
+    /// Enable CPU execution tracing to a file
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the trace file to write
+    /// * `limit` - Maximum number of instructions to trace (0 = unlimited)
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if tracing was enabled successfully
+    /// - `Err(EmulatorError)` if file creation fails
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::system::System;
+    ///
+    /// let mut system = System::new();
+    /// system.enable_tracing("trace.log", 5000).unwrap(); // Trace first 5000 instructions
+    /// ```
+    pub fn enable_tracing(&mut self, path: &str, limit: usize) -> Result<()> {
+        self.tracer = Some(CpuTracer::new(path)?);
+        self.trace_limit = limit;
+        self.trace_count = 0;
+        log::info!(
+            "CPU tracing enabled: {} (limit: {})",
+            path,
+            if limit == 0 {
+                "unlimited".to_string()
+            } else {
+                limit.to_string()
+            }
+        );
+        Ok(())
+    }
+
+    /// Disable CPU execution tracing
+    ///
+    /// Closes the trace file and disables tracing.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::system::System;
+    ///
+    /// let mut system = System::new();
+    /// system.enable_tracing("trace.log", 1000).unwrap();
+    /// // ... run emulation ...
+    /// system.disable_tracing();
+    /// ```
+    pub fn disable_tracing(&mut self) {
+        if self.tracer.is_some() {
+            log::info!(
+                "CPU tracing disabled (traced {} instructions)",
+                self.trace_count
+            );
+            self.tracer = None;
+            self.trace_limit = 0;
+            self.trace_count = 0;
+        }
+    }
+
+    /// Check if tracing is currently enabled
+    ///
+    /// # Returns
+    /// true if tracing is active
+    pub fn is_tracing(&self) -> bool {
+        self.tracer.is_some()
+    }
+
+    /// Get the number of instructions traced so far
+    ///
+    /// # Returns
+    /// Number of instructions traced
+    pub fn trace_count(&self) -> usize {
+        self.trace_count
     }
 }
 

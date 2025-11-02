@@ -289,6 +289,7 @@ impl CPU {
         let pc = self.pc;
         self.current_instruction = bus.read32(pc)?;
 
+
         // Update PC (delay slot handling)
         self.pc = self.next_pc;
         self.next_pc = self.next_pc.wrapping_add(4);
@@ -315,11 +316,12 @@ impl CPU {
         // Save exception PC
         // self.pc currently points to (faulting_pc + 4). Adjust accordingly.
         let current_pc = self.pc.wrapping_sub(4);
-        self.cop0.regs[COP0::EPC] = if self.in_branch_delay {
+        let epc = if self.in_branch_delay {
             current_pc.wrapping_sub(4) // branch instruction address
         } else {
             current_pc // faulting instruction address
         };
+        self.cop0.regs[COP0::EPC] = epc;
 
         // Set branch delay flag in CAUSE if in delay slot
         if self.in_branch_delay {
@@ -334,6 +336,16 @@ impl CPU {
         } else {
             0x80000080 // BEV=0: Normal exception vector
         };
+
+        // Log exception details
+        log::warn!(
+            "EXCEPTION: cause={:?}, EPC=0x{:08X}, handler=0x{:08X}, in_delay={}, instruction=0x{:08X}",
+            cause,
+            epc,
+            handler,
+            self.in_branch_delay,
+            self.current_instruction
+        );
 
         self.pc = handler;
         self.next_pc = handler.wrapping_add(4);

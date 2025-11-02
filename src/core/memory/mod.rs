@@ -237,7 +237,10 @@ impl Bus {
     /// ```
     pub fn reset(&mut self) {
         // Clear RAM (volatile memory)
+        // Note: We clear to 0x00000000 (NOP). The BIOS will properly initialize
+        // exception vectors and other system structures during boot.
         self.ram.fill(0);
+
         // Clear scratchpad (volatile memory)
         self.scratchpad.fill(0);
         // Reset cache control to default
@@ -898,9 +901,21 @@ impl Bus {
                 }
             }
 
+            // Interrupt Status register (I_STAT)
+            0x1F801070 => {
+                log::debug!("I_STAT read at 0x{:08X} -> 0x00000000", paddr);
+                Ok(0)  // No interrupts pending (we handle them directly in CPU)
+            }
+
+            // Interrupt Mask register (I_MASK)
+            0x1F801074 => {
+                log::debug!("I_MASK read at 0x{:08X} -> 0xFFFFFFFF", paddr);
+                Ok(0xFFFFFFFF)  // All interrupts enabled
+            }
+
             // Other I/O ports (stub for now)
             _ => {
-                log::trace!("I/O port read at 0x{:08X}", paddr);
+                log::info!("I/O port read at 0x{:08X}", paddr);
                 Ok(0)
             }
         }
@@ -922,7 +937,7 @@ impl Bus {
         match paddr {
             // GPU GP0 register (0x1F801810) - commands and data
             Self::GPU_GP0 => {
-                log::trace!("GP0 write (0x{:08X}) = 0x{:08X}", paddr, value);
+                log::info!("GP0 write = 0x{:08X}", value);
                 if let Some(gpu) = &self.gpu {
                     gpu.borrow_mut().write_gp0(value);
                     Ok(())
@@ -934,19 +949,32 @@ impl Bus {
 
             // GPU GP1 register (0x1F801814) - control commands
             Self::GPU_GP1 => {
-                log::trace!("GP1 write (0x{:08X}) = 0x{:08X}", paddr, value);
+                log::info!("GP1 write = 0x{:08X}", value);
                 if let Some(gpu) = &self.gpu {
                     gpu.borrow_mut().write_gp1(value);
                     Ok(())
-                } else {
+                }
+                else {
                     log::warn!("GP1 write before GPU initialized");
                     Ok(())
                 }
             }
 
+            // Interrupt Status register (I_STAT)
+            0x1F801070 => {
+                log::debug!("I_STAT write at 0x{:08X} = 0x{:08X} (ack)", paddr, value);
+                Ok(())  // Acknowledge interrupts (we handle them directly in CPU)
+            }
+
+            // Interrupt Mask register (I_MASK)
+            0x1F801074 => {
+                log::debug!("I_MASK write at 0x{:08X} = 0x{:08X}", paddr, value);
+                Ok(())  // Set interrupt mask (we handle them directly in CPU)
+            }
+
             // Other I/O ports (stub for now)
             _ => {
-                log::trace!("I/O port write at 0x{:08X} = 0x{:08X}", paddr, value);
+                log::info!("I/O port write at 0x{:08X} = 0x{:08X}", paddr, value);
                 Ok(())
             }
         }
