@@ -24,16 +24,58 @@ export component MainWindow inherits Window {
     in-out property <image> framebuffer;
     in-out property <string> fps-text: "FPS: 0";
     in-out property <bool> running: false;
+    in-out property <bool> debug-mode: false;
+    in-out property <string> cpu-pc: "PC: 0x00000000";
+    in-out property <string> gpu-status: "GPU: 0x00000000";
+    in-out property <string> performance-text: "Frame: 0.00ms";
 
     VerticalBox {
         padding: 0px;
 
         // Emulator display
-        Image {
-            source: framebuffer;
+        Rectangle {
             width: 100%;
             height: parent.height - 30px;
-            image-fit: contain;
+
+            Image {
+                source: framebuffer;
+                width: 100%;
+                height: 100%;
+                image-fit: contain;
+            }
+
+            // Debug overlay
+            if debug-mode: Rectangle {
+                x: 10px;
+                y: 10px;
+                width: 250px;
+                height: 120px;
+                background: #00000080;
+                border-radius: 5px;
+
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 5px;
+
+                    Text {
+                        text: cpu-pc;
+                        color: #ffffff;
+                        font-size: 12px;
+                    }
+
+                    Text {
+                        text: gpu-status;
+                        color: #ffffff;
+                        font-size: 12px;
+                    }
+
+                    Text {
+                        text: performance-text;
+                        color: #00ff00;
+                        font-size: 12px;
+                    }
+                }
+            }
         }
 
         // Status bar
@@ -43,10 +85,17 @@ export component MainWindow inherits Window {
 
             HorizontalLayout {
                 padding: 5px;
+                spacing: 10px;
 
                 Text {
                     text: fps-text;
                     color: #ffffff;
+                    font-size: 14px;
+                }
+
+                Text {
+                    text: performance-text;
+                    color: #00ff00;
                     font-size: 14px;
                 }
 
@@ -57,6 +106,12 @@ export component MainWindow inherits Window {
                 Text {
                     text: running ? "Running" : "Stopped";
                     color: running ? #00ff00 : #ff0000;
+                    font-size: 14px;
+                }
+
+                Text {
+                    text: debug-mode ? "[DEBUG]" : "";
+                    color: #ffff00;
                     font-size: 14px;
                 }
             }
