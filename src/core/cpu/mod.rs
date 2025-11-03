@@ -276,6 +276,11 @@ impl CPU {
     /// assert_eq!(cycles, 1);
     /// ```
     pub fn step(&mut self, bus: &mut Bus) -> Result<u32> {
+        // Check for interrupts before fetching instruction
+        if self.should_handle_interrupt(bus) {
+            self.handle_interrupt();
+        }
+
         // The instruction fetched below will execute now. If we were in a delay slot,
         // clear the flag; any branch/jump executed in this step will set it again.
         let _was_in_delay = self.in_branch_delay;
@@ -415,6 +420,60 @@ impl CPU {
                 self.exception(ExceptionCause::Interrupt);
             }
         }
+    }
+
+    /// Check if interrupts should be handled
+    ///
+    /// Determines whether the CPU should handle an interrupt based on:
+    /// - Interrupt Enable Current (IEc) bit in Status Register
+    /// - Interrupt Mask (IM) bits in Status Register
+    /// - Pending interrupts from the interrupt controller
+    ///
+    /// This also mirrors the interrupt pending state into CAUSE.IP2 (bit 10)
+    /// to match real hardware behavior where the interrupt controller drives
+    /// the hardware interrupt line 2.
+    ///
+    /// # Arguments
+    ///
+    /// * `bus` - Memory bus to check interrupt controller state
+    ///
+    /// # Returns
+    ///
+    /// true if an interrupt should be handled, false otherwise
+    fn should_handle_interrupt(&mut self, bus: &Bus) -> bool {
+        // Check if interrupts are enabled (COP0 SR register)
+        let sr = self.cop0.regs[COP0::SR];
+        let iec = (sr & 0x01) != 0; // Interrupt Enable Current
+        let im = (sr >> 8) & 0xFF; // Interrupt Mask
+
+        // Check if any interrupt is pending
+        let irq_pending = bus.is_interrupt_pending();
+
+        // Mirror interrupt pending state into CAUSE.IP2 (bit 10)
+        // This reflects the hardware interrupt line 2 being asserted
+        if irq_pending {
+            self.cop0.regs[COP0::CAUSE] |= 1 << 10;
+        } else {
+            self.cop0.regs[COP0::CAUSE] &= !(1 << 10);
+        }
+
+        if !iec {
+            return false;
+        }
+
+        // Bit 10 (0x0400) in IM controls external interrupts
+        irq_pending && (im & 0x04) != 0
+    }
+
+    /// Handle an interrupt
+    ///
+    /// Triggers an interrupt exception. This will:
+    /// - Save the current PC to EPC
+    /// - Update the Status Register (disable interrupts, enter kernel mode)
+    /// - Jump to the interrupt handler
+    fn handle_interrupt(&mut self) {
+        log::debug!("Handling interrupt at PC=0x{:08X}", self.pc);
+        self.exception(ExceptionCause::Interrupt);
     }
 
     /// Dump all CPU registers for debugging

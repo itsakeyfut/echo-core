@@ -22,12 +22,14 @@
 //! - SPU (Sound Processing Unit)
 //! - Controller (Input devices)
 //! - Timer (3 timer/counter channels)
+//! - Interrupt Controller (IRQ management)
 //! - System integration
 
 pub mod controller;
 pub mod cpu;
 pub mod error;
 pub mod gpu;
+pub mod interrupt;
 pub mod memory;
 pub mod spu;
 pub mod system;
@@ -38,6 +40,7 @@ pub use controller::Controller;
 pub use cpu::CPU;
 pub use error::{EmulatorError, GpuError, Result};
 pub use gpu::GPU;
+pub use interrupt::InterruptController;
 pub use memory::Bus;
 pub use spu::SPU;
 pub use system::System;
