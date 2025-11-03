@@ -84,6 +84,22 @@ impl InstructionCache {
     fn prefill(&mut self, pc: u32, instruction: u32) {
         self.store(pc, instruction);
     }
+
+    /// Invalidate cached instruction at given address
+    ///
+    /// This ensures cache coherency when memory is modified after caching,
+    /// such as self-modifying code, runtime patching, or DMA writes.
+    fn invalidate(&mut self, pc: u32) {
+        self.entries.remove(&pc);
+    }
+
+    /// Invalidate cached instructions in given address range
+    ///
+    /// This is more efficient than individual invalidations when
+    /// a large memory region is modified.
+    fn invalidate_range(&mut self, start: u32, end: u32) {
+        self.entries.retain(|&pc, _| pc < start || pc > end);
+    }
 }
 
 /// CPU (MIPS R3000A) emulation implementation
@@ -306,6 +322,51 @@ impl CPU {
     /// ```
     pub fn prefill_icache(&mut self, pc: u32, instruction: u32) {
         self.icache.prefill(pc, instruction);
+    }
+
+    /// Invalidate instruction cache entry
+    ///
+    /// This method ensures cache coherency when memory is modified after caching.
+    /// It should be called when:
+    /// - Self-modifying code writes to its own instruction memory
+    /// - Runtime patching modifies executable code
+    /// - DMA writes occur to instruction memory regions
+    ///
+    /// # Arguments
+    /// - `pc`: Program counter / instruction address to invalidate
+    ///
+    /// # Example
+    /// ```
+    /// use psrx::core::cpu::CPU;
+    ///
+    /// let mut cpu = CPU::new();
+    /// cpu.prefill_icache(0x80000500, 0x3C080000);
+    /// // Later, if memory at 0x80000500 is modified:
+    /// cpu.invalidate_icache(0x80000500);
+    /// ```
+    pub fn invalidate_icache(&mut self, pc: u32) {
+        self.icache.invalidate(pc);
+    }
+
+    /// Invalidate instruction cache range
+    ///
+    /// More efficient than individual invalidations when a large memory
+    /// region is modified (e.g., DMA transfer, memset operations).
+    ///
+    /// # Arguments
+    /// - `start`: Start address (inclusive)
+    /// - `end`: End address (inclusive)
+    ///
+    /// # Example
+    /// ```
+    /// use psrx::core::cpu::CPU;
+    ///
+    /// let mut cpu = CPU::new();
+    /// // Invalidate entire low memory region after modification
+    /// cpu.invalidate_icache_range(0x80000000, 0x80010000);
+    /// ```
+    pub fn invalidate_icache_range(&mut self, start: u32, end: u32) {
+        self.icache.invalidate_range(start, end);
     }
 
     /// Write to register with load delay
