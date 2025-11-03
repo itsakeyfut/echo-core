@@ -631,6 +631,14 @@ impl System {
         Rc::clone(&self.controller_ports)
     }
 
+    /// Get reference to CDROM
+    ///
+    /// # Returns
+    /// Reference to CDROM instance (wrapped in Rc<RefCell>)
+    pub fn cdrom(&self) -> Rc<RefCell<CDROM>> {
+        Rc::clone(&self.cdrom)
+    }
+
     /// Enable CPU execution tracing to a file
     ///
     /// # Arguments
