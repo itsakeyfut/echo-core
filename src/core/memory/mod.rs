@@ -1611,14 +1611,16 @@ impl Bus {
     fn read_io_port8(&self, paddr: u32) -> Result<u8> {
         match paddr {
             // CD-ROM Index/Status register (0x1F801800)
+            // Read: Status register with FIFO states and busy flags
             Self::CDROM_INDEX => {
                 if let Some(cdrom) = &self.cdrom {
-                    let value = cdrom.borrow().index();
-                    log::trace!("CDROM_INDEX read at 0x{:08X} -> 0x{:02X}", paddr, value);
+                    let value = cdrom.borrow().read_status();
+                    log::trace!("CDROM_STATUS read at 0x{:08X} -> 0x{:02X}", paddr, value);
                     Ok(value)
                 } else {
-                    log::warn!("CDROM_INDEX access before CDROM initialized");
-                    Ok(0)
+                    log::warn!("CDROM_STATUS access before CDROM initialized");
+                    // Return "ready" status (0x18): Parameter FIFO empty and not full
+                    Ok(0x18)
                 }
             }
 
