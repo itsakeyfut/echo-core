@@ -341,6 +341,54 @@ impl CDROM {
         self.index
     }
 
+    /// Read status register (0x1F801800)
+    ///
+    /// Returns hardware status including FIFO states and busy flags.
+    ///
+    /// # Status Register Format
+    ///
+    /// ```text
+    /// Bit 0-1: Index (0-3)
+    /// Bit 2: ADPBUSY (XA-ADPCM playback active)
+    /// Bit 3: Parameter FIFO empty (0=Not Empty, 1=Empty)
+    /// Bit 4: Parameter FIFO not full (0=Full, 1=Not Full)
+    /// Bit 5: Response FIFO not empty (0=Empty, 1=Not Empty)
+    /// Bit 6: Data FIFO not empty (0=Empty, 1=Not Empty)
+    /// Bit 7: Busy (0=Ready, 1=Busy)
+    /// ```
+    pub fn read_status(&self) -> u8 {
+        let mut status = self.index & 0x3; // Bits 0-1: current index
+
+        // Bit 2: ADPBUSY (always 0 for minimal stub)
+        // status |= 0 << 2;
+
+        // Bit 3: Parameter FIFO empty
+        if self.param_fifo.is_empty() {
+            status |= 1 << 3;
+        }
+
+        // Bit 4: Parameter FIFO not full
+        if self.param_fifo.len() < Self::FIFO_SIZE {
+            status |= 1 << 4;
+        }
+
+        // Bit 5: Response FIFO not empty
+        if !self.response_fifo.is_empty() {
+            status |= 1 << 5;
+        }
+
+        // Bit 6: Data FIFO not empty (always 0 for minimal stub)
+        // status |= 0 << 6;
+
+        // Bit 7: Busy (0=Ready, 1=Busy)
+        // For minimal stub, always ready unless actively seeking/reading
+        if self.state == CDState::Seeking {
+            status |= 1 << 7;
+        }
+
+        status
+    }
+
     /// Execute CD-ROM command
     ///
     /// Executes the specified command byte, consuming parameters from
@@ -887,5 +935,44 @@ mod tests {
 
         let response = cdrom.pop_response();
         assert!(response.is_some());
+    }
+
+    #[test]
+    fn test_status_register() {
+        let mut cdrom = CDROM::new();
+
+        // Initial status: parameter FIFO empty and not full
+        let status = cdrom.read_status();
+        assert_eq!(status & 0x08, 0x08); // Bit 3: Parameter FIFO empty
+        assert_eq!(status & 0x10, 0x10); // Bit 4: Parameter FIFO not full
+        assert_eq!(status & 0x20, 0x00); // Bit 5: Response FIFO empty
+        assert_eq!(status & 0x80, 0x00); // Bit 7: Not busy
+
+        // Push parameter - FIFO should no longer be empty
+        cdrom.push_param(0x12);
+        let status = cdrom.read_status();
+        assert_eq!(status & 0x08, 0x00); // Bit 3: Parameter FIFO not empty
+        assert_eq!(status & 0x10, 0x10); // Bit 4: Parameter FIFO still not full
+
+        // Execute command - response FIFO should have data
+        cdrom.execute_command(0x01); // GetStat
+        let status = cdrom.read_status();
+        assert_eq!(status & 0x20, 0x20); // Bit 5: Response FIFO not empty
+
+        // Set seeking state - should show busy
+        cdrom.state = CDState::Seeking;
+        let status = cdrom.read_status();
+        assert_eq!(status & 0x80, 0x80); // Bit 7: Busy
+    }
+
+    #[test]
+    fn test_status_register_ready_state() {
+        let cdrom = CDROM::new();
+
+        // On initialization, CDROM should report ready state (0x18)
+        // Bit 3 (Parameter FIFO empty) = 1
+        // Bit 4 (Parameter FIFO not full) = 1
+        let status = cdrom.read_status();
+        assert_eq!(status & 0x18, 0x18); // Ready state bits
     }
 }

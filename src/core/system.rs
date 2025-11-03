@@ -18,6 +18,7 @@
 //! This module ties together all emulator components (CPU, Memory, GPU, SPU, Controller)
 //! and provides the main emulation loop.
 
+use super::cdrom::CDROM;
 use super::controller::Controller;
 use super::cpu::{CpuTracer, CPU};
 use super::error::Result;
@@ -276,6 +277,8 @@ pub struct System {
     gpu: Rc<RefCell<GPU>>,
     /// SPU instance
     spu: SPU,
+    /// CDROM drive (shared via Rc<RefCell> for memory-mapped access)
+    cdrom: Rc<RefCell<CDROM>>,
     /// Controller ports (shared via Rc<RefCell> for memory-mapped access)
     controller_ports: Rc<RefCell<ControllerPorts>>,
     /// Timers (shared via Rc<RefCell> for memory-mapped access)
@@ -308,6 +311,9 @@ impl System {
         // Create GPU wrapped in Rc<RefCell> for shared access
         let gpu = Rc::new(RefCell::new(GPU::new()));
 
+        // Create CDROM wrapped in Rc<RefCell> for shared access
+        let cdrom = Rc::new(RefCell::new(CDROM::new()));
+
         // Create ControllerPorts wrapped in Rc<RefCell> for shared access
         let controller_ports = Rc::new(RefCell::new(ControllerPorts::new()));
 
@@ -317,9 +323,10 @@ impl System {
         // Create Interrupt Controller wrapped in Rc<RefCell> for shared access
         let interrupt_controller = Rc::new(RefCell::new(InterruptController::new()));
 
-        // Create bus and connect GPU, ControllerPorts, Timers, and InterruptController for memory-mapped I/O
+        // Create bus and connect all peripherals for memory-mapped I/O
         let mut bus = Bus::new();
         bus.set_gpu(gpu.clone());
+        bus.set_cdrom(cdrom.clone());
         bus.set_controller_ports(controller_ports.clone());
         bus.set_timers(timers.clone());
         bus.set_interrupt_controller(interrupt_controller.clone());
@@ -329,6 +336,7 @@ impl System {
             bus,
             gpu,
             spu: SPU::new(),
+            cdrom,
             controller_ports,
             timers,
             interrupt_controller,
