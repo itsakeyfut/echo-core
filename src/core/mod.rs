@@ -21,6 +21,7 @@
 //! - GPU (Graphics Processing Unit)
 //! - SPU (Sound Processing Unit)
 //! - Controller (Input devices)
+//! - Timer (3 timer/counter channels)
 //! - System integration
 
 pub mod controller;
@@ -30,6 +31,7 @@ pub mod gpu;
 pub mod memory;
 pub mod spu;
 pub mod system;
+pub mod timer;
 
 // Re-export commonly used types
 pub use controller::Controller;
@@ -39,3 +41,4 @@ pub use gpu::GPU;
 pub use memory::Bus;
 pub use spu::SPU;
 pub use system::System;
+pub use timer::Timers;
