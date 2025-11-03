@@ -414,6 +414,9 @@ impl Bus {
         // Clear icache prefill queue
         self.icache_prefill_queue.clear();
 
+        // Clear icache invalidate queue
+        self.icache_invalidate_queue.clear();
+
         // Clear scratchpad (volatile memory)
         self.scratchpad.fill(0);
         // Reset cache control to default
