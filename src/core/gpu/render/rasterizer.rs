@@ -41,6 +41,8 @@
 //! - [Triangle Rasterization Tutorial](https://www.sunshine2k.de/coding/java/TriangleRasterization/TriangleRasterization.html)
 //! - [Scratchapixel: Rasterization](https://www.scratchapixel.com/lessons/3d-basic-rendering/rasterization-practical-implementation)
 
+use super::super::types::{Color, DrawMode, DrawingArea, TextureDepth, TextureInfo};
+
 /// Triangle rasterizer using scanline algorithm
 ///
 /// The rasterizer takes triangle vertices and fills the interior pixels,
@@ -1332,6 +1334,201 @@ impl Rasterizer {
             verts[0].0, verts[0].1, verts[1].0, verts[1].1, verts[2].0, verts[2].1,
         )
     }
+    /// Draw a monochrome (solid color) rectangle
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - VRAM buffer
+    /// * `draw_mode` - Current GPU draw mode settings
+    /// * `draw_area` - Drawing area clipping bounds
+    /// * `draw_offset` - Drawing offset to apply to coordinates
+    /// * `x` - Top-left X coordinate
+    /// * `y` - Top-left Y coordinate
+    /// * `width` - Rectangle width in pixels
+    /// * `height` - Rectangle height in pixels
+    /// * `color` - Fill color
+    /// * `semi_transparent` - Enable semi-transparency blending
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_rectangle(
+        &mut self,
+        vram: &mut [u16],
+        draw_mode: &DrawMode,
+        draw_area: &DrawingArea,
+        draw_offset: (i16, i16),
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
+        color: &Color,
+        semi_transparent: bool,
+    ) {
+        // Apply drawing offset
+        let x = x.wrapping_add(draw_offset.0);
+        let y = y.wrapping_add(draw_offset.1);
+
+        // Convert color to 15-bit RGB
+        let color15 = color.to_rgb15();
+
+        // Calculate rectangle bounds
+        let x1 = x;
+        let y1 = y;
+        let x2 = x.saturating_add(width as i16);
+        let y2 = y.saturating_add(height as i16);
+
+        // Clip to drawing area
+        let clip_x1 = x1.max(draw_area.left as i16);
+        let clip_y1 = y1.max(draw_area.top as i16);
+        let clip_x2 = x2.min((draw_area.right as i16) + 1);
+        let clip_y2 = y2.min((draw_area.bottom as i16) + 1);
+
+        // Check if rectangle is completely outside drawing area
+        if clip_x1 >= clip_x2 || clip_y1 >= clip_y2 {
+            return;
+        }
+
+        // Fill rectangle scanline by scanline
+        for py in clip_y1..clip_y2 {
+            if py < 0 || py >= 512 {
+                continue;
+            }
+
+            for px in clip_x1..clip_x2 {
+                if px < 0 || px >= 1024 {
+                    continue;
+                }
+
+                let vram_index = (py as usize) * 1024 + (px as usize);
+
+                if semi_transparent {
+                    // Apply semi-transparency blending
+                    let bg_color = vram[vram_index];
+                    let blend_mode = crate::core::gpu::BlendMode::from_bits(draw_mode.semi_transparency);
+                    let blended = blend_mode.blend(bg_color, color15);
+                    vram[vram_index] = blended;
+                } else {
+                    vram[vram_index] = color15;
+                }
+            }
+        }
+    }
+
+    /// Draw a textured rectangle
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - VRAM buffer
+    /// * `draw_mode` - Current GPU draw mode settings
+    /// * `draw_area` - Drawing area clipping bounds
+    /// * `draw_offset` - Drawing offset to apply to coordinates
+    /// * `x` - Top-left X coordinate
+    /// * `y` - Top-left Y coordinate
+    /// * `width` - Rectangle width in pixels
+    /// * `height` - Rectangle height in pixels
+    /// * `tex_u` - Texture U coordinate (top-left)
+    /// * `tex_v` - Texture V coordinate (top-left)
+    /// * `texture_info` - Texture page and CLUT information
+    /// * `color` - Modulation color (if modulated is true)
+    /// * `semi_transparent` - Enable semi-transparency blending
+    /// * `modulated` - Enable color modulation (multiply texture by color)
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_textured_rectangle(
+        &mut self,
+        vram: &mut [u16],
+        draw_mode: &DrawMode,
+        draw_area: &DrawingArea,
+        draw_offset: (i16, i16),
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
+        tex_u: u8,
+        tex_v: u8,
+        texture_info: &TextureInfo,
+        color: &Color,
+        semi_transparent: bool,
+        modulated: bool,
+    ) {
+        // Apply drawing offset
+        let x = x.wrapping_add(draw_offset.0);
+        let y = y.wrapping_add(draw_offset.1);
+
+        // Calculate rectangle bounds
+        let x1 = x;
+        let y1 = y;
+        let x2 = x.saturating_add(width as i16);
+        let y2 = y.saturating_add(height as i16);
+
+        // Clip to drawing area
+        let clip_x1 = x1.max(draw_area.left as i16);
+        let clip_y1 = y1.max(draw_area.top as i16);
+        let clip_x2 = x2.min((draw_area.right as i16) + 1);
+        let clip_y2 = y2.min((draw_area.bottom as i16) + 1);
+
+        // Check if rectangle is completely outside drawing area
+        if clip_x1 >= clip_x2 || clip_y1 >= clip_y2 {
+            return;
+        }
+
+        // Render each pixel
+        for py in clip_y1..clip_y2 {
+            if py < 0 || py >= 512 {
+                continue;
+            }
+
+            // Calculate texture V coordinate for this scanline
+            let v_offset = (py - y1) as u8;
+            let v = tex_v.wrapping_add(v_offset);
+
+            for px in clip_x1..clip_x2 {
+                if px < 0 || px >= 1024 {
+                    continue;
+                }
+
+                // Calculate texture U coordinate for this pixel
+                let u_offset = (px - x1) as u8;
+                let u = tex_u.wrapping_add(u_offset);
+
+                // Sample texture
+                let tex_color = match texture_info.depth {
+                    TextureDepth::T4Bit => self.sample_4bit_texture(vram, u, v, texture_info),
+                    TextureDepth::T8Bit => self.sample_8bit_texture(vram, u, v, texture_info),
+                    TextureDepth::T15Bit => self.sample_15bit_texture(vram, u, v, texture_info),
+                };
+
+                // Check for transparent black (0x0000 in 15-bit texture)
+                let tex_color15 = ((tex_color.2 as u16 >> 3) << 10)
+                    | ((tex_color.1 as u16 >> 3) << 5)
+                    | (tex_color.0 as u16 >> 3);
+
+                if tex_color15 == 0x0000 && texture_info.depth != TextureDepth::T15Bit {
+                    // Skip transparent pixels in paletted textures
+                    continue;
+                }
+
+                // Apply modulation if enabled
+                let final_color = if modulated {
+                    let r = ((tex_color.0 as u16 * color.r as u16) / 128) as u8;
+                    let g = ((tex_color.1 as u16 * color.g as u16) / 128) as u8;
+                    let b = ((tex_color.2 as u16 * color.b as u16) / 128) as u8;
+                    ((b as u16 >> 3) << 10) | ((g as u16 >> 3) << 5) | (r as u16 >> 3)
+                } else {
+                    tex_color15
+                };
+
+                let vram_index = (py as usize) * 1024 + (px as usize);
+
+                if semi_transparent {
+                    // Apply semi-transparency blending
+                    let bg_color = vram[vram_index];
+                    let blend_mode = crate::core::gpu::BlendMode::from_bits(draw_mode.semi_transparency);
+                    let blended = blend_mode.blend(bg_color, final_color);
+                    vram[vram_index] = blended;
+                } else {
+                    vram[vram_index] = final_color;
+                }
+            }
+        }
+    }
 }
 
 impl Default for Rasterizer {
@@ -2106,5 +2303,42 @@ mod tests {
         // Pixel inside both triangle and clip area should be blended
         let inside_pixel = vram[150 * 1024 + 150];
         assert_ne!(inside_pixel, 0x7FFF);
+    }
+
+    #[test]
+    fn test_monochrome_rectangle() {
+        use super::super::super::types::{Color, DrawMode, DrawingArea};
+
+        let mut vram = vec![0u16; 1024 * 512];
+        let mut rasterizer = Rasterizer::new();
+        let draw_mode = DrawMode::default();
+        let draw_area = DrawingArea {
+            left: 0,
+            top: 0,
+            right: 1023,
+            bottom: 511,
+        };
+
+        rasterizer.draw_rectangle(
+            &mut vram,
+            &draw_mode,
+            &draw_area,
+            (0, 0),
+            100,
+            100,
+            50,
+            30,
+            &Color { r: 255, g: 0, b: 0 },
+            false,
+        );
+
+        // Check that pixels inside rectangle are red
+        let red = ((0 << 10) | (0 << 5) | 31) as u16; // R=31 (255>>3)
+        assert_eq!(vram[100 * 1024 + 100], red);
+        assert_eq!(vram[110 * 1024 + 120], red);
+
+        // Check that pixels outside rectangle are black
+        assert_eq!(vram[99 * 1024 + 100], 0);
+        assert_eq!(vram[130 * 1024 + 100], 0);
     }
 }
