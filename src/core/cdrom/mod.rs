@@ -296,8 +296,14 @@ impl CDROM {
     /// Acknowledge interrupt
     ///
     /// Clears the specified interrupt bits.
+    /// When INT5 is acknowledged, also clears latched error status flags.
     pub fn acknowledge_interrupt(&mut self, value: u8) {
         self.interrupt_flag &= !value;
+        if value & 0x10 != 0 {
+            self.status.error = false;
+            self.status.seek_error = false;
+            self.status.id_error = false;
+        }
         log::trace!("CD-ROM: Acknowledged interrupts 0x{:02X}", value);
     }
 
@@ -316,7 +322,17 @@ impl CDROM {
     }
 
     /// Set index register (for register selection)
+    ///
+    /// Bits 0-1: Register select (0-3)
+    /// Bit 2: Clear parameter FIFO
+    /// Bit 3: Clear response FIFO
     pub fn set_index(&mut self, value: u8) {
+        if value & 0x04 != 0 {
+            self.param_fifo.clear();
+        }
+        if value & 0x08 != 0 {
+            self.response_fifo.clear();
+        }
         self.index = value & 0x3;
     }
 
