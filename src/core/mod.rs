@@ -20,11 +20,13 @@
 //! - Memory bus
 //! - GPU (Graphics Processing Unit)
 //! - SPU (Sound Processing Unit)
+//! - CD-ROM (Disc drive)
 //! - Controller (Input devices)
 //! - Timer (3 timer/counter channels)
 //! - Interrupt Controller (IRQ management)
 //! - System integration
 
+pub mod cdrom;
 pub mod controller;
 pub mod cpu;
 pub mod error;
@@ -36,9 +38,10 @@ pub mod system;
 pub mod timer;
 
 // Re-export commonly used types
+pub use cdrom::CDROM;
 pub use controller::Controller;
 pub use cpu::CPU;
-pub use error::{EmulatorError, GpuError, Result};
+pub use error::{CdRomError, EmulatorError, GpuError, Result};
 pub use gpu::GPU;
 pub use interrupt::InterruptController;
 pub use memory::Bus;

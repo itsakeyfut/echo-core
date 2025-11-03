@@ -50,6 +50,7 @@
 //! assert_eq!(bus.read32(0xA0000000).unwrap(), 0x12345678);
 //! ```
 
+use crate::core::cdrom::CDROM;
 use crate::core::error::{EmulatorError, Result};
 use crate::core::gpu::GPU;
 use crate::core::interrupt::InterruptController;
@@ -131,6 +132,12 @@ pub struct Bus {
     /// The InterruptController is shared between the System and Bus to allow
     /// memory-mapped register access while maintaining Rust's safety guarantees.
     interrupt_controller: Option<Rc<RefCell<InterruptController>>>,
+
+    /// CD-ROM drive reference (shared via Rc<RefCell>)
+    ///
+    /// The CDROM is shared between the System and Bus to allow
+    /// memory-mapped register access while maintaining Rust's safety guarantees.
+    cdrom: Option<Rc<RefCell<CDROM>>>,
 }
 
 /// Memory region identification
@@ -251,6 +258,13 @@ impl Bus {
     /// Interrupt Mask register (I_MASK)
     const I_MASK: u32 = 0x1F801074;
 
+    /// CD-ROM Index/Status register (0x1F801800)
+    const CDROM_INDEX: u32 = 0x1F801800;
+    /// CD-ROM registers (0x1F801801-0x1F801803)
+    const CDROM_REG1: u32 = 0x1F801801;
+    const CDROM_REG2: u32 = 0x1F801802;
+    const CDROM_REG3: u32 = 0x1F801803;
+
     /// Create a new Bus instance
     ///
     /// Initializes all memory regions with zeros.
@@ -281,6 +295,7 @@ impl Bus {
             controller_ports: None,
             timers: None,
             interrupt_controller: None,
+            cdrom: None,
         }
     }
 
@@ -385,6 +400,31 @@ impl Bus {
         interrupt_controller: Rc<RefCell<InterruptController>>,
     ) {
         self.interrupt_controller = Some(interrupt_controller);
+    }
+
+    /// Set CD-ROM drive reference for memory-mapped I/O
+    ///
+    /// Establishes the connection between the Bus and CDROM for handling
+    /// CD-ROM register accesses at memory-mapped addresses.
+    ///
+    /// # Arguments
+    ///
+    /// * `cdrom` - Shared reference to CDROM
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::memory::Bus;
+    /// use psrx::core::cdrom::CDROM;
+    /// use std::rc::Rc;
+    /// use std::cell::RefCell;
+    ///
+    /// let mut bus = Bus::new();
+    /// let cdrom = Rc::new(RefCell::new(CDROM::new()));
+    /// bus.set_cdrom(cdrom.clone());
+    /// ```
+    pub fn set_cdrom(&mut self, cdrom: Rc<RefCell<CDROM>>) {
+        self.cdrom = Some(cdrom);
     }
 
     /// Reset the bus to initial state
@@ -606,9 +646,8 @@ impl Bus {
                 Ok(self.bios[offset])
             }
             MemoryRegion::IO => {
-                // I/O port stub for Phase 1 Week 1
-                log::trace!("I/O port read8 at 0x{:08X}", paddr);
-                Ok(0)
+                // Handle CD-ROM registers (8-bit)
+                self.read_io_port8(paddr)
             }
             MemoryRegion::CacheControl => {
                 // Cache control is 32-bit only, stub 8-bit reads
@@ -858,9 +897,8 @@ impl Bus {
                 Ok(())
             }
             MemoryRegion::IO => {
-                // I/O port stub for Phase 1 Week 1
-                log::trace!("I/O port write8 at 0x{:08X} = 0x{:02X}", paddr, value);
-                Ok(())
+                // Handle CD-ROM registers (8-bit)
+                self.write_io_port8(paddr, value)
             }
             MemoryRegion::CacheControl => {
                 // Cache control is 32-bit only, ignore 8-bit writes
@@ -1554,6 +1592,279 @@ impl Bus {
             // Other I/O ports (stub for now)
             _ => {
                 log::info!("I/O port write at 0x{:08X} = 0x{:08X}", paddr, value);
+                Ok(())
+            }
+        }
+    }
+
+    /// Read from I/O port (8-bit)
+    ///
+    /// Handles reads from 8-bit memory-mapped I/O registers including CD-ROM registers.
+    ///
+    /// # Arguments
+    ///
+    /// * `paddr` - Physical address of I/O port
+    ///
+    /// # Returns
+    ///
+    /// The 8-bit value read from the I/O port
+    fn read_io_port8(&self, paddr: u32) -> Result<u8> {
+        match paddr {
+            // CD-ROM Index/Status register (0x1F801800)
+            Self::CDROM_INDEX => {
+                if let Some(cdrom) = &self.cdrom {
+                    let value = cdrom.borrow().index();
+                    log::trace!("CDROM_INDEX read at 0x{:08X} -> 0x{:02X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("CDROM_INDEX access before CDROM initialized");
+                    Ok(0)
+                }
+            }
+
+            // CD-ROM data register (0x1F801801)
+            Self::CDROM_REG1 => {
+                if let Some(cdrom) = &self.cdrom {
+                    let index = cdrom.borrow().index();
+                    let value = match index {
+                        0 => {
+                            // Response FIFO
+                            cdrom.borrow_mut().pop_response().unwrap_or(0)
+                        }
+                        1 => {
+                            // Response FIFO (same as index 0)
+                            cdrom.borrow_mut().pop_response().unwrap_or(0)
+                        }
+                        2 => {
+                            // Response FIFO (same as index 0)
+                            cdrom.borrow_mut().pop_response().unwrap_or(0)
+                        }
+                        3 => {
+                            // Response FIFO (same as index 0)
+                            cdrom.borrow_mut().pop_response().unwrap_or(0)
+                        }
+                        _ => 0,
+                    };
+                    log::trace!(
+                        "CDROM_REG1 (index {}) read at 0x{:08X} -> 0x{:02X}",
+                        index,
+                        paddr,
+                        value
+                    );
+                    Ok(value)
+                } else {
+                    log::warn!("CDROM_REG1 access before CDROM initialized");
+                    Ok(0)
+                }
+            }
+
+            // CD-ROM interrupt flag register (0x1F801802)
+            Self::CDROM_REG2 => {
+                if let Some(cdrom) = &self.cdrom {
+                    let index = cdrom.borrow().index();
+                    let value = match index {
+                        0 | 2 => {
+                            // Interrupt flag
+                            cdrom.borrow().interrupt_flag()
+                        }
+                        1 | 3 => {
+                            // Interrupt enable
+                            cdrom.borrow().interrupt_enable()
+                        }
+                        _ => 0,
+                    };
+                    log::trace!(
+                        "CDROM_REG2 (index {}) read at 0x{:08X} -> 0x{:02X}",
+                        index,
+                        paddr,
+                        value
+                    );
+                    Ok(value)
+                } else {
+                    log::warn!("CDROM_REG2 access before CDROM initialized");
+                    Ok(0)
+                }
+            }
+
+            // CD-ROM interrupt enable register (0x1F801803)
+            Self::CDROM_REG3 => {
+                if let Some(cdrom) = &self.cdrom {
+                    let index = cdrom.borrow().index();
+                    let value = match index {
+                        0 | 2 => {
+                            // Interrupt enable
+                            cdrom.borrow().interrupt_enable()
+                        }
+                        1 | 3 => {
+                            // Interrupt flag
+                            cdrom.borrow().interrupt_flag()
+                        }
+                        _ => 0,
+                    };
+                    log::trace!(
+                        "CDROM_REG3 (index {}) read at 0x{:08X} -> 0x{:02X}",
+                        index,
+                        paddr,
+                        value
+                    );
+                    Ok(value)
+                } else {
+                    log::warn!("CDROM_REG3 access before CDROM initialized");
+                    Ok(0)
+                }
+            }
+
+            // Other I/O ports (stub for now)
+            _ => {
+                log::trace!("I/O port read8 at 0x{:08X}", paddr);
+                Ok(0)
+            }
+        }
+    }
+
+    /// Write to I/O port (8-bit)
+    ///
+    /// Handles writes to 8-bit memory-mapped I/O registers including CD-ROM registers.
+    ///
+    /// # Arguments
+    ///
+    /// * `paddr` - Physical address of I/O port
+    /// * `value` - Value to write
+    ///
+    /// # Returns
+    ///
+    /// Result indicating success or failure
+    fn write_io_port8(&mut self, paddr: u32, value: u8) -> Result<()> {
+        match paddr {
+            // CD-ROM Index/Status register (0x1F801800)
+            Self::CDROM_INDEX => {
+                if let Some(cdrom) = &self.cdrom {
+                    cdrom.borrow_mut().set_index(value);
+                    log::trace!("CDROM_INDEX write at 0x{:08X} = 0x{:02X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("CDROM_INDEX write before CDROM initialized");
+                    Ok(())
+                }
+            }
+
+            // CD-ROM command/parameter register (0x1F801801)
+            Self::CDROM_REG1 => {
+                if let Some(cdrom) = &self.cdrom {
+                    let index = cdrom.borrow().index();
+                    match index {
+                        0 => {
+                            // Command register
+                            log::debug!("CDROM command 0x{:02X} at 0x{:08X}", value, paddr);
+                            cdrom.borrow_mut().execute_command(value);
+                        }
+                        1..=3 => {
+                            // Parameter FIFO (same for all other indices)
+                            log::trace!(
+                                "CDROM_REG1 (index {}) parameter write at 0x{:08X} = 0x{:02X}",
+                                index,
+                                paddr,
+                                value
+                            );
+                            cdrom.borrow_mut().push_param(value);
+                        }
+                        _ => {}
+                    }
+                    Ok(())
+                } else {
+                    log::warn!("CDROM_REG1 write before CDROM initialized");
+                    Ok(())
+                }
+            }
+
+            // CD-ROM interrupt acknowledge register (0x1F801802)
+            Self::CDROM_REG2 => {
+                if let Some(cdrom) = &self.cdrom {
+                    let index = cdrom.borrow().index();
+                    match index {
+                        0 | 2 => {
+                            // Interrupt acknowledge
+                            log::trace!(
+                                "CDROM_REG2 (index {}) interrupt ack at 0x{:08X} = 0x{:02X}",
+                                index,
+                                paddr,
+                                value
+                            );
+                            cdrom.borrow_mut().acknowledge_interrupt(value);
+                        }
+                        1 | 3 => {
+                            // Interrupt enable
+                            log::trace!(
+                                "CDROM_REG2 (index {}) interrupt enable at 0x{:08X} = 0x{:02X}",
+                                index,
+                                paddr,
+                                value
+                            );
+                            cdrom.borrow_mut().set_interrupt_enable(value);
+                        }
+                        _ => {}
+                    }
+                    Ok(())
+                } else {
+                    log::warn!("CDROM_REG2 write before CDROM initialized");
+                    Ok(())
+                }
+            }
+
+            // CD-ROM control register (0x1F801803)
+            Self::CDROM_REG3 => {
+                if let Some(cdrom) = &self.cdrom {
+                    let index = cdrom.borrow().index();
+                    match index {
+                        0 => {
+                            // Request register (not yet implemented)
+                            log::trace!(
+                                "CDROM_REG3 (index {}) request write at 0x{:08X} = 0x{:02X}",
+                                index,
+                                paddr,
+                                value
+                            );
+                        }
+                        1 => {
+                            // Interrupt enable
+                            log::trace!(
+                                "CDROM_REG3 (index {}) interrupt enable at 0x{:08X} = 0x{:02X}",
+                                index,
+                                paddr,
+                                value
+                            );
+                            cdrom.borrow_mut().set_interrupt_enable(value);
+                        }
+                        2 => {
+                            // Audio volume for left CD output to left SPU
+                            log::trace!(
+                                "CDROM_REG3 (index {}) audio vol L->L at 0x{:08X} = 0x{:02X}",
+                                index,
+                                paddr,
+                                value
+                            );
+                        }
+                        3 => {
+                            // Audio volume for right CD output to right SPU
+                            log::trace!(
+                                "CDROM_REG3 (index {}) audio vol R->R at 0x{:08X} = 0x{:02X}",
+                                index,
+                                paddr,
+                                value
+                            );
+                        }
+                        _ => {}
+                    }
+                    Ok(())
+                } else {
+                    log::warn!("CDROM_REG3 write before CDROM initialized");
+                    Ok(())
+                }
+            }
+
+            // Other I/O ports (stub for now)
+            _ => {
+                log::trace!("I/O port write8 at 0x{:08X} = 0x{:02X}", paddr, value);
                 Ok(())
             }
         }
