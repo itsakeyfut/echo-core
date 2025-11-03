@@ -701,7 +701,7 @@ impl CDROM {
         }
 
         // Bit 6: Data FIFO not empty
-        if !self.data_buffer.is_empty() {
+        if self.data_index < self.data_buffer.len() {
             status |= 1 << 6;
         }
 
