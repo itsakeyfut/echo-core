@@ -187,7 +187,6 @@ struct CDStatus {
     /// ID error (disc not recognized)
     id_error: bool,
     /// Shell open (disc tray open)
-    #[allow(dead_code)]
     shell_open: bool,
     /// Currently reading data
     reading: bool,
@@ -198,12 +197,328 @@ struct CDStatus {
     playing: bool,
 }
 
-/// Disc image (placeholder for future implementation)
+/// Disc image loaded from .bin/.cue files
 ///
-/// This will be implemented in issue #60.
+/// Represents a CD-ROM disc image with tracks and raw sector data.
+/// Supports reading sectors in MSF format.
+///
+/// # Example
+///
+/// ```no_run
+/// use psrx::core::cdrom::DiscImage;
+///
+/// let disc = DiscImage::load("game.cue").unwrap();
+/// let position = psrx::core::cdrom::CDPosition::new(0, 2, 0);
+/// let sector_data = disc.read_sector(&position);
+/// ```
 #[derive(Debug)]
 pub struct DiscImage {
-    // Placeholder - will be implemented when disc loading is added
+    /// Tracks on the disc
+    tracks: Vec<Track>,
+
+    /// Raw sector data from .bin file
+    data: Vec<u8>,
+}
+
+/// CD-ROM track information
+///
+/// Represents a single track on a CD-ROM disc, including its type,
+/// position, and location in the .bin file.
+#[derive(Debug, Clone)]
+pub struct Track {
+    /// Track number (1-99)
+    pub number: u8,
+
+    /// Track type (Mode1/2352, Mode2/2352, Audio)
+    pub track_type: TrackType,
+
+    /// Start position (MSF)
+    pub start_position: CDPosition,
+
+    /// Length in sectors
+    pub length_sectors: u32,
+
+    /// Byte offset in .bin file
+    pub file_offset: u64,
+}
+
+/// CD-ROM track type
+///
+/// Specifies the format of data stored in a track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackType {
+    /// Data track, 2352 bytes per sector (Mode 1)
+    Mode1_2352,
+    /// XA track, 2352 bytes per sector (Mode 2)
+    Mode2_2352,
+    /// CD-DA audio, 2352 bytes per sector
+    Audio,
+}
+
+impl DiscImage {
+    /// Load a disc image from a .cue file
+    ///
+    /// Parses the .cue file to extract track information and loads
+    /// the corresponding .bin file containing raw sector data.
+    ///
+    /// # Arguments
+    ///
+    /// * `cue_path` - Path to the .cue file
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(DiscImage)` if loading succeeded
+    /// - `Err(Box<dyn std::error::Error>)` if loading failed
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::cdrom::DiscImage;
+    ///
+    /// let disc = DiscImage::load("game.cue").unwrap();
+    /// ```
+    pub fn load(cue_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let cue_data = std::fs::read_to_string(cue_path)?;
+        let bin_path = Self::get_bin_path_from_cue(cue_path, &cue_data)?;
+
+        let mut tracks = Self::parse_cue(&cue_data)?;
+        let data = std::fs::read(bin_path)?;
+
+        // Calculate track lengths based on file size and positions
+        Self::calculate_track_lengths(&mut tracks, data.len());
+
+        log::info!(
+            "Loaded disc image: {} tracks, {} MB",
+            tracks.len(),
+            data.len() / 1024 / 1024
+        );
+
+        Ok(Self { tracks, data })
+    }
+
+    /// Extract .bin file path from .cue file path and content
+    ///
+    /// Searches for FILE directive in .cue content to determine .bin filename.
+    ///
+    /// # Arguments
+    ///
+    /// * `cue_path` - Path to the .cue file
+    /// * `cue_data` - Content of the .cue file
+    ///
+    /// # Returns
+    ///
+    /// Full path to the .bin file
+    fn get_bin_path_from_cue(
+        cue_path: &str,
+        cue_data: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        // Find FILE directive
+        for line in cue_data.lines() {
+            let line = line.trim();
+            if line.starts_with("FILE") {
+                // Extract filename from quotes
+                if let Some(start) = line.find('"') {
+                    if let Some(end) = line[start + 1..].find('"') {
+                        let bin_filename = &line[start + 1..start + 1 + end];
+
+                        // Construct full path by replacing .cue filename with .bin filename
+                        let cue_path_obj = std::path::Path::new(cue_path);
+                        let bin_path = if let Some(parent) = cue_path_obj.parent() {
+                            parent.join(bin_filename)
+                        } else {
+                            std::path::PathBuf::from(bin_filename)
+                        };
+
+                        return Ok(bin_path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+
+        Err("No FILE directive found in .cue file".into())
+    }
+
+    /// Parse .cue file content to extract track information
+    ///
+    /// # Arguments
+    ///
+    /// * `cue_data` - Content of the .cue file
+    ///
+    /// # Returns
+    ///
+    /// Vector of tracks parsed from the .cue file
+    fn parse_cue(cue_data: &str) -> Result<Vec<Track>, Box<dyn std::error::Error>> {
+        let mut tracks = Vec::new();
+        let mut current_track: Option<Track> = None;
+
+        for line in cue_data.lines() {
+            let line = line.trim();
+
+            if line.starts_with("TRACK") {
+                // Save previous track
+                if let Some(track) = current_track.take() {
+                    tracks.push(track);
+                }
+
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                let track_num = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(1);
+                let track_type_str = parts.get(2).unwrap_or(&"MODE2/2352");
+
+                current_track = Some(Track {
+                    number: track_num,
+                    track_type: Self::parse_track_type(track_type_str),
+                    start_position: CDPosition::new(0, 0, 0),
+                    length_sectors: 0,
+                    file_offset: 0,
+                });
+            } else if line.starts_with("INDEX 01") {
+                if let Some(ref mut track) = current_track {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if let Some(time_str) = parts.get(2) {
+                        track.start_position = Self::parse_msf(time_str)?;
+                        // Calculate file offset from MSF position
+                        track.file_offset =
+                            Self::msf_to_sector(&track.start_position) as u64 * 2352;
+                    }
+                }
+            }
+        }
+
+        // Save last track
+        if let Some(track) = current_track {
+            tracks.push(track);
+        }
+
+        Ok(tracks)
+    }
+
+    /// Parse MSF time string (MM:SS:FF)
+    ///
+    /// # Arguments
+    ///
+    /// * `msf` - MSF string in format "MM:SS:FF"
+    ///
+    /// # Returns
+    ///
+    /// CDPosition parsed from the string
+    fn parse_msf(msf: &str) -> Result<CDPosition, Box<dyn std::error::Error>> {
+        let parts: Vec<&str> = msf.split(':').collect();
+        if parts.len() != 3 {
+            return Err("Invalid MSF format".into());
+        }
+
+        Ok(CDPosition {
+            minute: parts[0].parse()?,
+            second: parts[1].parse()?,
+            sector: parts[2].parse()?,
+        })
+    }
+
+    /// Parse track type string from .cue file
+    ///
+    /// # Arguments
+    ///
+    /// * `s` - Track type string (e.g., "MODE1/2352", "AUDIO")
+    ///
+    /// # Returns
+    ///
+    /// Corresponding TrackType enum value
+    fn parse_track_type(s: &str) -> TrackType {
+        match s {
+            "MODE1/2352" => TrackType::Mode1_2352,
+            "MODE2/2352" => TrackType::Mode2_2352,
+            "AUDIO" => TrackType::Audio,
+            _ => TrackType::Mode2_2352, // Default to Mode2
+        }
+    }
+
+    /// Calculate track lengths based on file size and start positions
+    ///
+    /// # Arguments
+    ///
+    /// * `tracks` - Mutable vector of tracks to update
+    /// * `file_size` - Total size of the .bin file in bytes
+    fn calculate_track_lengths(tracks: &mut [Track], file_size: usize) {
+        for i in 0..tracks.len() {
+            if i + 1 < tracks.len() {
+                // Calculate length as difference between this track and next track
+                let next_offset = tracks[i + 1].file_offset;
+                let this_offset = tracks[i].file_offset;
+                tracks[i].length_sectors = ((next_offset - this_offset) / 2352) as u32;
+            } else {
+                // Last track: calculate from remaining file size
+                let this_offset = tracks[i].file_offset;
+                tracks[i].length_sectors = ((file_size as u64 - this_offset) / 2352) as u32;
+            }
+        }
+    }
+
+    /// Read a sector from the disc at the specified MSF position
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - MSF position to read from
+    ///
+    /// # Returns
+    ///
+    /// - `Some(&[u8])` - Sector data (2352 bytes)
+    /// - `None` - Position out of bounds
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use psrx::core::cdrom::{DiscImage, CDPosition};
+    /// # let disc = DiscImage::load("game.cue").unwrap();
+    /// let position = CDPosition::new(0, 2, 0);
+    /// if let Some(data) = disc.read_sector(&position) {
+    ///     println!("Read {} bytes", data.len());
+    /// }
+    /// ```
+    pub fn read_sector(&self, position: &CDPosition) -> Option<&[u8]> {
+        let sector_num = Self::msf_to_sector(position);
+        let offset = sector_num * 2352;
+
+        if offset + 2352 <= self.data.len() {
+            Some(&self.data[offset..offset + 2352])
+        } else {
+            None
+        }
+    }
+
+    /// Convert MSF position to sector number
+    ///
+    /// # Arguments
+    ///
+    /// * `pos` - MSF position
+    ///
+    /// # Returns
+    ///
+    /// Sector number (0-based)
+    fn msf_to_sector(pos: &CDPosition) -> usize {
+        (pos.minute as usize * 60 * 75) + (pos.second as usize * 75) + (pos.sector as usize)
+    }
+
+    /// Get the number of tracks on the disc
+    ///
+    /// # Returns
+    ///
+    /// Number of tracks
+    pub fn track_count(&self) -> usize {
+        self.tracks.len()
+    }
+
+    /// Get track information by track number
+    ///
+    /// # Arguments
+    ///
+    /// * `track_num` - Track number (1-99)
+    ///
+    /// # Returns
+    ///
+    /// Optional reference to track information
+    pub fn get_track(&self, track_num: u8) -> Option<&Track> {
+        self.tracks.iter().find(|t| t.number == track_num)
+    }
 }
 
 impl CDROM {
@@ -700,6 +1015,91 @@ impl CDROM {
         self.response_fifo.push_back(0x80); // Error code: Invalid command
         self.trigger_interrupt(5); // INT5 (error)
     }
+
+    /// Load a disc image from a .cue file
+    ///
+    /// Loads the disc image and updates the drive state to reflect
+    /// that a disc is present.
+    ///
+    /// # Arguments
+    ///
+    /// * `cue_path` - Path to the .cue file
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if disc loaded successfully
+    /// - `Err(Box<dyn std::error::Error>)` if loading failed
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::cdrom::CDROM;
+    ///
+    /// let mut cdrom = CDROM::new();
+    /// cdrom.load_disc("game.cue").unwrap();
+    /// ```
+    pub fn load_disc(&mut self, cue_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let disc = DiscImage::load(cue_path)?;
+        self.disc = Some(disc);
+        self.status.shell_open = false;
+        log::info!("Disc loaded successfully");
+        Ok(())
+    }
+
+    /// Read the current sector from the loaded disc
+    ///
+    /// Reads sector data at the current position from the disc image.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(Vec<u8>)` - Sector data (2352 bytes)
+    /// - `None` - No disc loaded or position out of bounds
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::cdrom::CDROM;
+    ///
+    /// let mut cdrom = CDROM::new();
+    /// // cdrom.load_disc("game.cue").unwrap();
+    /// if let Some(data) = cdrom.read_current_sector() {
+    ///     println!("Read {} bytes", data.len());
+    /// }
+    /// ```
+    pub fn read_current_sector(&mut self) -> Option<Vec<u8>> {
+        if let Some(ref disc) = self.disc {
+            disc.read_sector(&self.position).map(|data| data.to_vec())
+        } else {
+            None
+        }
+    }
+
+    /// Check if a disc is loaded
+    ///
+    /// # Returns
+    ///
+    /// true if a disc image is loaded, false otherwise
+    pub fn has_disc(&self) -> bool {
+        self.disc.is_some()
+    }
+
+    /// Get the current read position
+    ///
+    /// # Returns
+    ///
+    /// Current MSF position
+    pub fn position(&self) -> &CDPosition {
+        &self.position
+    }
+
+    /// Set the current read position
+    ///
+    /// # Arguments
+    ///
+    /// * `position` - New MSF position
+    pub fn set_position(&mut self, position: CDPosition) {
+        self.position = position;
+    }
 }
 
 impl Default for CDROM {
@@ -974,5 +1374,335 @@ mod tests {
         // Bit 4 (Parameter FIFO not full) = 1
         let status = cdrom.read_status();
         assert_eq!(status & 0x18, 0x18); // Ready state bits
+    }
+
+    // Disc Image Loading Tests
+
+    #[test]
+    fn test_cue_parsing() {
+        let cue_data = r#"
+FILE "game.bin" BINARY
+  TRACK 01 MODE2/2352
+    INDEX 01 00:00:00
+"#;
+
+        let tracks = DiscImage::parse_cue(cue_data).unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].number, 1);
+        assert_eq!(tracks[0].track_type, TrackType::Mode2_2352);
+        assert_eq!(tracks[0].start_position.minute, 0);
+        assert_eq!(tracks[0].start_position.second, 0);
+        assert_eq!(tracks[0].start_position.sector, 0);
+    }
+
+    #[test]
+    fn test_cue_parsing_multiple_tracks() {
+        let cue_data = r#"
+FILE "game.bin" BINARY
+  TRACK 01 MODE2/2352
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    INDEX 01 10:30:15
+  TRACK 03 MODE1/2352
+    INDEX 01 25:45:20
+"#;
+
+        let tracks = DiscImage::parse_cue(cue_data).unwrap();
+        assert_eq!(tracks.len(), 3);
+
+        // Track 1
+        assert_eq!(tracks[0].number, 1);
+        assert_eq!(tracks[0].track_type, TrackType::Mode2_2352);
+        assert_eq!(tracks[0].start_position.minute, 0);
+
+        // Track 2
+        assert_eq!(tracks[1].number, 2);
+        assert_eq!(tracks[1].track_type, TrackType::Audio);
+        assert_eq!(tracks[1].start_position.minute, 10);
+        assert_eq!(tracks[1].start_position.second, 30);
+        assert_eq!(tracks[1].start_position.sector, 15);
+
+        // Track 3
+        assert_eq!(tracks[2].number, 3);
+        assert_eq!(tracks[2].track_type, TrackType::Mode1_2352);
+        assert_eq!(tracks[2].start_position.minute, 25);
+        assert_eq!(tracks[2].start_position.second, 45);
+        assert_eq!(tracks[2].start_position.sector, 20);
+    }
+
+    #[test]
+    fn test_msf_to_sector_conversion() {
+        let pos = CDPosition {
+            minute: 0,
+            second: 2,
+            sector: 16,
+        };
+        let sector = DiscImage::msf_to_sector(&pos);
+        assert_eq!(sector, 2 * 75 + 16); // 166
+
+        let pos = CDPosition {
+            minute: 1,
+            second: 0,
+            sector: 0,
+        };
+        let sector = DiscImage::msf_to_sector(&pos);
+        assert_eq!(sector, 60 * 75); // 4500
+    }
+
+    #[test]
+    fn test_parse_msf() {
+        let pos = DiscImage::parse_msf("10:30:15").unwrap();
+        assert_eq!(pos.minute, 10);
+        assert_eq!(pos.second, 30);
+        assert_eq!(pos.sector, 15);
+
+        let pos = DiscImage::parse_msf("00:00:00").unwrap();
+        assert_eq!(pos.minute, 0);
+        assert_eq!(pos.second, 0);
+        assert_eq!(pos.sector, 0);
+    }
+
+    #[test]
+    fn test_parse_msf_invalid() {
+        // Invalid format - only 2 components
+        assert!(DiscImage::parse_msf("10:30").is_err());
+
+        // Invalid format - 4 components
+        assert!(DiscImage::parse_msf("10:30:15:00").is_err());
+
+        // Invalid numbers
+        assert!(DiscImage::parse_msf("abc:def:ghi").is_err());
+    }
+
+    #[test]
+    fn test_parse_track_type() {
+        assert_eq!(
+            DiscImage::parse_track_type("MODE1/2352"),
+            TrackType::Mode1_2352
+        );
+        assert_eq!(
+            DiscImage::parse_track_type("MODE2/2352"),
+            TrackType::Mode2_2352
+        );
+        assert_eq!(DiscImage::parse_track_type("AUDIO"), TrackType::Audio);
+
+        // Unknown type defaults to Mode2
+        assert_eq!(
+            DiscImage::parse_track_type("UNKNOWN"),
+            TrackType::Mode2_2352
+        );
+    }
+
+    #[test]
+    fn test_disc_image_with_mock_data() {
+        // Create a temporary directory for test files
+        let temp_dir = std::env::temp_dir();
+        let cue_path = temp_dir.join("test_disc.cue");
+        let bin_path = temp_dir.join("test_disc.bin");
+
+        // Create a mock .cue file
+        let cue_content = r#"FILE "test_disc.bin" BINARY
+  TRACK 01 MODE2/2352
+    INDEX 01 00:00:00
+"#;
+        std::fs::write(&cue_path, cue_content).unwrap();
+
+        // Create a mock .bin file (10 sectors = 23520 bytes)
+        let sector_data = vec![0xAB; 2352];
+        let mut bin_data = Vec::new();
+        for _ in 0..10 {
+            bin_data.extend_from_slice(&sector_data);
+        }
+        std::fs::write(&bin_path, &bin_data).unwrap();
+
+        // Load the disc image
+        let disc = DiscImage::load(cue_path.to_str().unwrap()).unwrap();
+
+        // Verify track count
+        assert_eq!(disc.track_count(), 1);
+
+        // Verify track info
+        let track = disc.get_track(1).unwrap();
+        assert_eq!(track.number, 1);
+        assert_eq!(track.track_type, TrackType::Mode2_2352);
+        assert_eq!(track.length_sectors, 10);
+
+        // Read a sector
+        let pos = CDPosition::new(0, 0, 0);
+        let sector = disc.read_sector(&pos).unwrap();
+        assert_eq!(sector.len(), 2352);
+        assert_eq!(sector[0], 0xAB);
+
+        // Read last sector
+        let pos = CDPosition::new(0, 0, 9);
+        let sector = disc.read_sector(&pos).unwrap();
+        assert_eq!(sector.len(), 2352);
+
+        // Read out of bounds
+        let pos = CDPosition::new(0, 0, 10);
+        assert!(disc.read_sector(&pos).is_none());
+
+        // Clean up
+        let _ = std::fs::remove_file(&cue_path);
+        let _ = std::fs::remove_file(&bin_path);
+    }
+
+    #[test]
+    fn test_cdrom_load_disc() {
+        // Create a temporary directory for test files
+        let temp_dir = std::env::temp_dir();
+        let cue_path = temp_dir.join("test_load.cue");
+        let bin_path = temp_dir.join("test_load.bin");
+
+        // Create mock files
+        let cue_content = r#"FILE "test_load.bin" BINARY
+  TRACK 01 MODE2/2352
+    INDEX 01 00:00:00
+"#;
+        std::fs::write(&cue_path, cue_content).unwrap();
+
+        let bin_data = vec![0x00; 2352 * 5]; // 5 sectors
+        std::fs::write(&bin_path, &bin_data).unwrap();
+
+        // Load disc into CDROM
+        let mut cdrom = CDROM::new();
+        assert!(!cdrom.has_disc());
+
+        cdrom.load_disc(cue_path.to_str().unwrap()).unwrap();
+
+        assert!(cdrom.has_disc());
+        assert!(!cdrom.status.shell_open);
+
+        // Clean up
+        let _ = std::fs::remove_file(&cue_path);
+        let _ = std::fs::remove_file(&bin_path);
+    }
+
+    #[test]
+    fn test_cdrom_read_current_sector() {
+        // Create a temporary directory for test files
+        let temp_dir = std::env::temp_dir();
+        let cue_path = temp_dir.join("test_read.cue");
+        let bin_path = temp_dir.join("test_read.bin");
+
+        // Create mock files with recognizable pattern
+        let cue_content = r#"FILE "test_read.bin" BINARY
+  TRACK 01 MODE2/2352
+    INDEX 01 00:00:00
+"#;
+        std::fs::write(&cue_path, cue_content).unwrap();
+
+        let mut bin_data = Vec::new();
+        for i in 0..5 {
+            let mut sector = vec![i as u8; 2352];
+            bin_data.append(&mut sector);
+        }
+        std::fs::write(&bin_path, &bin_data).unwrap();
+
+        // Load and read
+        let mut cdrom = CDROM::new();
+        cdrom.load_disc(cue_path.to_str().unwrap()).unwrap();
+
+        // Read sector at position 00:00:00
+        cdrom.set_position(CDPosition::new(0, 0, 0));
+        let sector = cdrom.read_current_sector().unwrap();
+        assert_eq!(sector.len(), 2352);
+        assert_eq!(sector[0], 0); // First sector filled with 0
+
+        // Read sector at position 00:00:03
+        cdrom.set_position(CDPosition::new(0, 0, 3));
+        let sector = cdrom.read_current_sector().unwrap();
+        assert_eq!(sector[0], 3); // Fourth sector filled with 3
+
+        // Clean up
+        let _ = std::fs::remove_file(&cue_path);
+        let _ = std::fs::remove_file(&bin_path);
+    }
+
+    #[test]
+    fn test_cdrom_read_without_disc() {
+        let mut cdrom = CDROM::new();
+        assert!(cdrom.read_current_sector().is_none());
+    }
+
+    #[test]
+    fn test_cdrom_position_accessors() {
+        let mut cdrom = CDROM::new();
+
+        // Check initial position
+        let pos = cdrom.position();
+        assert_eq!(pos.minute, 0);
+        assert_eq!(pos.second, 2);
+        assert_eq!(pos.sector, 0);
+
+        // Set new position
+        cdrom.set_position(CDPosition::new(10, 30, 15));
+        let pos = cdrom.position();
+        assert_eq!(pos.minute, 10);
+        assert_eq!(pos.second, 30);
+        assert_eq!(pos.sector, 15);
+    }
+
+    #[test]
+    fn test_track_length_calculation_realistic() {
+        let cue_data = r#"
+FILE "game.bin" BINARY
+  TRACK 01 MODE2/2352
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    INDEX 01 00:01:00
+"#;
+
+        let mut tracks = DiscImage::parse_cue(cue_data).unwrap();
+
+        // Track 1 starts at 0, track 2 starts at 1 second = 75 sectors
+        // Total file size: 150 sectors
+        DiscImage::calculate_track_lengths(&mut tracks, 2352 * 150);
+
+        // Track 1: 75 sectors (from 0 to 75)
+        assert_eq!(tracks[0].length_sectors, 75);
+
+        // Track 2: 75 sectors (from 75 to 150)
+        assert_eq!(tracks[1].length_sectors, 75);
+    }
+
+    #[test]
+    fn test_get_track() {
+        let temp_dir = std::env::temp_dir();
+        let cue_path = temp_dir.join("test_get_track.cue");
+        let bin_path = temp_dir.join("test_get_track.bin");
+
+        let cue_content = r#"FILE "test_get_track.bin" BINARY
+  TRACK 01 MODE2/2352
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    INDEX 01 00:01:00
+"#;
+        std::fs::write(&cue_path, cue_content).unwrap();
+
+        let bin_data = vec![0x00; 2352 * 150];
+        std::fs::write(&bin_path, &bin_data).unwrap();
+
+        let disc = DiscImage::load(cue_path.to_str().unwrap()).unwrap();
+
+        // Get track 1
+        let track1 = disc.get_track(1);
+        assert!(track1.is_some());
+        assert_eq!(track1.unwrap().number, 1);
+        assert_eq!(track1.unwrap().track_type, TrackType::Mode2_2352);
+
+        // Get track 2
+        let track2 = disc.get_track(2);
+        assert!(track2.is_some());
+        assert_eq!(track2.unwrap().number, 2);
+        assert_eq!(track2.unwrap().track_type, TrackType::Audio);
+
+        // Get non-existent track
+        let track99 = disc.get_track(99);
+        assert!(track99.is_none());
+
+        // Clean up
+        let _ = std::fs::remove_file(&cue_path);
+        let _ = std::fs::remove_file(&bin_path);
     }
 }
