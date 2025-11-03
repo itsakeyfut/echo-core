@@ -51,8 +51,8 @@
 //! # Interrupt Levels
 //!
 //! The CD-ROM controller generates 5 levels of interrupts:
-//! - INT1: Reserved (unused)
-//! - INT2: Command complete
+//! - INT1: Data ready (sector read complete)
+//! - INT2: Command complete (second response)
 //! - INT3: Command acknowledge (first response)
 //! - INT4: Command error
 //! - INT5: Read error
@@ -92,8 +92,16 @@ pub struct CDROM {
     /// Data buffer (2352 bytes per sector)
     ///
     /// Sector data read from disc is stored here for DMA transfer.
-    #[allow(dead_code)]
     data_buffer: Vec<u8>,
+
+    /// Current index in data buffer for byte-by-byte reading
+    data_index: usize,
+
+    /// Cycle counter for sector reading timing
+    read_ticks: u32,
+
+    /// Cycle counter for seek timing
+    seek_ticks: u32,
 
     /// Current drive state
     state: CDState,
@@ -531,9 +539,6 @@ impl CDROM {
     /// Maximum FIFO size (16 bytes)
     const FIFO_SIZE: usize = 16;
 
-    /// Sector size (2352 bytes - full CD-ROM sector with headers)
-    const SECTOR_SIZE: usize = 2352;
-
     /// Create a new CD-ROM controller
     ///
     /// Initializes the controller in idle state with no disc loaded.
@@ -550,7 +555,10 @@ impl CDROM {
         Self {
             param_fifo: VecDeque::new(),
             response_fifo: VecDeque::new(),
-            data_buffer: vec![0; Self::SECTOR_SIZE],
+            data_buffer: Vec::new(),
+            data_index: 0,
+            read_ticks: 0,
+            seek_ticks: 0,
             state: CDState::Idle,
             position: CDPosition::new(0, 2, 0),
             seek_target: None,
@@ -692,12 +700,14 @@ impl CDROM {
             status |= 1 << 5;
         }
 
-        // Bit 6: Data FIFO not empty (always 0 for minimal stub)
-        // status |= 0 << 6;
+        // Bit 6: Data FIFO not empty
+        if !self.data_buffer.is_empty() {
+            status |= 1 << 6;
+        }
 
         // Bit 7: Busy (0=Ready, 1=Busy)
-        // For minimal stub, always ready unless actively seeking/reading
-        if self.state == CDState::Seeking {
+        // Drive is busy when seeking or reading
+        if self.state == CDState::Seeking || self.state == CDState::Reading {
             status |= 1 << 7;
         }
 
@@ -790,12 +800,13 @@ impl CDROM {
         log::debug!("CD-ROM: ReadN");
         self.state = CDState::Reading;
         self.status.reading = true;
+        self.read_ticks = 0; // Reset read timer
 
         self.response_fifo.push_back(self.get_status_byte());
         self.trigger_interrupt(3); // INT3 (acknowledge)
 
-        // Actual data will be delivered via DMA
-        // For now, we just acknowledge the command
+        // Actual sector data will be read by tick() after appropriate timing
+        // INT1 interrupts will be triggered when each sector is ready
     }
 
     /// Command 0x09: Pause
@@ -861,28 +872,16 @@ impl CDROM {
     fn cmd_seekl(&mut self) {
         log::debug!("CD-ROM: SeekL");
 
-        if let Some(target) = self.seek_target {
+        if self.seek_target.is_some() {
             self.state = CDState::Seeking;
             self.status.seeking = true;
+            self.seek_ticks = 0; // Reset seek timer
 
             self.response_fifo.push_back(self.get_status_byte());
             self.trigger_interrupt(3); // INT3 (acknowledge)
 
-            // Simulate seek (for now, immediately complete)
-            // In a real implementation, this would take time based on distance
-            self.position = target;
-            self.state = CDState::Idle;
-            self.status.seeking = false;
-
-            log::debug!(
-                "CD-ROM: Seeked to {:02}:{:02}:{:02}",
-                self.position.minute,
-                self.position.second,
-                self.position.sector
-            );
-
-            self.response_fifo.push_back(self.get_status_byte());
-            self.trigger_interrupt(2); // INT2 (complete)
+        // The actual seek will complete in tick() after the appropriate delay
+        // INT2 will be triggered when the seek completes
         } else {
             log::warn!("CD-ROM: SeekL with no target set");
             self.error_response();
@@ -924,9 +923,13 @@ impl CDROM {
 
         self.state = CDState::Reading;
         self.status.reading = true;
+        self.read_ticks = 0; // Reset read timer
 
         self.response_fifo.push_back(self.get_status_byte());
         self.trigger_interrupt(3); // INT3 (acknowledge)
+
+        // Actual sector data will be read by tick() after appropriate timing
+        // INT1 interrupts will be triggered when each sector is ready
     }
 
     /// Command 0x1E: ReadTOC
@@ -991,8 +994,8 @@ impl CDROM {
     ///
     /// # Interrupt Levels
     ///
-    /// - INT1: Reserved (unused)
-    /// - INT2: Command complete
+    /// - INT1: Data ready (sector read complete)
+    /// - INT2: Command complete (second response)
     /// - INT3: Command acknowledge (first response)
     /// - INT4: Command error
     /// - INT5: Read error
@@ -1100,6 +1103,275 @@ impl CDROM {
     pub fn set_position(&mut self, position: CDPosition) {
         self.position = position;
     }
+
+    /// Advance execution by the specified number of CPU cycles
+    ///
+    /// This method simulates the timing of CD-ROM operations including
+    /// sector reading and seeking. It should be called periodically from
+    /// the main emulation loop.
+    ///
+    /// # Arguments
+    ///
+    /// * `cycles` - Number of CPU cycles to advance
+    ///
+    /// # Sector Reading Timing
+    ///
+    /// At 1x speed (75 sectors/second), each sector takes approximately
+    /// 13,300 CPU cycles to read (assuming 33.8688 MHz CPU and ~13.33ms per sector).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use psrx::core::cdrom::CDROM;
+    ///
+    /// let mut cdrom = CDROM::new();
+    /// // Start reading...
+    /// cdrom.execute_command(0x06);
+    ///
+    /// // Simulate time passing
+    /// for _ in 0..1000 {
+    ///     cdrom.tick(100);
+    /// }
+    /// ```
+    pub fn tick(&mut self, cycles: u32) {
+        // Handle sector reading
+        if self.state == CDState::Reading {
+            self.read_ticks += cycles;
+
+            // Read one sector every ~13,300 cycles (at 1x speed)
+            // 75 sectors/second at ~33.8688 MHz CPU = ~451,584 cycles/second / 75 = ~6,021 cycles
+            // However, PSX-SPX documents that actual timing is closer to 13,300 cycles
+            const CYCLES_PER_SECTOR: u32 = 13_300;
+
+            if self.read_ticks >= CYCLES_PER_SECTOR {
+                self.read_ticks -= CYCLES_PER_SECTOR;
+
+                if let Some(data) = self.read_current_sector() {
+                    self.data_buffer = data;
+                    self.data_index = 0;
+                    self.trigger_interrupt(1); // INT1 (data ready)
+
+                    log::trace!(
+                        "CD-ROM: Read sector at {:02}:{:02}:{:02}",
+                        self.position.minute,
+                        self.position.second,
+                        self.position.sector
+                    );
+
+                    // Advance to next sector
+                    self.advance_position();
+                }
+            }
+        }
+
+        // Handle seeking
+        if self.state == CDState::Seeking {
+            self.seek_ticks += cycles;
+
+            let seek_time = self.calculate_seek_time();
+            if self.seek_ticks >= seek_time {
+                self.seek_ticks = 0;
+                self.state = CDState::Idle;
+                self.status.seeking = false;
+
+                if let Some(target) = self.seek_target {
+                    self.position = target;
+
+                    log::debug!(
+                        "CD-ROM: Seek complete to {:02}:{:02}:{:02}",
+                        self.position.minute,
+                        self.position.second,
+                        self.position.sector
+                    );
+
+                    self.response_fifo.push_back(self.get_status_byte());
+                    self.trigger_interrupt(2); // INT2 (seek complete)
+                }
+            }
+        }
+    }
+
+    /// Advance MSF position by one sector
+    ///
+    /// Handles wraparound for sectors (75 per second) and seconds (60 per minute).
+    fn advance_position(&mut self) {
+        self.position.sector += 1;
+        if self.position.sector >= 75 {
+            self.position.sector = 0;
+            self.position.second += 1;
+            if self.position.second >= 60 {
+                self.position.second = 0;
+                self.position.minute += 1;
+            }
+        }
+    }
+
+    /// Calculate seek time in CPU cycles based on seek distance
+    ///
+    /// # Returns
+    ///
+    /// Number of CPU cycles for the seek operation
+    ///
+    /// # Implementation Note
+    ///
+    /// This is a simplified implementation using a fixed seek time.
+    /// Real hardware varies seek time based on distance:
+    /// - Short seeks (same track): ~1ms
+    /// - Medium seeks (nearby): ~20-50ms
+    /// - Long seeks (opposite sides): ~200-500ms
+    ///
+    /// For now, we use a fixed time of ~3ms (100,000 cycles).
+    fn calculate_seek_time(&self) -> u32 {
+        // TODO: Calculate actual seek time based on distance
+        // For now, use fixed seek time of approximately 3ms
+        100_000 // ~3ms at 33.8688 MHz
+    }
+
+    /// Read a single byte from the data buffer
+    ///
+    /// This method is used for DMA transfers and provides byte-by-byte
+    /// access to the sector data buffer. Returns 0 if the buffer is exhausted.
+    ///
+    /// # Returns
+    ///
+    /// The next byte from the data buffer, or 0 if exhausted
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use psrx::core::cdrom::CDROM;
+    ///
+    /// let mut cdrom = CDROM::new();
+    /// // ... after reading a sector ...
+    /// let byte = cdrom.get_data_byte();
+    /// ```
+    pub fn get_data_byte(&mut self) -> u8 {
+        if self.data_index < self.data_buffer.len() {
+            let byte = self.data_buffer[self.data_index];
+            self.data_index += 1;
+            byte
+        } else {
+            0
+        }
+    }
+
+    /// Read from a CD-ROM register
+    ///
+    /// The CD-ROM controller has 4 registers (0x1F801800-0x1F801803),
+    /// with behavior depending on the current index value (0-3).
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - Register address (0x1F801800-0x1F801803)
+    ///
+    /// # Returns
+    ///
+    /// Register value
+    ///
+    /// # Register Map
+    ///
+    /// ```text
+    /// 0x1F801800: Status Register (all indices)
+    /// 0x1F801801: Response FIFO (index 0, 1) / Data Byte (index 2, 3)
+    /// 0x1F801802: Data FIFO (index 0, 1) / Interrupt Enable (index 2, 3)
+    /// 0x1F801803: Interrupt Enable (index 0) / Interrupt Flag (index 1-3)
+    /// ```
+    pub fn read_register(&mut self, addr: u32) -> u8 {
+        match (addr, self.index) {
+            // 0x1F801800: Status register (all indices)
+            (Self::REG_INDEX, _) => self.read_status(),
+
+            // 0x1F801801: Response FIFO (index 0, 1)
+            (Self::REG_DATA, 0) | (Self::REG_DATA, 1) => {
+                self.response_fifo.pop_front().unwrap_or(0)
+            }
+
+            // 0x1F801801: Data byte (index 2, 3)
+            (Self::REG_DATA, 2) | (Self::REG_DATA, 3) => self.get_data_byte(),
+
+            // 0x1F801802: Data FIFO (index 0, 1) - unused
+            (Self::REG_INT_FLAG, 0) | (Self::REG_INT_FLAG, 1) => 0,
+
+            // 0x1F801802: Interrupt Enable (index 2, 3)
+            (Self::REG_INT_FLAG, 2) | (Self::REG_INT_FLAG, 3) => self.interrupt_enable,
+
+            // 0x1F801803: Interrupt Enable (index 0)
+            (Self::REG_INT_ENABLE, 0) => self.interrupt_enable,
+
+            // 0x1F801803: Interrupt Flag (index 1-3)
+            (Self::REG_INT_ENABLE, 1..=3) => 0xE0 | self.interrupt_flag,
+
+            _ => {
+                log::warn!("CD-ROM: Invalid register read at 0x{:08X}", addr);
+                0
+            }
+        }
+    }
+
+    /// Write to a CD-ROM register
+    ///
+    /// The CD-ROM controller has 4 registers (0x1F801800-0x1F801803),
+    /// with behavior depending on the current index value (0-3).
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - Register address (0x1F801800-0x1F801803)
+    /// * `value` - Value to write
+    ///
+    /// # Register Map
+    ///
+    /// ```text
+    /// 0x1F801800: Index/Status register (all indices)
+    /// 0x1F801801: Command register (index 0) / Sound Map Data (index 1-3)
+    /// 0x1F801802: Parameter FIFO (index 0) / Interrupt Enable (index 1) / Audio Volume (index 2-3)
+    /// 0x1F801803: Request Register (index 0) / Interrupt Flag (index 1) / Audio Volume (index 2-3)
+    /// ```
+    pub fn write_register(&mut self, addr: u32, value: u8) {
+        match (addr, self.index) {
+            // 0x1F801800: Index/Status register (all indices)
+            (Self::REG_INDEX, _) => self.set_index(value),
+
+            // 0x1F801801: Command register (index 0)
+            (Self::REG_DATA, 0) => self.execute_command(value),
+
+            // 0x1F801801: Sound Map Data Out (index 1-3) - not implemented
+            (Self::REG_DATA, 1..=3) => {
+                log::trace!("CD-ROM: Sound Map Data Out write: 0x{:02X}", value);
+            }
+
+            // 0x1F801802: Parameter FIFO (index 0)
+            (Self::REG_INT_FLAG, 0) => self.push_param(value),
+
+            // 0x1F801802: Interrupt Enable (index 1)
+            (Self::REG_INT_FLAG, 1) => self.set_interrupt_enable(value),
+
+            // 0x1F801802: Audio Volume (index 2-3) - not implemented
+            (Self::REG_INT_FLAG, 2) | (Self::REG_INT_FLAG, 3) => {
+                log::trace!("CD-ROM: Audio Volume write: 0x{:02X}", value);
+            }
+
+            // 0x1F801803: Request Register (index 0) - not implemented
+            (Self::REG_INT_ENABLE, 0) => {
+                log::trace!("CD-ROM: Request Register write: 0x{:02X}", value);
+            }
+
+            // 0x1F801803: Interrupt Flag (index 1)
+            (Self::REG_INT_ENABLE, 1) => self.acknowledge_interrupt(value),
+
+            // 0x1F801803: Audio Volume (index 2-3) - not implemented
+            (Self::REG_INT_ENABLE, 2) | (Self::REG_INT_ENABLE, 3) => {
+                log::trace!("CD-ROM: Audio Volume write: 0x{:02X}", value);
+            }
+
+            _ => {
+                log::warn!(
+                    "CD-ROM: Invalid register write at 0x{:08X} = 0x{:02X}",
+                    addr,
+                    value
+                );
+            }
+        }
+    }
 }
 
 impl Default for CDROM {
@@ -1205,12 +1477,15 @@ mod tests {
 
         cdrom.execute_command(0x15); // SeekL
 
-        // Position should be updated
+        // Position should NOT be updated yet (seek takes time)
         assert_eq!(cdrom.position.minute, 0);
-        assert_eq!(cdrom.position.second, 10);
-        assert_eq!(cdrom.position.sector, 30);
+        assert_eq!(cdrom.position.second, 2);
+        assert_eq!(cdrom.position.sector, 0);
 
-        // Should have responses and interrupts
+        // Should be in seeking state
+        assert_eq!(cdrom.state, CDState::Seeking);
+
+        // Should have responses and interrupts (INT3 acknowledge)
         assert!(!cdrom.response_fifo.is_empty());
     }
 
@@ -1641,6 +1916,203 @@ FILE "game.bin" BINARY
         assert_eq!(pos.minute, 10);
         assert_eq!(pos.second, 30);
         assert_eq!(pos.sector, 15);
+    }
+
+    #[test]
+    fn test_sector_reading() {
+        // Create a temporary disc image for testing
+        let temp_dir = std::env::temp_dir();
+        let cue_path = temp_dir.join("test_sector_reading.cue");
+        let bin_path = temp_dir.join("test_sector_reading.bin");
+
+        // Create mock .cue file
+        let cue_content = r#"FILE "test_sector_reading.bin" BINARY
+  TRACK 01 MODE2/2352
+    INDEX 01 00:00:00
+"#;
+        std::fs::write(&cue_path, cue_content).unwrap();
+
+        // Create mock .bin file with recognizable pattern (10 sectors)
+        let mut bin_data = Vec::new();
+        for i in 0..10 {
+            let mut sector = vec![i as u8; 2352];
+            bin_data.append(&mut sector);
+        }
+        std::fs::write(&bin_path, &bin_data).unwrap();
+
+        // Load disc into CDROM
+        let mut cdrom = CDROM::new();
+        cdrom.load_disc(cue_path.to_str().unwrap()).unwrap();
+
+        // Set position to start
+        cdrom.set_position(CDPosition::new(0, 0, 0));
+
+        // Start reading
+        cdrom.execute_command(0x06); // ReadN
+
+        // Verify reading state
+        assert_eq!(cdrom.state, CDState::Reading);
+        assert!(cdrom.status.reading);
+
+        // Initially, no data buffer should be present
+        assert!(cdrom.data_buffer.is_empty());
+
+        // Tick until first sector ready (need exactly 13,300 cycles)
+        cdrom.tick(13_300);
+
+        // Should have data now
+        assert!(!cdrom.data_buffer.is_empty());
+        assert_eq!(cdrom.data_buffer.len(), 2352);
+        assert_eq!(cdrom.data_buffer[0], 0); // First sector filled with 0
+
+        // Check that interrupt was triggered (INT1 - data ready)
+        assert_ne!(cdrom.interrupt_flag & 0x01, 0);
+
+        // Position should have advanced to next sector
+        assert_eq!(cdrom.position.minute, 0);
+        assert_eq!(cdrom.position.second, 0);
+        assert_eq!(cdrom.position.sector, 1);
+
+        // Clear interrupt and continue reading
+        cdrom.acknowledge_interrupt(0x01);
+
+        // Tick until next sector (exactly 13,300 more cycles)
+        cdrom.tick(13_300);
+
+        // Should have second sector data
+        assert_eq!(cdrom.data_buffer[0], 1); // Second sector filled with 1
+        assert_eq!(cdrom.position.sector, 2);
+
+        // Clean up
+        let _ = std::fs::remove_file(&cue_path);
+        let _ = std::fs::remove_file(&bin_path);
+    }
+
+    #[test]
+    fn test_advance_position() {
+        let mut cdrom = CDROM::new();
+
+        // Test normal sector advancement
+        cdrom.set_position(CDPosition::new(0, 2, 0));
+        cdrom.advance_position();
+        assert_eq!(cdrom.position.sector, 1);
+        assert_eq!(cdrom.position.second, 2);
+        assert_eq!(cdrom.position.minute, 0);
+
+        // Test sector wraparound (74 -> 0, second++)
+        cdrom.set_position(CDPosition::new(0, 2, 74));
+        cdrom.advance_position();
+        assert_eq!(cdrom.position.sector, 0);
+        assert_eq!(cdrom.position.second, 3);
+        assert_eq!(cdrom.position.minute, 0);
+
+        // Test second wraparound (59 -> 0, minute++)
+        cdrom.set_position(CDPosition::new(0, 59, 74));
+        cdrom.advance_position();
+        assert_eq!(cdrom.position.sector, 0);
+        assert_eq!(cdrom.position.second, 0);
+        assert_eq!(cdrom.position.minute, 1);
+    }
+
+    #[test]
+    fn test_seek_timing() {
+        let mut cdrom = CDROM::new();
+
+        // Set seek target
+        cdrom.seek_target = Some(CDPosition::new(0, 10, 30));
+
+        // Start seek
+        cdrom.execute_command(0x15); // SeekL
+
+        // Should be in seeking state
+        assert_eq!(cdrom.state, CDState::Seeking);
+        assert!(cdrom.status.seeking);
+
+        // Should have INT3 (acknowledge)
+        assert_ne!(cdrom.interrupt_flag & 0x04, 0);
+        cdrom.acknowledge_interrupt(0x04);
+
+        // Position should not have changed yet
+        assert_eq!(cdrom.position.minute, 0);
+        assert_eq!(cdrom.position.second, 2);
+        assert_eq!(cdrom.position.sector, 0);
+
+        // Tick until seek completes (need ~100,000 cycles)
+        for _ in 0..120_000 {
+            cdrom.tick(1);
+        }
+
+        // Seek should be complete
+        assert_eq!(cdrom.state, CDState::Idle);
+        assert!(!cdrom.status.seeking);
+
+        // Position should have changed to target
+        assert_eq!(cdrom.position.minute, 0);
+        assert_eq!(cdrom.position.second, 10);
+        assert_eq!(cdrom.position.sector, 30);
+
+        // Should have INT2 (complete)
+        assert_ne!(cdrom.interrupt_flag & 0x02, 0);
+    }
+
+    #[test]
+    fn test_get_data_byte() {
+        let mut cdrom = CDROM::new();
+
+        // Set up data buffer with test pattern
+        cdrom.data_buffer = vec![0x11, 0x22, 0x33, 0x44, 0x55];
+        cdrom.data_index = 0;
+
+        // Read bytes sequentially
+        assert_eq!(cdrom.get_data_byte(), 0x11);
+        assert_eq!(cdrom.get_data_byte(), 0x22);
+        assert_eq!(cdrom.get_data_byte(), 0x33);
+        assert_eq!(cdrom.get_data_byte(), 0x44);
+        assert_eq!(cdrom.get_data_byte(), 0x55);
+
+        // Reading beyond buffer should return 0
+        assert_eq!(cdrom.get_data_byte(), 0);
+        assert_eq!(cdrom.get_data_byte(), 0);
+    }
+
+    #[test]
+    fn test_register_read_write() {
+        let mut cdrom = CDROM::new();
+
+        // Test status register read
+        let status = cdrom.read_register(CDROM::REG_INDEX);
+        assert_eq!(status & 0x18, 0x18); // FIFO empty and not full
+
+        // Test index selection
+        cdrom.write_register(CDROM::REG_INDEX, 2);
+        assert_eq!(cdrom.index, 2);
+
+        // Test parameter write (index 0)
+        cdrom.write_register(CDROM::REG_INDEX, 0);
+        cdrom.write_register(CDROM::REG_INT_FLAG, 0x42);
+        assert_eq!(cdrom.param_fifo.len(), 1);
+        assert_eq!(cdrom.param_fifo[0], 0x42);
+
+        // Set motor on so status byte is non-zero
+        cdrom.status.motor_on = true;
+
+        // Test command write (index 0)
+        cdrom.write_register(CDROM::REG_DATA, 0x01); // GetStat
+        assert!(!cdrom.response_fifo.is_empty());
+
+        // Test response read (index 0)
+        let response = cdrom.read_register(CDROM::REG_DATA);
+        assert_eq!(response, 0x02); // Motor on bit should be set
+
+        // Test interrupt enable write (index 1)
+        cdrom.write_register(CDROM::REG_INDEX, 1);
+        cdrom.write_register(CDROM::REG_INT_FLAG, 0x1F);
+        assert_eq!(cdrom.interrupt_enable, 0x1F);
+
+        // Test interrupt flag read (index 1)
+        cdrom.trigger_interrupt(3);
+        let int_flag = cdrom.read_register(CDROM::REG_INT_ENABLE);
+        assert_eq!(int_flag & 0x1F, 0x04); // INT3 set
     }
 
     #[test]
