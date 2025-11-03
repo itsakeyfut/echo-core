@@ -1214,11 +1214,11 @@ mod tests {
 
         assert!(system.interrupt_controller.borrow().is_pending());
 
-        // Acknowledge the interrupt (write 1 to clear)
+        // Acknowledge the interrupt (write 0 to clear)
         system
             .interrupt_controller
             .borrow_mut()
-            .write_status(interrupts::TIMER0 as u32);
+            .write_status(!interrupts::TIMER0 as u32);
 
         // Should no longer be pending
         assert!(!system.interrupt_controller.borrow().is_pending());
