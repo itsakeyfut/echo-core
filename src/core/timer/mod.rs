@@ -115,6 +115,12 @@ pub struct TimerChannel {
 
     /// Reached max value (0xFFFF)
     reached_max: bool,
+
+    /// Last sync signal state (for edge detection)
+    last_sync: bool,
+
+    /// Sync mode 3 latch (set on first sync edge, cleared when sync disabled)
+    sync_latched: bool,
 }
 
 impl TimerChannel {
@@ -141,6 +147,8 @@ impl TimerChannel {
             irq_flag: false,
             reached_target: false,
             reached_max: false,
+            last_sync: false,
+            sync_latched: false,
         }
     }
 
@@ -213,6 +221,8 @@ impl TimerChannel {
         self.irq_flag = false;
         self.reached_target = false;
         self.reached_max = false;
+        self.last_sync = false;
+        self.sync_latched = false;
 
         log::debug!(
             "Timer {} mode: sync={} source={} target_irq={} max_irq={}",
@@ -259,6 +269,28 @@ impl TimerChannel {
     pub fn tick(&mut self, cycles: u32, sync_signal: bool) -> bool {
         let mut irq_triggered = false;
 
+        // Detect rising edge of sync signal (transition from false to true)
+        let rising_edge = !self.last_sync && sync_signal;
+
+        // Handle sync mode effects on rising edge
+        if self.mode.sync_enable && rising_edge {
+            match self.mode.sync_mode {
+                1 | 2 => {
+                    // Mode 1: Reset counter on sync (free-run, reset on blank)
+                    // Mode 2: Reset counter on sync (count during blank)
+                    self.counter = 0;
+                }
+                3 => {
+                    // Mode 3: Latch on first sync edge, then free-run
+                    self.sync_latched = true;
+                }
+                _ => {}
+            }
+        }
+
+        // Update last_sync for next edge detection
+        self.last_sync = sync_signal;
+
         for _ in 0..cycles {
             // Check if we should count based on sync mode
             let should_count = self.should_count(sync_signal);
@@ -304,18 +336,32 @@ impl TimerChannel {
     /// # Returns
     ///
     /// `true` if the timer should increment, `false` otherwise
+    ///
+    /// # Sync Mode Behavior (per PSX-SPX)
+    ///
+    /// - Mode 0: Pause during sync (count when sync_signal is false)
+    /// - Mode 1: Free-run (count always), reset on sync edge
+    /// - Mode 2: Count during sync window (count when sync_signal is true)
+    /// - Mode 3: Pause until first sync, then free-run (use sync_latched)
+    ///
+    /// Timer 2 special case: modes 0 and 3 halt counting entirely
     fn should_count(&self, sync_signal: bool) -> bool {
         if !self.mode.sync_enable {
             return true; // Free-run mode
         }
 
-        // Sync mode behavior (simplified for now)
-        // TODO: Implement full sync mode behavior per PSX-SPX specs
+        // Timer 2 has special behavior
+        if self.channel_id == 2 {
+            // Timer 2: only modes 1 and 2 allow counting
+            return matches!(self.mode.sync_mode, 1 | 2);
+        }
+
+        // Timer 0 and 1 sync mode behavior
         match self.mode.sync_mode {
-            0 => !sync_signal, // Pause during sync
-            1 => sync_signal,  // Reset on sync
-            2 => !sync_signal, // Pause and reset on sync
-            3 => sync_signal,  // Pause until sync, then free-run
+            0 => !sync_signal,      // Pause during sync
+            1 => true,              // Free-run (reset on edge handled in tick)
+            2 => sync_signal,       // Count during sync window
+            3 => self.sync_latched, // Pause until first sync edge
             _ => true,
         }
     }
@@ -416,24 +462,25 @@ impl Timers {
     ///
     /// * `cycles` - Number of CPU cycles elapsed
     /// * `hblank` - Horizontal blank signal state
-    /// * `_vblank` - Vertical blank signal state (reserved for future use)
+    /// * `vblank` - Vertical blank signal state
     ///
     /// # Returns
     ///
     /// Array of IRQ flags for each timer channel
-    pub fn tick(&mut self, cycles: u32, hblank: bool, _vblank: bool) -> [bool; 3] {
+    pub fn tick(&mut self, cycles: u32, hblank: bool, vblank: bool) -> [bool; 3] {
         let mut irqs = [false; 3];
 
         // Timer 0: System clock or pixel clock (simplified as system clock)
         irqs[0] = self.channels[0].tick(cycles, false);
 
         // Timer 1: System clock or hblank
-        // When in HBlank mode, only advance on actual HBlank edges, not CPU cycles
+        // Clock source determines pulse/count rate (HBlank vs system clock)
+        // Sync signal is ALWAYS VBlank regardless of clock source
         // Check low bit (bit 8): values 1 and 3 both select HBlank mode
         let (timer1_cycles, timer1_sync) = if self.channels[1].mode.clock_source & 0x01 != 0 {
-            (if hblank { 1 } else { 0 }, hblank)
+            (if hblank { 1 } else { 0 }, vblank)
         } else {
-            (cycles, false)
+            (cycles, vblank)
         };
         irqs[1] = self.channels[1].tick(timer1_cycles, timer1_sync);
 
