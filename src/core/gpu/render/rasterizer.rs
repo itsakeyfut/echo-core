@@ -1388,12 +1388,12 @@ impl Rasterizer {
 
         // Fill rectangle scanline by scanline
         for py in clip_y1..clip_y2 {
-            if py < 0 || py >= 512 {
+            if !(0..512).contains(&py) {
                 continue;
             }
 
             for px in clip_x1..clip_x2 {
-                if px < 0 || px >= 1024 {
+                if !(0..1024).contains(&px) {
                     continue;
                 }
 
@@ -1402,7 +1402,8 @@ impl Rasterizer {
                 if semi_transparent {
                     // Apply semi-transparency blending
                     let bg_color = vram[vram_index];
-                    let blend_mode = crate::core::gpu::BlendMode::from_bits(draw_mode.semi_transparency);
+                    let blend_mode =
+                        crate::core::gpu::BlendMode::from_bits(draw_mode.semi_transparency);
                     let blended = blend_mode.blend(bg_color, color15);
                     vram[vram_index] = blended;
                 } else {
@@ -1471,7 +1472,7 @@ impl Rasterizer {
 
         // Render each pixel
         for py in clip_y1..clip_y2 {
-            if py < 0 || py >= 512 {
+            if !(0..512).contains(&py) {
                 continue;
             }
 
@@ -1480,7 +1481,7 @@ impl Rasterizer {
             let v = tex_v.wrapping_add(v_offset);
 
             for px in clip_x1..clip_x2 {
-                if px < 0 || px >= 1024 {
+                if !(0..1024).contains(&px) {
                     continue;
                 }
 
@@ -1520,7 +1521,8 @@ impl Rasterizer {
                 if semi_transparent {
                     // Apply semi-transparency blending
                     let bg_color = vram[vram_index];
-                    let blend_mode = crate::core::gpu::BlendMode::from_bits(draw_mode.semi_transparency);
+                    let blend_mode =
+                        crate::core::gpu::BlendMode::from_bits(draw_mode.semi_transparency);
                     let blended = blend_mode.blend(bg_color, final_color);
                     vram[vram_index] = blended;
                 } else {
@@ -2333,7 +2335,7 @@ mod tests {
         );
 
         // Check that pixels inside rectangle are red
-        let red = ((0 << 10) | (0 << 5) | 31) as u16; // R=31 (255>>3)
+        let red = 31u16; // R=31 (255>>3), B=0, G=0
         assert_eq!(vram[100 * 1024 + 100], red);
         assert_eq!(vram[110 * 1024 + 120], red);
 

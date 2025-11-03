@@ -206,7 +206,14 @@ impl GPU {
 
         log::info!(
             "GP0(0x64) Textured Rect: pos=({}, {}), size={}x{}, texcoord=({}, {}), clut=({}, {})",
-            pos.x, pos.y, width, height, texcoord.u, texcoord.v, clut_x, clut_y
+            pos.x,
+            pos.y,
+            width,
+            height,
+            texcoord.u,
+            texcoord.v,
+            clut_x,
+            clut_y
         );
 
         let texture_info = TextureInfo {

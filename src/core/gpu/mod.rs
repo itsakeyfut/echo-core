@@ -614,14 +614,14 @@ impl GPU {
     ///
     /// * `value` - 32-bit GP0 command word
     pub fn write_gp0(&mut self, value: u32) {
-        // Log GP0 writes
-        static mut GP0_COUNT: u32 = 0;
-        unsafe {
-            GP0_COUNT += 1;
-            if GP0_COUNT <= 20 || GP0_COUNT % 100 == 0 {
-                let cmd = (value >> 24) & 0xFF;
-                log::info!("GP0 write #{}: 0x{:08X} (cmd=0x{:02X})", GP0_COUNT, value, cmd);
-            }
+        // Log GP0 writes for debugging
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static GP0_COUNT: AtomicU32 = AtomicU32::new(0);
+
+        let count = GP0_COUNT.fetch_add(1, Ordering::Relaxed);
+        if count < 20 || count.is_multiple_of(100) {
+            let cmd = (value >> 24) & 0xFF;
+            log::info!("GP0 write #{}: 0x{:08X} (cmd=0x{:02X})", count, value, cmd);
         }
 
         // If we're in the middle of a CPU→VRAM transfer, handle it
