@@ -52,6 +52,7 @@
 
 use crate::core::error::{EmulatorError, Result};
 use crate::core::gpu::GPU;
+use crate::core::interrupt::InterruptController;
 use crate::core::system::ControllerPorts;
 use crate::core::timer::Timers;
 use std::cell::RefCell;
@@ -105,6 +106,12 @@ pub struct Bus {
     /// The Timers are shared between the System and Bus to allow
     /// memory-mapped register access while maintaining Rust's safety guarantees.
     timers: Option<Rc<RefCell<Timers>>>,
+
+    /// Interrupt Controller reference (shared via Rc<RefCell>)
+    ///
+    /// The InterruptController is shared between the System and Bus to allow
+    /// memory-mapped register access while maintaining Rust's safety guarantees.
+    interrupt_controller: Option<Rc<RefCell<InterruptController>>>,
 }
 
 /// Memory region identification
@@ -214,6 +221,11 @@ impl Bus {
     /// Timer 2 Target register
     const TIMER2_TARGET: u32 = 0x1F801128;
 
+    /// Interrupt Status register (I_STAT)
+    const I_STAT: u32 = 0x1F801070;
+    /// Interrupt Mask register (I_MASK)
+    const I_MASK: u32 = 0x1F801074;
+
     /// Create a new Bus instance
     ///
     /// Initializes all memory regions with zeros.
@@ -241,6 +253,7 @@ impl Bus {
             gpu: None,
             controller_ports: None,
             timers: None,
+            interrupt_controller: None,
         }
     }
 
@@ -317,6 +330,34 @@ impl Bus {
     /// ```
     pub fn set_timers(&mut self, timers: Rc<RefCell<Timers>>) {
         self.timers = Some(timers);
+    }
+
+    /// Set Interrupt Controller reference for memory-mapped I/O
+    ///
+    /// Establishes the connection between the Bus and InterruptController for handling
+    /// interrupt register accesses at memory-mapped addresses.
+    ///
+    /// # Arguments
+    ///
+    /// * `interrupt_controller` - Shared reference to InterruptController
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::memory::Bus;
+    /// use psrx::core::interrupt::InterruptController;
+    /// use std::rc::Rc;
+    /// use std::cell::RefCell;
+    ///
+    /// let mut bus = Bus::new();
+    /// let ic = Rc::new(RefCell::new(InterruptController::new()));
+    /// bus.set_interrupt_controller(ic.clone());
+    /// ```
+    pub fn set_interrupt_controller(
+        &mut self,
+        interrupt_controller: Rc<RefCell<InterruptController>>,
+    ) {
+        self.interrupt_controller = Some(interrupt_controller);
     }
 
     /// Reset the bus to initial state
@@ -1003,18 +1044,6 @@ impl Bus {
                 }
             }
 
-            // Interrupt Status register (I_STAT)
-            0x1F801070 => {
-                log::debug!("I_STAT read at 0x{:08X} -> 0x00000000", paddr);
-                Ok(0) // No interrupts pending (we handle them directly in CPU)
-            }
-
-            // Interrupt Mask register (I_MASK)
-            0x1F801074 => {
-                log::debug!("I_MASK read at 0x{:08X} -> 0xFFFFFFFF", paddr);
-                Ok(0xFFFFFFFF) // All interrupts enabled
-            }
-
             // Controller JOY_RX_DATA register (0x1F801040)
             Self::JOY_DATA => {
                 if let Some(controller_ports) = &self.controller_ports {
@@ -1071,6 +1100,30 @@ impl Bus {
                     Ok(value)
                 } else {
                     log::warn!("JOY_BAUD access before controller_ports initialized");
+                    Ok(0)
+                }
+            }
+
+            // Interrupt Status register (I_STAT) (0x1F801070)
+            Self::I_STAT => {
+                if let Some(interrupt_controller) = &self.interrupt_controller {
+                    let value = interrupt_controller.borrow().read_status();
+                    log::trace!("I_STAT read at 0x{:08X} -> 0x{:08X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("I_STAT access before interrupt_controller initialized");
+                    Ok(0)
+                }
+            }
+
+            // Interrupt Mask register (I_MASK) (0x1F801074)
+            Self::I_MASK => {
+                if let Some(interrupt_controller) = &self.interrupt_controller {
+                    let value = interrupt_controller.borrow().read_mask();
+                    log::trace!("I_MASK read at 0x{:08X} -> 0x{:08X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("I_MASK access before interrupt_controller initialized");
                     Ok(0)
                 }
             }
@@ -1229,18 +1282,6 @@ impl Bus {
                 }
             }
 
-            // Interrupt Status register (I_STAT)
-            0x1F801070 => {
-                log::debug!("I_STAT write at 0x{:08X} = 0x{:08X} (ack)", paddr, value);
-                Ok(()) // Acknowledge interrupts (we handle them directly in CPU)
-            }
-
-            // Interrupt Mask register (I_MASK)
-            0x1F801074 => {
-                log::debug!("I_MASK write at 0x{:08X} = 0x{:08X}", paddr, value);
-                Ok(()) // Set interrupt mask (we handle them directly in CPU)
-            }
-
             // Controller JOY_TX_DATA register (0x1F801040)
             Self::JOY_DATA => {
                 if let Some(controller_ports) = &self.controller_ports {
@@ -1285,6 +1326,30 @@ impl Bus {
                     Ok(())
                 } else {
                     log::warn!("JOY_BAUD write before controller_ports initialized");
+                    Ok(())
+                }
+            }
+
+            // Interrupt Status register (I_STAT) (0x1F801070)
+            Self::I_STAT => {
+                if let Some(interrupt_controller) = &self.interrupt_controller {
+                    interrupt_controller.borrow_mut().write_status(value);
+                    log::trace!("I_STAT write at 0x{:08X} = 0x{:08X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("I_STAT write before interrupt_controller initialized");
+                    Ok(())
+                }
+            }
+
+            // Interrupt Mask register (I_MASK) (0x1F801074)
+            Self::I_MASK => {
+                if let Some(interrupt_controller) = &self.interrupt_controller {
+                    interrupt_controller.borrow_mut().write_mask(value);
+                    log::trace!("I_MASK write at 0x{:08X} = 0x{:08X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("I_MASK write before interrupt_controller initialized");
                     Ok(())
                 }
             }
@@ -1420,6 +1485,37 @@ impl Bus {
                 log::info!("I/O port write at 0x{:08X} = 0x{:08X}", paddr, value);
                 Ok(())
             }
+        }
+    }
+
+    /// Check if any interrupt is pending
+    ///
+    /// Returns true if the interrupt controller has any pending unmasked interrupts.
+    /// This is used by the CPU to determine if it should handle an interrupt.
+    ///
+    /// # Returns
+    ///
+    /// true if interrupts are pending, false otherwise (or if IC not initialized)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::memory::Bus;
+    /// use psrx::core::interrupt::InterruptController;
+    /// use std::rc::Rc;
+    /// use std::cell::RefCell;
+    ///
+    /// let mut bus = Bus::new();
+    /// let ic = Rc::new(RefCell::new(InterruptController::new()));
+    /// bus.set_interrupt_controller(ic.clone());
+    ///
+    /// assert!(!bus.is_interrupt_pending());
+    /// ```
+    pub fn is_interrupt_pending(&self) -> bool {
+        if let Some(interrupt_controller) = &self.interrupt_controller {
+            interrupt_controller.borrow().is_pending()
+        } else {
+            false
         }
     }
 
