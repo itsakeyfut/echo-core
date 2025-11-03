@@ -614,6 +614,16 @@ impl GPU {
     ///
     /// * `value` - 32-bit GP0 command word
     pub fn write_gp0(&mut self, value: u32) {
+        // Log GP0 writes for debugging
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static GP0_COUNT: AtomicU32 = AtomicU32::new(0);
+
+        let count = GP0_COUNT.fetch_add(1, Ordering::Relaxed);
+        if count < 20 || count.is_multiple_of(100) {
+            let cmd = (value >> 24) & 0xFF;
+            log::info!("GP0 write #{}: 0x{:08X} (cmd=0x{:02X})", count, value, cmd);
+        }
+
         // If we're in the middle of a CPU→VRAM transfer, handle it
         if let Some(ref transfer) = self.vram_transfer {
             if transfer.direction == VRAMTransferDirection::CpuToVram {
@@ -673,6 +683,40 @@ impl GPU {
             // Polylines
             0x48 => self.parse_polyline_opaque(),
             0x4A => self.parse_polyline_semi_transparent(),
+
+            // Monochrome rectangles
+            0x60 => self.parse_monochrome_rect_variable_opaque(),
+            0x62 => self.parse_monochrome_rect_variable_semi_transparent(),
+            0x68 => self.parse_monochrome_rect_1x1_opaque(),
+            0x6A => self.parse_monochrome_rect_1x1_semi_transparent(),
+            0x70 => self.parse_monochrome_rect_8x8_opaque(),
+            0x72 => self.parse_monochrome_rect_8x8_semi_transparent(),
+            0x78 => self.parse_monochrome_rect_16x16_opaque(),
+            0x7A => self.parse_monochrome_rect_16x16_semi_transparent(),
+
+            // Textured rectangles (variable size)
+            0x64 => self.parse_textured_rect_variable_opaque(),
+            0x65 => self.parse_textured_rect_variable_opaque_modulated(),
+            0x66 => self.parse_textured_rect_variable_semi_transparent(),
+            0x67 => self.parse_textured_rect_variable_semi_transparent_modulated(),
+
+            // Textured rectangles (1×1)
+            0x6C => self.parse_textured_rect_1x1_opaque(),
+            0x6D => self.parse_textured_rect_1x1_opaque_modulated(),
+            0x6E => self.parse_textured_rect_1x1_semi_transparent(),
+            0x6F => self.parse_textured_rect_1x1_semi_transparent_modulated(),
+
+            // Textured rectangles (8×8)
+            0x74 => self.parse_textured_rect_8x8_opaque(),
+            0x75 => self.parse_textured_rect_8x8_opaque_modulated(),
+            0x76 => self.parse_textured_rect_8x8_semi_transparent(),
+            0x77 => self.parse_textured_rect_8x8_semi_transparent_modulated(),
+
+            // Textured rectangles (16×16)
+            0x7C => self.parse_textured_rect_16x16_opaque(),
+            0x7D => self.parse_textured_rect_16x16_opaque_modulated(),
+            0x7E => self.parse_textured_rect_16x16_semi_transparent(),
+            0x7F => self.parse_textured_rect_16x16_semi_transparent_modulated(),
 
             // VRAM transfer commands
             0xA0 => self.gp0_cpu_to_vram_transfer(),
