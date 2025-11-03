@@ -68,7 +68,8 @@
 //! cdrom.execute_command(0x01);
 //!
 //! // Check response FIFO
-//! assert!(!cdrom.response_fifo().is_empty());
+//! assert!(!cdrom.response_empty());
+//! assert_ne!(cdrom.interrupt_flag(), 0);
 //! ```
 
 use std::collections::VecDeque;
