@@ -51,6 +51,9 @@ pub enum EmulatorError {
 
     #[error("GPU error: {0}")]
     Gpu(#[from] GpuError),
+
+    #[error("CD-ROM error: {0}")]
+    CdRom(#[from] CdRomError),
 }
 
 /// GPU-specific error types
@@ -70,4 +73,26 @@ pub enum GpuError {
 
     #[error("Rendering backend error: {0}")]
     BackendError(String),
+}
+
+/// CD-ROM-specific error types
+#[derive(Error, Debug)]
+pub enum CdRomError {
+    #[error("No disc inserted")]
+    NoDisc,
+
+    #[error("Invalid sector: {sector}")]
+    InvalidSector { sector: u32 },
+
+    #[error("Read error at sector {sector}: {reason}")]
+    ReadError { sector: u32, reason: String },
+
+    #[error("Invalid command: {command:#04x}")]
+    InvalidCommand { command: u8 },
+
+    #[error("Invalid parameter count: expected {expected}, got {got}")]
+    InvalidParameterCount { expected: usize, got: usize },
+
+    #[error("Seek error: {0}")]
+    SeekError(String),
 }
