@@ -71,6 +71,16 @@ pub struct Bus {
     /// Physical address: 0x00000000-0x001FFFFF
     ram: Vec<u8>,
 
+    /// ICache prefill queue
+    ///
+    /// When BIOS copies code to RAM (e.g., 0xBFC10000 -> 0xA0000500),
+    /// we track these writes and queue them for prefilling the CPU's
+    /// instruction cache. This ensures instructions are cached before
+    /// RAM is zeroed by BIOS initialization.
+    ///
+    /// Each entry is (physical_address, instruction_word)
+    icache_prefill_queue: Vec<(u32, u32)>,
+
     /// Scratchpad (1KB fast RAM)
     ///
     /// Physical address: 0x1F800000-0x1F8003FF
@@ -141,6 +151,12 @@ impl Bus {
 
     /// BIOS size (512KB)
     const BIOS_SIZE: usize = 512 * 1024;
+
+    /// ICache prefill region start (0x000 - include exception vectors and low memory handlers)
+    const ICACHE_PREFILL_START: usize = 0x000;
+
+    /// ICache prefill region end (0x10000 - extended to cover all low memory code including exception vectors)
+    const ICACHE_PREFILL_END: usize = 0x10000;
 
     /// RAM physical address range
     const RAM_START: u32 = 0x00000000;
@@ -247,6 +263,7 @@ impl Bus {
     pub fn new() -> Self {
         Self {
             ram: vec![0u8; Self::RAM_SIZE],
+            icache_prefill_queue: Vec::new(),
             scratchpad: [0u8; 1024],
             bios: vec![0u8; Self::BIOS_SIZE],
             cache_control: 0,
@@ -384,11 +401,23 @@ impl Bus {
         // exception vectors and other system structures during boot.
         self.ram.fill(0);
 
+        // Clear icache prefill queue
+        self.icache_prefill_queue.clear();
+
         // Clear scratchpad (volatile memory)
         self.scratchpad.fill(0);
         // Reset cache control to default
         self.cache_control = 0;
         // BIOS is read-only ROM, so it is not cleared
+    }
+
+    /// Drain the icache prefill queue
+    ///
+    /// Returns all queued (address, instruction) pairs and clears the queue.
+    /// This should be called periodically by the System to apply prefills to
+    /// the CPU's instruction cache.
+    pub fn drain_icache_prefill_queue(&mut self) -> Vec<(u32, u32)> {
+        self.icache_prefill_queue.drain(..).collect()
     }
 
     /// Load BIOS from file
@@ -965,6 +994,19 @@ impl Bus {
                 self.ram[offset + 1] = bytes[1];
                 self.ram[offset + 2] = bytes[2];
                 self.ram[offset + 3] = bytes[3];
+
+                // Prefill icache for BIOS code copy region
+                // When BIOS copies code from 0xBFC10000 to 0xA0000500, we queue
+                // these writes for prefilling the CPU instruction cache
+                if offset >= Self::ICACHE_PREFILL_START && offset <= Self::ICACHE_PREFILL_END {
+                    // Also queue for cached addresses (KSEG0: 0x80000000-0x9FFFFFFF)
+                    let cached_addr = 0x80000000 | paddr;
+                    self.icache_prefill_queue.push((cached_addr, value));
+
+                    // And for uncached addresses (KUSEG: 0x00000000-0x7FFFFFFF)
+                    self.icache_prefill_queue.push((paddr, value));
+                }
+
                 Ok(())
             }
             MemoryRegion::Scratchpad => {
