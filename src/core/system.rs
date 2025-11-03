@@ -22,7 +22,7 @@ use super::controller::Controller;
 use super::cpu::{CpuTracer, CPU};
 use super::error::Result;
 use super::gpu::GPU;
-use super::interrupt::InterruptController;
+use super::interrupt::{interrupts, InterruptController};
 use super::memory::Bus;
 use super::spu::SPU;
 use super::timer::Timers;
@@ -426,15 +426,21 @@ impl System {
 
         let cpu_cycles = self.cpu.step(&mut self.bus)?;
 
-        // Tick GPU (synchronized with CPU cycles)
-        self.gpu.borrow_mut().tick(cpu_cycles);
+        // Tick GPU (synchronized with CPU cycles) and get interrupt signals
+        let (vblank_irq, hblank_irq) = self.gpu.borrow_mut().tick(cpu_cycles);
 
-        // Tick timers (synchronized with CPU cycles)
-        // TODO: Implement proper hblank and vblank signals from GPU
-        let timer_irqs = self.timers.borrow_mut().tick(cpu_cycles, false, false);
+        // Request VBlank interrupt
+        if vblank_irq {
+            self.interrupt_controller
+                .borrow_mut()
+                .request(interrupts::VBLANK);
+        }
+
+        // Tick timers with HBlank signal
+        // For now, in_hblank is simplified (always false)
+        let timer_irqs = self.timers.borrow_mut().tick(cpu_cycles, false, hblank_irq);
 
         // Request timer interrupts
-        use super::interrupt::interrupts;
         if timer_irqs[0] {
             self.interrupt_controller
                 .borrow_mut()
@@ -455,21 +461,6 @@ impl System {
         // self.spu.step()?;
 
         self.cycles += cpu_cycles as u64;
-
-        // TODO: VBLANK interrupts disabled temporarily
-        // The BIOS needs to set up interrupt handlers before we can safely generate interrupts
-        // For now, we'll skip VBLANK generation to let the BIOS complete initialization
-        /*
-        // Check for VBLANK interrupt (approximately 60 Hz)
-        // VBLANK occurs every ~564,480 cycles (33.8688 MHz / 60 Hz)
-        const CYCLES_PER_VBLANK: u64 = 564_480;
-        if self.cycles - self.last_vblank_cycles >= CYCLES_PER_VBLANK {
-            self.last_vblank_cycles = self.cycles;
-            // Trigger VBLANK interrupt (interrupt 0, bit 0)
-            log::debug!("VBLANK interrupt triggered at cycle {}", self.cycles);
-            self.cpu.check_interrupts(0x01);
-        }
-        */
 
         Ok(cpu_cycles)
     }

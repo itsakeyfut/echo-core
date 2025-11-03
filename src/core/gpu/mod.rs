@@ -129,6 +129,31 @@ pub struct GPU {
     ///
     /// Tracks the state of ongoing VRAM-to-CPU or CPU-to-VRAM transfers.
     pub(in crate::core::gpu) vram_transfer: Option<VRAMTransfer>,
+
+    /// Scanline counter (0-262 for NTSC)
+    ///
+    /// Tracks the current scanline being rendered. NTSC mode uses 263 scanlines total,
+    /// with VBlank occurring during scanlines 243-262.
+    scanline: u16,
+
+    /// Dots counter (0-3412 per scanline)
+    ///
+    /// Tracks horizontal position within a scanline. Each scanline consists of 3413 dots
+    /// at the PSX GPU pixel clock rate.
+    dots: u16,
+
+    /// VBlank status flag
+    ///
+    /// True when the GPU is in the vertical blanking period (scanlines 243-262 for NTSC).
+    /// During VBlank, no active display output occurs and games typically perform
+    /// frame synchronization and VRAM updates.
+    in_vblank: bool,
+
+    /// HBlank status flag
+    ///
+    /// True during horizontal blanking periods. Currently simplified (always false).
+    /// Can be extended later for proper HBlank timing if needed by games.
+    in_hblank: bool,
 }
 
 impl GPU {
@@ -140,6 +165,26 @@ impl GPU {
 
     /// Total VRAM size in pixels
     pub const VRAM_SIZE: usize = Self::VRAM_WIDTH * Self::VRAM_HEIGHT;
+
+    /// Total scanlines per frame (NTSC)
+    ///
+    /// NTSC video uses 263 scanlines per frame (0-262 inclusive).
+    pub const SCANLINES_PER_FRAME: u16 = 263;
+
+    /// Dots per scanline
+    ///
+    /// Each scanline consists of 3413 dots at the GPU pixel clock rate.
+    pub const DOTS_PER_SCANLINE: u16 = 3413;
+
+    /// VBlank start scanline (NTSC)
+    ///
+    /// VBlank begins at scanline 243 in NTSC mode.
+    pub const VBLANK_START: u16 = 243;
+
+    /// VBlank end scanline (NTSC)
+    ///
+    /// VBlank ends when wrapping back to scanline 0 (at scanline 263).
+    pub const VBLANK_END: u16 = 263;
 
     /// Create a new GPU instance with initialized VRAM
     ///
@@ -175,6 +220,10 @@ impl GPU {
             command_fifo: VecDeque::new(),
             status: GPUStatus::default(),
             vram_transfer: None,
+            scanline: 0,
+            dots: 0,
+            in_vblank: false,
+            in_hblank: false,
         };
 
         // Initialize rasterizer with default clip rect
@@ -220,6 +269,10 @@ impl GPU {
         self.command_fifo.clear();
         self.status = GPUStatus::default();
         self.vram_transfer = None;
+        self.scanline = 0;
+        self.dots = 0;
+        self.in_vblank = false;
+        self.in_hblank = false;
     }
 
     /// Read a 16-bit pixel from VRAM
@@ -401,7 +454,12 @@ impl GPU {
         status |= (self.status.ready_to_send_vram as u32) << 27;
         status |= (self.status.ready_to_receive_dma as u32) << 28;
         status |= ((self.status.dma_direction as u32) & 0x03) << 29;
-        status |= (self.status.drawing_odd_line as u32) << 31;
+
+        // Bit 31: VBlank flag
+        // Set to 1 when in VBlank period (scanlines 243-262 for NTSC)
+        if self.in_vblank {
+            status |= 1 << 31;
+        }
 
         status
     }
@@ -429,18 +487,122 @@ impl GPU {
         self.display_area
     }
 
-    /// Tick GPU (called once per CPU cycle)
+    /// Get current VBlank status
     ///
-    /// Advances the GPU state by the specified number of cycles.
-    /// This is a placeholder for future timing-accurate emulation.
+    /// Returns true if the GPU is currently in the vertical blanking period.
+    /// VBlank occurs during scanlines 243-262 in NTSC mode.
+    ///
+    /// # Returns
+    ///
+    /// true if in VBlank, false otherwise
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::GPU;
+    ///
+    /// let gpu = GPU::new();
+    /// assert_eq!(gpu.is_in_vblank(), false); // Initially not in VBlank
+    /// ```
+    pub fn is_in_vblank(&self) -> bool {
+        self.in_vblank
+    }
+
+    /// Get current scanline number
+    ///
+    /// Returns the current scanline being rendered (0-262 for NTSC).
+    ///
+    /// # Returns
+    ///
+    /// Current scanline number
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::GPU;
+    ///
+    /// let gpu = GPU::new();
+    /// assert_eq!(gpu.get_scanline(), 0); // Initially at scanline 0
+    /// ```
+    pub fn get_scanline(&self) -> u16 {
+        self.scanline
+    }
+
+    /// Tick GPU and update scanline/VBlank/HBlank state
+    ///
+    /// Advances the GPU state by the specified number of cycles, updating the scanline
+    /// counter and generating VBlank/HBlank interrupt signals when appropriate.
+    ///
+    /// The PlayStation GPU operates on a scanline-based timing model:
+    /// - Each scanline consists of 3413 dots
+    /// - Each frame has 263 scanlines (NTSC)
+    /// - VBlank occurs during scanlines 243-262
+    /// - HBlank occurs at the end of each scanline
     ///
     /// # Arguments
     ///
     /// * `cycles` - Number of CPU cycles to advance
-    pub fn tick(&mut self, cycles: u32) {
-        // TODO: Implement timing-accurate GPU emulation
-        // For now, this is a placeholder
-        let _ = cycles;
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(vblank_interrupt, hblank_interrupt)` indicating whether interrupts
+    /// should be triggered:
+    /// - `vblank_interrupt`: true when VBlank starts (once per frame at scanline 243)
+    /// - `hblank_interrupt`: true when a scanline completes (occurs every scanline)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::GPU;
+    ///
+    /// let mut gpu = GPU::new();
+    ///
+    /// // Tick for one CPU cycle
+    /// let (vblank, hblank) = gpu.tick(1);
+    ///
+    /// // Process interrupts
+    /// if vblank {
+    ///     // Handle VBlank interrupt
+    /// }
+    /// if hblank {
+    ///     // Handle HBlank signal (for timers)
+    /// }
+    /// ```
+    pub fn tick(&mut self, cycles: u32) -> (bool, bool) {
+        let mut vblank_interrupt = false;
+        let mut hblank_interrupt = false;
+
+        for _ in 0..cycles {
+            self.dots += 1;
+
+            if self.dots >= Self::DOTS_PER_SCANLINE {
+                self.dots = 0;
+                self.scanline += 1;
+
+                // HBlank occurs at end of each scanline
+                hblank_interrupt = true;
+
+                if self.scanline >= Self::SCANLINES_PER_FRAME {
+                    self.scanline = 0;
+                }
+
+                // Check VBlank region
+                let was_in_vblank = self.in_vblank;
+                self.in_vblank =
+                    self.scanline >= Self::VBLANK_START && self.scanline < Self::VBLANK_END;
+
+                // VBlank interrupt at start of VBlank
+                if self.in_vblank && !was_in_vblank {
+                    vblank_interrupt = true;
+                }
+            }
+
+            // HBlank during horizontal blanking period
+            // (simplified: always false for now, can add proper timing later)
+            self.in_hblank = false;
+        }
+
+        (vblank_interrupt, hblank_interrupt)
     }
 
     /// Process GP0 command (drawing and VRAM commands)
