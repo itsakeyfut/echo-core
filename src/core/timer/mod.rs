@@ -82,15 +82,6 @@ pub struct TimerMode {
     /// - Timer 1: bit 8: 0=system clock, 1=hblank (values 0,2=sys, 1,3=hblank)
     /// - Timer 2: bit 9: 0=system clock, 1=system/8 (values 0,1=sys, 2,3=sys/8)
     pub clock_source: u8,
-
-    /// IRQ flag (bit 10) - Read-only, writable to reset
-    pub irq_flag: bool,
-
-    /// Reached target (bit 11) - Read-only
-    pub reached_target: bool,
-
-    /// Reached max (bit 12) - Read-only
-    pub reached_max: bool,
 }
 
 /// A single timer channel
