@@ -502,28 +502,6 @@ impl Bus {
         Ok(())
     }
 
-    /// Translate virtual address to physical address
-    ///
-    /// PlayStation 1 uses MIPS memory segments that mirror physical memory:
-    /// - KUSEG (0x00000000-0x7FFFFFFF): Direct mapping
-    /// - KSEG0 (0x80000000-0x9FFFFFFF): Cached, mirrors physical 0x00000000-0x1FFFFFFF
-    /// - KSEG1 (0xA0000000-0xBFFFFFFF): Uncached, mirrors physical 0x00000000-0x1FFFFFFF
-    ///
-    /// # Arguments
-    ///
-    /// * `vaddr` - Virtual address
-    ///
-    /// # Returns
-    ///
-    /// Physical address after translation
-    ///
-    /// # Implementation
-    ///
-    /// All segments map to the same 512MB physical address space:
-    /// - 0x00001234 (KUSEG) → 0x00001234
-    /// - 0x80001234 (KSEG0) → 0x00001234
-    /// - 0xA0001234 (KSEG1) → 0x00001234
-    #[inline(always)]
     /// Read 8-bit value from memory
     ///
     /// Reads a single byte from the specified virtual address.
