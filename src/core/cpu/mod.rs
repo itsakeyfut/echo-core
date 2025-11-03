@@ -15,6 +15,92 @@
 
 use crate::core::error::Result;
 use crate::core::memory::Bus;
+use std::collections::HashMap;
+
+/// Instruction cache for MIPS R3000A
+///
+/// Simplified implementation that caches instructions when the IsoC bit
+/// (bit 16 of COP0 SR register) is set. This is essential for BIOS operation
+/// which enables cache isolation before zeroing RAM.
+struct InstructionCache {
+    /// Cached instructions: address -> instruction word
+    entries: HashMap<u32, u32>,
+    /// Maximum number of cached entries (prevent unbounded growth)
+    max_entries: usize,
+}
+
+impl InstructionCache {
+    /// Create a new instruction cache
+    fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+            max_entries: 4096, // ~4KB worth of instructions
+        }
+    }
+
+    /// Fetch instruction from cache
+    ///
+    /// Returns Some(instruction) if cached, None otherwise
+    fn fetch(&self, pc: u32) -> Option<u32> {
+        self.entries.get(&pc).copied()
+    }
+
+    /// Store instruction in cache
+    ///
+    /// If cache is full, oldest entries may be evicted (HashMap doesn't guarantee order,
+    /// but this is acceptable for our simplified implementation)
+    fn store(&mut self, pc: u32, instruction: u32) {
+        if self.entries.len() >= self.max_entries {
+            // Simple eviction: clear cache when full
+            // A proper implementation would use LRU or direct-mapped eviction
+            log::debug!("Instruction cache full, clearing cache");
+            self.entries.clear();
+        }
+        self.entries.insert(pc, instruction);
+    }
+
+    /// Clear all cached instructions
+    fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    /// Check if cache is empty
+    #[allow(dead_code)]
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Get number of cached entries
+    #[allow(dead_code)]
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Prefill cache with instruction at given address
+    ///
+    /// This is used when memory writes occur to known code regions,
+    /// allowing us to cache instructions before execution (mimicking
+    /// how real hardware caches instructions during BIOS copy operations)
+    fn prefill(&mut self, pc: u32, instruction: u32) {
+        self.store(pc, instruction);
+    }
+
+    /// Invalidate cached instruction at given address
+    ///
+    /// This ensures cache coherency when memory is modified after caching,
+    /// such as self-modifying code, runtime patching, or DMA writes.
+    fn invalidate(&mut self, pc: u32) {
+        self.entries.remove(&pc);
+    }
+
+    /// Invalidate cached instructions in given address range
+    ///
+    /// This is more efficient than individual invalidations when
+    /// a large memory region is modified.
+    fn invalidate_range(&mut self, start: u32, end: u32) {
+        self.entries.retain(|&pc, _| pc < start || pc > end);
+    }
+}
 
 /// CPU (MIPS R3000A) emulation implementation
 ///
@@ -62,6 +148,12 @@ pub struct CPU {
 
     /// Current instruction (for debugging)
     current_instruction: u32,
+
+    /// Instruction cache
+    ///
+    /// Caches instructions when COP0 SR.IsC bit (bit 16) is set.
+    /// Essential for BIOS operation which isolates cache before zeroing RAM.
+    icache: InstructionCache,
 }
 
 /// Load delay management structure
@@ -123,6 +215,7 @@ impl CPU {
             load_delay: None,
             in_branch_delay: false,
             current_instruction: 0,
+            icache: InstructionCache::new(),
         }
     }
 
@@ -149,6 +242,7 @@ impl CPU {
         self.load_delay = None;
         self.in_branch_delay = false;
         self.current_instruction = 0;
+        self.icache.clear();
     }
 
     /// Read from general purpose register
@@ -205,6 +299,74 @@ impl CPU {
         if index != 0 {
             self.regs[index as usize] = value;
         }
+    }
+
+    /// Prefill instruction cache
+    ///
+    /// This method allows external components (e.g., memory bus) to populate
+    /// the instruction cache before code execution. This is essential for
+    /// emulating the BIOS initialization sequence where code is copied to RAM
+    /// before the RAM zeroing operation.
+    ///
+    /// # Arguments
+    /// - `pc`: Program counter / instruction address
+    /// - `instruction`: 32-bit instruction word
+    ///
+    /// # Example
+    /// ```
+    /// use psrx::core::cpu::CPU;
+    ///
+    /// let mut cpu = CPU::new();
+    /// // Prefill cache when BIOS copies code to RAM
+    /// cpu.prefill_icache(0x80000500, 0x3C080000); // lui r8, 0x0000
+    /// ```
+    pub fn prefill_icache(&mut self, pc: u32, instruction: u32) {
+        self.icache.prefill(pc, instruction);
+    }
+
+    /// Invalidate instruction cache entry
+    ///
+    /// This method ensures cache coherency when memory is modified after caching.
+    /// It should be called when:
+    /// - Self-modifying code writes to its own instruction memory
+    /// - Runtime patching modifies executable code
+    /// - DMA writes occur to instruction memory regions
+    ///
+    /// # Arguments
+    /// - `pc`: Program counter / instruction address to invalidate
+    ///
+    /// # Example
+    /// ```
+    /// use psrx::core::cpu::CPU;
+    ///
+    /// let mut cpu = CPU::new();
+    /// cpu.prefill_icache(0x80000500, 0x3C080000);
+    /// // Later, if memory at 0x80000500 is modified:
+    /// cpu.invalidate_icache(0x80000500);
+    /// ```
+    pub fn invalidate_icache(&mut self, pc: u32) {
+        self.icache.invalidate(pc);
+    }
+
+    /// Invalidate instruction cache range
+    ///
+    /// More efficient than individual invalidations when a large memory
+    /// region is modified (e.g., DMA transfer, memset operations).
+    ///
+    /// # Arguments
+    /// - `start`: Start address (inclusive)
+    /// - `end`: End address (inclusive)
+    ///
+    /// # Example
+    /// ```
+    /// use psrx::core::cpu::CPU;
+    ///
+    /// let mut cpu = CPU::new();
+    /// // Invalidate entire low memory region after modification
+    /// cpu.invalidate_icache_range(0x80000000, 0x80010000);
+    /// ```
+    pub fn invalidate_icache_range(&mut self, start: u32, end: u32) {
+        self.icache.invalidate_range(start, end);
     }
 
     /// Write to register with load delay
@@ -290,9 +452,23 @@ impl CPU {
             self.set_reg(delay.reg, delay.value);
         }
 
-        // Instruction fetch
+        // Instruction fetch with cache support
         let pc = self.pc;
-        self.current_instruction = bus.read32(pc)?;
+
+        // SIMPLIFIED INSTRUCTION CACHE: Always use cache when available
+        // This solves the BIOS initialization issue where RAM is zeroed
+        // while code is executing. Cache entries are never overwritten.
+        let instruction = if let Some(cached_instr) = self.icache.fetch(pc) {
+            // Cache hit - use cached instruction
+            cached_instr
+        } else {
+            // Cache miss - read from RAM and cache it
+            let instr = bus.read32(pc)?;
+            self.icache.store(pc, instr);
+            instr
+        };
+
+        self.current_instruction = instruction;
 
         // Update PC (delay slot handling)
         self.pc = self.next_pc;

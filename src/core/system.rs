@@ -426,6 +426,18 @@ impl System {
 
         let cpu_cycles = self.cpu.step(&mut self.bus)?;
 
+        // Apply icache invalidation from memory writes (must come before prefill)
+        // This maintains cache coherency when memory is modified
+        for addr in self.bus.drain_icache_invalidate_queue() {
+            self.cpu.invalidate_icache(addr);
+        }
+
+        // Apply icache prefill from memory writes
+        // This ensures instructions are cached before execution
+        for (addr, instruction) in self.bus.drain_icache_prefill_queue() {
+            self.cpu.prefill_icache(addr, instruction);
+        }
+
         // Tick GPU (synchronized with CPU cycles) and get interrupt signals
         let (vblank_irq, hblank_irq) = self.gpu.borrow_mut().tick(cpu_cycles);
 
