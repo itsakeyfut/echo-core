@@ -112,16 +112,16 @@ pub mod interrupts {
 /// // Check if any interrupt is pending
 /// assert!(ic.is_pending());
 ///
-/// // Acknowledge the interrupt (write 0 to clear)
-/// ic.write_status(!interrupts::VBLANK as u32);
+/// // Acknowledge the interrupt (write 1 to clear)
+/// ic.write_status(interrupts::VBLANK as u32);
 /// assert!(!ic.is_pending());
 /// ```
 pub struct InterruptController {
     /// I_STAT (0x1F801070) - Interrupt status register
     ///
     /// Each bit represents a pending interrupt from a specific source.
-    /// Writing 0 to a bit acknowledges (clears) that interrupt.
-    /// Writing 1 to a bit has no effect.
+    /// Writing 1 to a bit acknowledges (clears) that interrupt.
+    /// Writing 0 to a bit has no effect.
     status: u16,
 
     /// I_MASK (0x1F801074) - Interrupt mask register
@@ -180,15 +180,15 @@ impl InterruptController {
         );
     }
 
-    /// Acknowledge interrupt (write 0 to clear bits)
+    /// Acknowledge interrupt (write 1 to clear bits)
     ///
-    /// Clears interrupt bits where the corresponding bit in `value` is 0.
-    /// This implements the PSX's unusual acknowledge mechanism where you
-    /// write 0 to clear an interrupt (inverse of typical bitwise AND).
+    /// Clears interrupt bits where the corresponding bit in `value` is 1.
+    /// This implements the PSX acknowledge mechanism where you write 1
+    /// to the bits you want to clear.
     ///
     /// # Arguments
     ///
-    /// * `value` - Mask value (0 bits will clear corresponding interrupts)
+    /// * `value` - Bits to clear (1 bits will clear corresponding interrupts)
     ///
     /// # Example
     ///
@@ -198,12 +198,12 @@ impl InterruptController {
     /// let mut ic = InterruptController::new();
     /// ic.request(interrupts::VBLANK | interrupts::TIMER0);
     ///
-    /// // Acknowledge VBLANK (write 0 to that bit, 1 to others)
-    /// ic.acknowledge(!interrupts::VBLANK);
+    /// // Acknowledge VBLANK (write 1 to that bit)
+    /// ic.acknowledge(interrupts::VBLANK);
     /// assert_eq!(ic.read_status(), interrupts::TIMER0 as u32);
     /// ```
     pub fn acknowledge(&mut self, value: u16) {
-        self.status &= value;
+        self.status &= !value;
         log::trace!("IRQ acknowledged, status=0x{:04X}", self.status);
     }
 
@@ -258,12 +258,12 @@ impl InterruptController {
 
     /// Write I_STAT register (acknowledge)
     ///
-    /// Acknowledges interrupts by writing 0 to clear the corresponding bits.
+    /// Acknowledges interrupts by writing 1 to clear the corresponding bits.
     /// Only the lower 16 bits are used.
     ///
     /// # Arguments
     ///
-    /// * `value` - Value to write (lower 16 bits used)
+    /// * `value` - Value to write (lower 16 bits used, 1 bits clear interrupts)
     ///
     /// # Example
     ///
@@ -272,7 +272,7 @@ impl InterruptController {
     ///
     /// let mut ic = InterruptController::new();
     /// ic.request(interrupts::VBLANK);
-    /// ic.write_status(!interrupts::VBLANK as u32);
+    /// ic.write_status(interrupts::VBLANK as u32);
     /// assert_eq!(ic.read_status(), 0);
     /// ```
     pub fn write_status(&mut self, value: u32) {
@@ -400,8 +400,8 @@ mod tests {
 
         assert!(ic.is_pending());
 
-        // Acknowledge by writing 0 to bit (write inverted mask)
-        ic.write_status(!interrupts::VBLANK as u32);
+        // Acknowledge by writing 1 to the bit we want to clear
+        ic.write_status(interrupts::VBLANK as u32);
 
         assert!(!ic.is_pending());
         assert_eq!(ic.read_status(), 0);
@@ -417,8 +417,8 @@ mod tests {
 
         assert!(ic.is_pending());
 
-        // Acknowledge only VBLANK (write 0 to VBLANK bit, 1 to others)
-        ic.write_status(!interrupts::VBLANK as u32);
+        // Acknowledge only VBLANK (write 1 to VBLANK bit only)
+        ic.write_status(interrupts::VBLANK as u32);
 
         // TIMER0 should still be pending
         assert!(ic.is_pending());
@@ -443,12 +443,12 @@ mod tests {
         ic.request(0x00FF);
         assert_eq!(ic.read_status(), 0x00FF);
 
-        // Writing all 1s should not clear anything
-        ic.write_status(0xFFFF);
+        // Writing all 0s should not clear anything
+        ic.write_status(0x0000);
         assert_eq!(ic.read_status(), 0x00FF);
 
-        // Writing all 0s should clear everything
-        ic.write_status(0x0000);
+        // Writing all 1s should clear everything
+        ic.write_status(0xFFFF);
         assert_eq!(ic.read_status(), 0x0000);
     }
 

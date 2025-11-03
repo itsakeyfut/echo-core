@@ -429,6 +429,10 @@ impl CPU {
     /// - Interrupt Mask (IM) bits in Status Register
     /// - Pending interrupts from the interrupt controller
     ///
+    /// This also mirrors the interrupt pending state into CAUSE.IP2 (bit 10)
+    /// to match real hardware behavior where the interrupt controller drives
+    /// the hardware interrupt line 2.
+    ///
     /// # Arguments
     ///
     /// * `bus` - Memory bus to check interrupt controller state
@@ -436,18 +440,26 @@ impl CPU {
     /// # Returns
     ///
     /// true if an interrupt should be handled, false otherwise
-    fn should_handle_interrupt(&self, bus: &Bus) -> bool {
+    fn should_handle_interrupt(&mut self, bus: &Bus) -> bool {
         // Check if interrupts are enabled (COP0 SR register)
         let sr = self.cop0.regs[COP0::SR];
         let iec = (sr & 0x01) != 0; // Interrupt Enable Current
         let im = (sr >> 8) & 0xFF; // Interrupt Mask
 
+        // Check if any interrupt is pending
+        let irq_pending = bus.is_interrupt_pending();
+
+        // Mirror interrupt pending state into CAUSE.IP2 (bit 10)
+        // This reflects the hardware interrupt line 2 being asserted
+        if irq_pending {
+            self.cop0.regs[COP0::CAUSE] |= 1 << 10;
+        } else {
+            self.cop0.regs[COP0::CAUSE] &= !(1 << 10);
+        }
+
         if !iec {
             return false;
         }
-
-        // Check if any interrupt is pending and enabled
-        let irq_pending = bus.is_interrupt_pending();
 
         // Bit 10 (0x0400) in IM controls external interrupts
         irq_pending && (im & 0x04) != 0
