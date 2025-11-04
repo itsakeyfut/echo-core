@@ -618,12 +618,9 @@ impl DMA {
 
     /// Write DMA Interrupt Register (DICR)
     pub fn write_interrupt(&mut self, value: u32) {
-        // Update writable bits (6-23) if any are set in the write value
-        // Preserve reserved bits 0-5 as per PSX hardware specification
-        // This allows clearing interrupt flags without changing configuration
-        if (value & 0x00FF_FFC0) != 0 {
-            self.interrupt = (self.interrupt & 0xFF00_003F) | (value & 0x00FF_FFC0);
-        }
+        // Update writable bits (6-23), preserving reserved bits 0-5
+        // Bits 0-5 are always 0, bits 6-23 are writable, bits 24-31 are handled separately
+        self.interrupt = (self.interrupt & 0xFF00_0000) | (value & 0x00FF_FFC0);
 
         // Handle write-1-to-clear for bits 24-30 (interrupt flags)
         let clear_mask = (value >> 24) & 0x7F;

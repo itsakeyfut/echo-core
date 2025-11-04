@@ -185,13 +185,27 @@ fn test_dicr_access() {
     // Initial value
     assert_eq!(dma.read_interrupt(), 0);
 
-    // Write interrupt flags (bits 0-5 are reserved and should be preserved as 0)
-    dma.write_interrupt(0x00FF_FFFF);
-    assert_eq!(dma.read_interrupt(), 0x00FF_FFC0); // Only bits 6-23 are writable
+    // Write configuration bits (bits 0-5 are reserved and should be preserved as 0)
+    // Write without setting force flag (bit 15) to avoid triggering master flag (bit 31)
+    dma.write_interrupt(0x00FF_7FC0);
+    assert_eq!(dma.read_interrupt(), 0x00FF_7FC0); // Bits 6-14 and 16-23 are writable
 
-    // Test write-1-to-clear for bits 24-30
-    dma.write_interrupt(0x7F00_0000);
-    assert_eq!(dma.read_interrupt(), 0x00FF_FFC0); // Flags should be cleared
+    // Test that force flag (bit 15) causes master flag (bit 31) to be set
+    dma.write_interrupt(0x0000_8000); // Set only force flag
+    assert_eq!(dma.read_interrupt(), 0x8000_8000); // Master flag (bit 31) should be set
+
+    // Clear force flag and verify master flag is cleared
+    dma.write_interrupt(0x0000_0000); // Clear force flag
+    assert_eq!(dma.read_interrupt(), 0x0000_0000);
+
+    // Set up configuration with channel enables and master enable
+    dma.write_interrupt(0x00FF_FFC0); // Set all config bits including force flag
+    assert_eq!(dma.read_interrupt(), 0x80FF_FFC0); // Master flag (bit 31) set due to force flag
+
+    // Test write-1-to-clear for bits 24-30 (interrupt flags)
+    // Note: Since bits 6-23 are always updated, we need to re-write config to preserve it
+    dma.write_interrupt(0x7FFF_FFC0); // Clear all interrupt flags and re-write config
+    assert_eq!(dma.read_interrupt(), 0x80FF_FFC0); // Flags cleared, config preserved, master flag set
 }
 
 #[test]
