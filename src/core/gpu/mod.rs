@@ -652,6 +652,9 @@ impl GPU {
         let command = (first_word >> 24) & 0xFF;
 
         match command {
+            // Fill commands
+            0x02 => self.gp0_fill_rectangle(),
+
             // Monochrome triangles
             0x20 => self.parse_monochrome_triangle_opaque(),
             0x22 => self.parse_monochrome_triangle_semi_transparent(),
