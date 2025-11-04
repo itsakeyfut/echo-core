@@ -450,6 +450,10 @@ impl DMA {
     #[inline(always)]
     fn read_ram_u32(&self, ram: &[u8], addr: u32) -> u32 {
         let addr = (addr & 0x001F_FFFC) as usize;
+        if addr + 4 > ram.len() {
+            log::error!("DMA read out of bounds: 0x{:08X}", addr);
+            return 0;
+        }
         u32::from_le_bytes([ram[addr], ram[addr + 1], ram[addr + 2], ram[addr + 3]])
     }
 
@@ -457,6 +461,10 @@ impl DMA {
     #[inline(always)]
     fn write_ram_u32(&self, ram: &mut [u8], addr: u32, value: u32) {
         let addr = (addr & 0x001F_FFFC) as usize;
+        if addr + 4 > ram.len() {
+            log::error!("DMA write out of bounds: 0x{:08X}", addr);
+            return;
+        }
         let bytes = value.to_le_bytes();
         ram[addr..addr + 4].copy_from_slice(&bytes);
     }
