@@ -185,13 +185,13 @@ fn test_dicr_access() {
     // Initial value
     assert_eq!(dma.read_interrupt(), 0);
 
-    // Write interrupt flags
+    // Write interrupt flags (bits 0-5 are reserved and should be preserved as 0)
     dma.write_interrupt(0x00FF_FFFF);
-    assert_eq!(dma.read_interrupt(), 0x00FF_FFFF);
+    assert_eq!(dma.read_interrupt(), 0x00FF_FFC0); // Only bits 6-23 are writable
 
     // Test write-1-to-clear for bits 24-30
     dma.write_interrupt(0x7F00_0000);
-    assert_eq!(dma.read_interrupt(), 0x00FF_FFFF); // Flags should be cleared
+    assert_eq!(dma.read_interrupt(), 0x00FF_FFC0); // Flags should be cleared
 }
 
 #[test]
