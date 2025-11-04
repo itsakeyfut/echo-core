@@ -175,6 +175,7 @@ impl DMAChannel {
 
     /// Deactivate the channel (clear bit 24 of CHCR)
     fn deactivate(&mut self) {
+        log::trace!("DMA channel {} deactivated", self.channel_id);
         self.channel_control &= !0x0100_0000;
     }
 }
@@ -352,7 +353,7 @@ impl DMA {
                         gpu.write_gp0(word);
                         addr = (addr + 4) & 0x001F_FFFC;
                     }
-                } else {
+                } else if direction == DMAChannel::TRANSFER_TO_RAM {
                     // GPU → RAM (VRAM reads)
                     for _ in 0..total_words {
                         let word = gpu.read_gpuread();
@@ -420,7 +421,7 @@ impl DMA {
         let block_control = self.channels[Self::CH_OTC].block_control;
         let base_address = self.channels[Self::CH_OTC].base_address;
 
-        let count = (block_control & 0xFFFF);
+        let count = block_control & 0xFFFF;
         let mut addr = base_address & 0x001F_FFFC;
 
         // Write reverse-linked list

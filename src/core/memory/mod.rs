@@ -256,16 +256,6 @@ impl Bus {
     /// Interrupt Mask register (I_MASK)
     const I_MASK: u32 = 0x1F801074;
 
-    /// DMA Channel registers base addresses (0x1F801080-0x1F8010EF)
-    /// Each channel has 3 registers: MADR (+0x00), BCR (+0x04), CHCR (+0x08)
-    const DMA_CH0_BASE: u32 = 0x1F801080; // MDEC In
-    const DMA_CH1_BASE: u32 = 0x1F801090; // MDEC Out
-    const DMA_CH2_BASE: u32 = 0x1F8010A0; // GPU
-    const DMA_CH3_BASE: u32 = 0x1F8010B0; // CD-ROM
-    const DMA_CH4_BASE: u32 = 0x1F8010C0; // SPU
-    const DMA_CH5_BASE: u32 = 0x1F8010D0; // PIO
-    const DMA_CH6_BASE: u32 = 0x1F8010E0; // OTC
-
     /// DMA Control Register (DPCR)
     const DMA_DPCR: u32 = 0x1F8010F0;
     /// DMA Interrupt Register (DICR)
