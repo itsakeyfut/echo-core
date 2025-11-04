@@ -287,7 +287,7 @@ impl DMA {
             self.channels[ch_id].channel_control
         );
 
-        match ch_id {
+        let completed = match ch_id {
             Self::CH_GPU => self.transfer_gpu(ram, gpu),
             Self::CH_CDROM => self.transfer_cdrom(ram, cdrom),
             Self::CH_OTC => self.transfer_otc(ram),
@@ -296,7 +296,15 @@ impl DMA {
                 self.channels[ch_id].deactivate();
                 false
             }
+        };
+
+        // Set interrupt flag for this channel if transfer completed
+        if completed {
+            self.interrupt |= 1 << (24 + ch_id);
+            log::trace!("DMA{} interrupt flag set in DICR", ch_id);
         }
+
+        completed
     }
 
     /// Execute GPU DMA transfer (channel 2)
