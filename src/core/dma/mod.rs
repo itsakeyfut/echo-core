@@ -236,7 +236,7 @@ impl DMA {
     /// Process DMA transfers for all active channels
     ///
     /// Should be called periodically (e.g., once per scanline) to handle
-    /// active DMA transfers.
+    /// active DMA transfers. Respects DPCR enable bits and priority ordering.
     ///
     /// # Arguments
     ///
@@ -250,11 +250,25 @@ impl DMA {
     pub fn tick(&mut self, ram: &mut [u8], gpu: &mut GPU, cdrom: &mut CDROM) -> bool {
         let mut irq = false;
 
-        // Check each channel in priority order
+        // Build list of active channels with their priorities
+        let mut active_channels: Vec<(usize, u32)> = Vec::new();
         for ch_id in 0..7 {
-            if self.channels[ch_id].is_active() && self.channels[ch_id].trigger() {
-                irq |= self.execute_transfer(ch_id, ram, gpu, cdrom);
+            // Check DPCR enable bit before allowing channel to execute
+            if self.is_channel_enabled(ch_id)
+                && self.channels[ch_id].is_active()
+                && self.channels[ch_id].trigger()
+            {
+                let priority = self.channel_priority(ch_id);
+                active_channels.push((ch_id, priority));
             }
+        }
+
+        // Sort by priority (higher priority value = higher priority)
+        active_channels.sort_by(|a, b| b.1.cmp(&a.1));
+
+        // Execute transfers in priority order
+        for (ch_id, _) in active_channels {
+            irq |= self.execute_transfer(ch_id, ram, gpu, cdrom);
         }
 
         irq
@@ -302,9 +316,15 @@ impl DMA {
         if completed {
             self.interrupt |= 1 << (24 + ch_id);
             log::trace!("DMA{} interrupt flag set in DICR", ch_id);
-        }
 
-        completed
+            // Update master flag and determine if IRQ should be raised
+            self.update_master_flag();
+
+            // Only signal IRQ if master flag is set
+            (self.interrupt & (1 << 31)) != 0
+        } else {
+            false
+        }
     }
 
     /// Execute GPU DMA transfer (channel 2)
@@ -477,6 +497,63 @@ impl DMA {
         ram[addr..addr + 4].copy_from_slice(&bytes);
     }
 
+    // DPCR and DICR helper methods
+
+    /// Check if a channel is enabled in DPCR
+    ///
+    /// Each channel's enable bit is bit 3 of its 4-bit nibble in DPCR.
+    /// Channel N's nibble is at bits (N*4) to (N*4+3).
+    #[inline(always)]
+    fn is_channel_enabled(&self, channel: usize) -> bool {
+        let shift = channel * 4;
+        (self.control & (0x8 << shift)) != 0
+    }
+
+    /// Get the priority of a channel from DPCR
+    ///
+    /// Each channel's priority is bits 0-2 of its 4-bit nibble in DPCR.
+    /// Higher values indicate higher priority.
+    #[inline(always)]
+    fn channel_priority(&self, channel: usize) -> u32 {
+        let shift = channel * 4;
+        (self.control >> shift) & 0x7
+    }
+
+    /// Compute and update DICR master flag (bit 31)
+    ///
+    /// The master flag determines whether an IRQ should be raised.
+    /// It is set when:
+    /// - Force flag (bit 15) is set, OR
+    /// - Master enable (bit 23) is set AND any channel has both:
+    ///   - Channel interrupt enable (bit 16+N) set
+    ///   - Channel interrupt flag (bit 24+N) set
+    ///
+    /// This method should be called after setting/clearing channel flags.
+    fn update_master_flag(&mut self) {
+        let force = (self.interrupt & (1 << 15)) != 0;
+        let master_enable = (self.interrupt & (1 << 23)) != 0;
+
+        let mut any_triggered = false;
+        for ch_id in 0..7 {
+            let channel_enable = (self.interrupt & (1 << (16 + ch_id))) != 0;
+            let channel_flag = (self.interrupt & (1 << (24 + ch_id))) != 0;
+            if channel_enable && channel_flag {
+                any_triggered = true;
+                break;
+            }
+        }
+
+        let master_flag = force || (master_enable && any_triggered);
+
+        // Set or clear bit 31
+        if master_flag {
+            self.interrupt |= 1 << 31;
+            log::trace!("DICR master flag set (bit 31)");
+        } else {
+            self.interrupt &= !(1 << 31);
+        }
+    }
+
     // Register access methods
 
     /// Read channel MADR register
@@ -551,6 +628,9 @@ impl DMA {
         // Handle write-1-to-clear for bits 24-30 (interrupt flags)
         let clear_mask = (value >> 24) & 0x7F;
         self.interrupt &= !(clear_mask << 24);
+
+        // Recompute master flag after clearing flags
+        self.update_master_flag();
 
         log::trace!("DICR = 0x{:08X}", self.interrupt);
     }
