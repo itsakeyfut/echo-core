@@ -724,6 +724,19 @@ impl CDROM {
         }
     }
 
+    /// Push a byte to the data buffer (for testing)
+    ///
+    /// This is a test helper method to populate the CD-ROM data buffer
+    /// for DMA transfer testing.
+    ///
+    /// # Arguments
+    ///
+    /// * `byte` - The byte to add to the buffer
+    #[cfg(test)]
+    pub fn push_data_byte(&mut self, byte: u8) {
+        self.data_buffer.push(byte);
+    }
+
     /// Read from a CD-ROM register
     ///
     /// The CD-ROM controller has 4 registers (0x1F801800-0x1F801803),

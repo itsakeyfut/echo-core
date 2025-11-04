@@ -21,6 +21,7 @@
 //! - GPU (Graphics Processing Unit)
 //! - SPU (Sound Processing Unit)
 //! - CD-ROM (Disc drive)
+//! - DMA (Direct Memory Access)
 //! - Controller (Input devices)
 //! - Timer (3 timer/counter channels)
 //! - Interrupt Controller (IRQ management)
@@ -29,6 +30,7 @@
 pub mod cdrom;
 pub mod controller;
 pub mod cpu;
+pub mod dma;
 pub mod error;
 pub mod gpu;
 pub mod interrupt;
@@ -41,6 +43,7 @@ pub mod timer;
 pub use cdrom::CDROM;
 pub use controller::Controller;
 pub use cpu::CPU;
+pub use dma::DMA;
 pub use error::{CdRomError, EmulatorError, GpuError, Result};
 pub use gpu::GPU;
 pub use interrupt::InterruptController;
