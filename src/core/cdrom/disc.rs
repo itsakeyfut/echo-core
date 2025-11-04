@@ -316,9 +316,10 @@ impl DiscImage {
     ///
     /// # Returns
     ///
-    /// Sector number (0-based)
+    /// Sector number (0-based, accounting for 2-second pregap)
     pub(super) fn msf_to_sector(pos: &CDPosition) -> usize {
-        (pos.minute as usize * 60 * 75) + (pos.second as usize * 75) + (pos.sector as usize)
+        let total = (pos.minute as u32 * 60 * 75) + (pos.second as u32 * 75) + pos.sector as u32;
+        total.saturating_sub(150) as usize
     }
 
     /// Get the number of tracks on the disc

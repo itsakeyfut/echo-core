@@ -16,6 +16,7 @@
 //! Tests for CD-ROM emulation
 
 use super::*;
+use tempfile::Builder;
 
 #[test]
 fn test_cdrom_initialization() {
@@ -315,7 +316,8 @@ fn test_msf_to_sector_conversion() {
         sector: 16,
     };
     let sector = DiscImage::msf_to_sector(&pos);
-    assert_eq!(sector, 2 * 75 + 16); // 166
+    // 00:02:16 = (2*75 + 16) - 150 pregap = 16
+    assert_eq!(sector, 16);
 
     let pos = CDPosition {
         minute: 1,
@@ -323,7 +325,8 @@ fn test_msf_to_sector_conversion() {
         sector: 0,
     };
     let sector = DiscImage::msf_to_sector(&pos);
-    assert_eq!(sector, 60 * 75); // 4500
+    // 01:00:00 = 60*75 - 150 pregap = 4350
+    assert_eq!(sector, 4350);
 }
 
 #[test]
@@ -372,17 +375,31 @@ fn test_parse_track_type() {
 
 #[test]
 fn test_disc_image_with_mock_data() {
-    // Create a temporary directory for test files
-    let temp_dir = std::env::temp_dir();
-    let cue_path = temp_dir.join("test_disc.cue");
-    let bin_path = temp_dir.join("test_disc.bin");
+    // Create unique temporary files
+    let bin_file = Builder::new()
+        .prefix("test_disc_")
+        .suffix(".bin")
+        .tempfile()
+        .unwrap();
+    let bin_path = bin_file.path();
+    let bin_name = bin_path.file_name().unwrap().to_str().unwrap();
 
-    // Create a mock .cue file
-    let cue_content = r#"FILE "test_disc.bin" BINARY
+    let cue_file = Builder::new()
+        .prefix("test_disc_")
+        .suffix(".cue")
+        .tempfile()
+        .unwrap();
+    let cue_path = cue_file.path();
+
+    // Create a mock .cue file with proper pregap (starts at 00:02:00)
+    let cue_content = format!(
+        r#"FILE "{}" BINARY
   TRACK 01 MODE2/2352
-    INDEX 01 00:00:00
-"#;
-    std::fs::write(&cue_path, cue_content).unwrap();
+    INDEX 01 00:02:00
+"#,
+        bin_name
+    );
+    std::fs::write(cue_path, cue_content).unwrap();
 
     // Create a mock .bin file (10 sectors = 23520 bytes)
     let sector_data = vec![0xAB; 2352];
@@ -390,7 +407,7 @@ fn test_disc_image_with_mock_data() {
     for _ in 0..10 {
         bin_data.extend_from_slice(&sector_data);
     }
-    std::fs::write(&bin_path, &bin_data).unwrap();
+    std::fs::write(bin_path, &bin_data).unwrap();
 
     // Load the disc image
     let disc = DiscImage::load(cue_path.to_str().unwrap()).unwrap();
@@ -404,42 +421,54 @@ fn test_disc_image_with_mock_data() {
     assert_eq!(track.track_type, TrackType::Mode2_2352);
     assert_eq!(track.length_sectors, 10);
 
-    // Read a sector
-    let pos = CDPosition::new(0, 0, 0);
+    // Read first sector at LBA 0 (MSF 00:02:00)
+    let pos = CDPosition::new(0, 2, 0);
     let sector = disc.read_sector(&pos).unwrap();
     assert_eq!(sector.len(), 2352);
     assert_eq!(sector[0], 0xAB);
 
-    // Read last sector
-    let pos = CDPosition::new(0, 0, 9);
+    // Read last sector at LBA 9 (MSF 00:02:09)
+    let pos = CDPosition::new(0, 2, 9);
     let sector = disc.read_sector(&pos).unwrap();
     assert_eq!(sector.len(), 2352);
 
-    // Read out of bounds
-    let pos = CDPosition::new(0, 0, 10);
+    // Read out of bounds (LBA 10, MSF 00:02:10)
+    let pos = CDPosition::new(0, 2, 10);
     assert!(disc.read_sector(&pos).is_none());
 
-    // Clean up
-    let _ = std::fs::remove_file(&cue_path);
-    let _ = std::fs::remove_file(&bin_path);
+    // Files automatically cleaned up when tempfile goes out of scope
 }
 
 #[test]
 fn test_cdrom_load_disc() {
-    // Create a temporary directory for test files
-    let temp_dir = std::env::temp_dir();
-    let cue_path = temp_dir.join("test_load.cue");
-    let bin_path = temp_dir.join("test_load.bin");
+    // Create unique temporary files
+    let bin_file = Builder::new()
+        .prefix("test_load_")
+        .suffix(".bin")
+        .tempfile()
+        .unwrap();
+    let bin_path = bin_file.path();
+    let bin_name = bin_path.file_name().unwrap().to_str().unwrap();
 
-    // Create mock files
-    let cue_content = r#"FILE "test_load.bin" BINARY
+    let cue_file = Builder::new()
+        .prefix("test_load_")
+        .suffix(".cue")
+        .tempfile()
+        .unwrap();
+    let cue_path = cue_file.path();
+
+    // Create mock files with proper pregap
+    let cue_content = format!(
+        r#"FILE "{}" BINARY
   TRACK 01 MODE2/2352
-    INDEX 01 00:00:00
-"#;
-    std::fs::write(&cue_path, cue_content).unwrap();
+    INDEX 01 00:02:00
+"#,
+        bin_name
+    );
+    std::fs::write(cue_path, cue_content).unwrap();
 
     let bin_data = vec![0x00; 2352 * 5]; // 5 sectors
-    std::fs::write(&bin_path, &bin_data).unwrap();
+    std::fs::write(bin_path, &bin_data).unwrap();
 
     // Load disc into CDROM
     let mut cdrom = CDROM::new();
@@ -450,50 +479,60 @@ fn test_cdrom_load_disc() {
     assert!(cdrom.has_disc());
     assert!(!cdrom.status.shell_open);
 
-    // Clean up
-    let _ = std::fs::remove_file(&cue_path);
-    let _ = std::fs::remove_file(&bin_path);
+    // Files automatically cleaned up when tempfile goes out of scope
 }
 
 #[test]
 fn test_cdrom_read_current_sector() {
-    // Create a temporary directory for test files
-    let temp_dir = std::env::temp_dir();
-    let cue_path = temp_dir.join("test_read.cue");
-    let bin_path = temp_dir.join("test_read.bin");
+    // Create unique temporary files
+    let bin_file = Builder::new()
+        .prefix("test_read_")
+        .suffix(".bin")
+        .tempfile()
+        .unwrap();
+    let bin_path = bin_file.path();
+    let bin_name = bin_path.file_name().unwrap().to_str().unwrap();
 
-    // Create mock files with recognizable pattern
-    let cue_content = r#"FILE "test_read.bin" BINARY
+    let cue_file = Builder::new()
+        .prefix("test_read_")
+        .suffix(".cue")
+        .tempfile()
+        .unwrap();
+    let cue_path = cue_file.path();
+
+    // Create mock files with recognizable pattern and proper pregap
+    let cue_content = format!(
+        r#"FILE "{}" BINARY
   TRACK 01 MODE2/2352
-    INDEX 01 00:00:00
-"#;
-    std::fs::write(&cue_path, cue_content).unwrap();
+    INDEX 01 00:02:00
+"#,
+        bin_name
+    );
+    std::fs::write(cue_path, cue_content).unwrap();
 
     let mut bin_data = Vec::new();
     for i in 0..5 {
         let mut sector = vec![i as u8; 2352];
         bin_data.append(&mut sector);
     }
-    std::fs::write(&bin_path, &bin_data).unwrap();
+    std::fs::write(bin_path, &bin_data).unwrap();
 
     // Load and read
     let mut cdrom = CDROM::new();
     cdrom.load_disc(cue_path.to_str().unwrap()).unwrap();
 
-    // Read sector at position 00:00:00
-    cdrom.set_position(CDPosition::new(0, 0, 0));
+    // Read sector at position 00:02:00 (LBA 0)
+    cdrom.set_position(CDPosition::new(0, 2, 0));
     let sector = cdrom.read_current_sector().unwrap();
     assert_eq!(sector.len(), 2352);
     assert_eq!(sector[0], 0); // First sector filled with 0
 
-    // Read sector at position 00:00:03
-    cdrom.set_position(CDPosition::new(0, 0, 3));
+    // Read sector at position 00:02:03 (LBA 3)
+    cdrom.set_position(CDPosition::new(0, 2, 3));
     let sector = cdrom.read_current_sector().unwrap();
     assert_eq!(sector[0], 3); // Fourth sector filled with 3
 
-    // Clean up
-    let _ = std::fs::remove_file(&cue_path);
-    let _ = std::fs::remove_file(&bin_path);
+    // Files automatically cleaned up when tempfile goes out of scope
 }
 
 #[test]
@@ -522,17 +561,31 @@ fn test_cdrom_position_accessors() {
 
 #[test]
 fn test_sector_reading() {
-    // Create a temporary disc image for testing
-    let temp_dir = std::env::temp_dir();
-    let cue_path = temp_dir.join("test_sector_reading.cue");
-    let bin_path = temp_dir.join("test_sector_reading.bin");
+    // Create unique temporary files
+    let bin_file = Builder::new()
+        .prefix("test_sector_reading_")
+        .suffix(".bin")
+        .tempfile()
+        .unwrap();
+    let bin_path = bin_file.path();
+    let bin_name = bin_path.file_name().unwrap().to_str().unwrap();
 
-    // Create mock .cue file
-    let cue_content = r#"FILE "test_sector_reading.bin" BINARY
+    let cue_file = Builder::new()
+        .prefix("test_sector_reading_")
+        .suffix(".cue")
+        .tempfile()
+        .unwrap();
+    let cue_path = cue_file.path();
+
+    // Create mock .cue file with proper pregap
+    let cue_content = format!(
+        r#"FILE "{}" BINARY
   TRACK 01 MODE2/2352
-    INDEX 01 00:00:00
-"#;
-    std::fs::write(&cue_path, cue_content).unwrap();
+    INDEX 01 00:02:00
+"#,
+        bin_name
+    );
+    std::fs::write(cue_path, cue_content).unwrap();
 
     // Create mock .bin file with recognizable pattern (10 sectors)
     let mut bin_data = Vec::new();
@@ -540,14 +593,14 @@ fn test_sector_reading() {
         let mut sector = vec![i as u8; 2352];
         bin_data.append(&mut sector);
     }
-    std::fs::write(&bin_path, &bin_data).unwrap();
+    std::fs::write(bin_path, &bin_data).unwrap();
 
     // Load disc into CDROM
     let mut cdrom = CDROM::new();
     cdrom.load_disc(cue_path.to_str().unwrap()).unwrap();
 
-    // Set position to start
-    cdrom.set_position(CDPosition::new(0, 0, 0));
+    // Set position to start at LBA 0 (MSF 00:02:00)
+    cdrom.set_position(CDPosition::new(0, 2, 0));
 
     // Start reading
     cdrom.execute_command(0x06); // ReadN
@@ -570,9 +623,9 @@ fn test_sector_reading() {
     // Check that interrupt was triggered (INT1 - data ready)
     assert_ne!(cdrom.interrupt_flag & 0x01, 0);
 
-    // Position should have advanced to next sector
+    // Position should have advanced to next sector (00:02:01)
     assert_eq!(cdrom.position.minute, 0);
-    assert_eq!(cdrom.position.second, 0);
+    assert_eq!(cdrom.position.second, 2);
     assert_eq!(cdrom.position.sector, 1);
 
     // Clear interrupt and continue reading
@@ -583,11 +636,10 @@ fn test_sector_reading() {
 
     // Should have second sector data
     assert_eq!(cdrom.data_buffer[0], 1); // Second sector filled with 1
+    assert_eq!(cdrom.position.second, 2);
     assert_eq!(cdrom.position.sector, 2);
 
-    // Clean up
-    let _ = std::fs::remove_file(&cue_path);
-    let _ = std::fs::remove_file(&bin_path);
+    // Files automatically cleaned up when tempfile goes out of scope
 }
 
 #[test]
@@ -722,40 +774,55 @@ fn test_track_length_calculation_realistic() {
     let cue_data = r#"
 FILE "game.bin" BINARY
   TRACK 01 MODE2/2352
-    INDEX 01 00:00:00
+    INDEX 01 00:02:00
   TRACK 02 AUDIO
-    INDEX 01 00:01:00
+    INDEX 01 00:03:00
 "#;
 
     let mut tracks = DiscImage::parse_cue(cue_data).unwrap();
 
-    // Track 1 starts at 0, track 2 starts at 1 second = 75 sectors
+    // Track 1 starts at 00:02:00 (LBA 0), track 2 starts at 00:03:00 (LBA 75)
     // Total file size: 150 sectors
     DiscImage::calculate_track_lengths(&mut tracks, 2352 * 150);
 
-    // Track 1: 75 sectors (from 0 to 75)
+    // Track 1: 75 sectors (LBA 0-74, file offset 0 to 75*2352)
     assert_eq!(tracks[0].length_sectors, 75);
 
-    // Track 2: 75 sectors (from 75 to 150)
+    // Track 2: 75 sectors (LBA 75-149, file offset 75*2352 to 150*2352)
     assert_eq!(tracks[1].length_sectors, 75);
 }
 
 #[test]
 fn test_get_track() {
-    let temp_dir = std::env::temp_dir();
-    let cue_path = temp_dir.join("test_get_track.cue");
-    let bin_path = temp_dir.join("test_get_track.bin");
+    // Create unique temporary files
+    let bin_file = Builder::new()
+        .prefix("test_get_track_")
+        .suffix(".bin")
+        .tempfile()
+        .unwrap();
+    let bin_path = bin_file.path();
+    let bin_name = bin_path.file_name().unwrap().to_str().unwrap();
 
-    let cue_content = r#"FILE "test_get_track.bin" BINARY
+    let cue_file = Builder::new()
+        .prefix("test_get_track_")
+        .suffix(".cue")
+        .tempfile()
+        .unwrap();
+    let cue_path = cue_file.path();
+
+    let cue_content = format!(
+        r#"FILE "{}" BINARY
   TRACK 01 MODE2/2352
-    INDEX 01 00:00:00
+    INDEX 01 00:02:00
   TRACK 02 AUDIO
-    INDEX 01 00:01:00
-"#;
-    std::fs::write(&cue_path, cue_content).unwrap();
+    INDEX 01 00:03:00
+"#,
+        bin_name
+    );
+    std::fs::write(cue_path, cue_content).unwrap();
 
     let bin_data = vec![0x00; 2352 * 150];
-    std::fs::write(&bin_path, &bin_data).unwrap();
+    std::fs::write(bin_path, &bin_data).unwrap();
 
     let disc = DiscImage::load(cue_path.to_str().unwrap()).unwrap();
 
@@ -775,7 +842,5 @@ fn test_get_track() {
     let track99 = disc.get_track(99);
     assert!(track99.is_none());
 
-    // Clean up
-    let _ = std::fs::remove_file(&cue_path);
-    let _ = std::fs::remove_file(&bin_path);
+    // Files automatically cleaned up when tempfile goes out of scope
 }

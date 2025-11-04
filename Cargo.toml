@@ -44,6 +44,7 @@ slint-build = "1.14.1"
 # Testing
 criterion = "0.7"
 proptest = "1.9"
+tempfile = "3.23"
 
 [[bench]]
 name = "cpu_bench"
