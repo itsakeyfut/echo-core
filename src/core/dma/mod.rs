@@ -182,9 +182,11 @@ impl DMAChannel {
 
 impl DMA {
     /// Channel 0: MDEC In (compression input)
+    #[allow(dead_code)]
     const CH_MDEC_IN: usize = 0;
 
     /// Channel 1: MDEC Out (decompression output)
+    #[allow(dead_code)]
     const CH_MDEC_OUT: usize = 1;
 
     /// Channel 2: GPU (graphics)
@@ -194,9 +196,11 @@ impl DMA {
     pub const CH_CDROM: usize = 3;
 
     /// Channel 4: SPU (sound)
+    #[allow(dead_code)]
     const CH_SPU: usize = 4;
 
     /// Channel 5: PIO (expansion port)
+    #[allow(dead_code)]
     const CH_PIO: usize = 5;
 
     /// Channel 6: OTC (ordering table clear)
