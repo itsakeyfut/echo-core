@@ -51,6 +51,7 @@
 //! ```
 
 use crate::core::cdrom::CDROM;
+use crate::core::dma::DMA;
 use crate::core::error::{EmulatorError, Result};
 use crate::core::gpu::GPU;
 use crate::core::interrupt::InterruptController;
@@ -150,6 +151,12 @@ pub struct Bus {
     /// The CDROM is shared between the System and Bus to allow
     /// memory-mapped register access while maintaining Rust's safety guarantees.
     cdrom: Option<Rc<RefCell<CDROM>>>,
+
+    /// DMA Controller reference (shared via Rc<RefCell>)
+    ///
+    /// The DMA is shared between the System and Bus to allow
+    /// memory-mapped register access while maintaining Rust's safety guarantees.
+    dma: Option<Rc<RefCell<DMA>>>,
 }
 
 impl Bus {
@@ -249,6 +256,21 @@ impl Bus {
     /// Interrupt Mask register (I_MASK)
     const I_MASK: u32 = 0x1F801074;
 
+    /// DMA Channel registers base addresses (0x1F801080-0x1F8010EF)
+    /// Each channel has 3 registers: MADR (+0x00), BCR (+0x04), CHCR (+0x08)
+    const DMA_CH0_BASE: u32 = 0x1F801080; // MDEC In
+    const DMA_CH1_BASE: u32 = 0x1F801090; // MDEC Out
+    const DMA_CH2_BASE: u32 = 0x1F8010A0; // GPU
+    const DMA_CH3_BASE: u32 = 0x1F8010B0; // CD-ROM
+    const DMA_CH4_BASE: u32 = 0x1F8010C0; // SPU
+    const DMA_CH5_BASE: u32 = 0x1F8010D0; // PIO
+    const DMA_CH6_BASE: u32 = 0x1F8010E0; // OTC
+
+    /// DMA Control Register (DPCR)
+    const DMA_DPCR: u32 = 0x1F8010F0;
+    /// DMA Interrupt Register (DICR)
+    const DMA_DICR: u32 = 0x1F8010F4;
+
     /// CD-ROM Index/Status register (0x1F801800)
     const CDROM_INDEX: u32 = 0x1F801800;
     /// CD-ROM registers (0x1F801801-0x1F801803)
@@ -287,6 +309,7 @@ impl Bus {
             timers: None,
             interrupt_controller: None,
             cdrom: None,
+            dma: None,
         }
     }
 
@@ -416,6 +439,31 @@ impl Bus {
     /// ```
     pub fn set_cdrom(&mut self, cdrom: Rc<RefCell<CDROM>>) {
         self.cdrom = Some(cdrom);
+    }
+
+    /// Set DMA reference for memory-mapped I/O
+    ///
+    /// Establishes the connection between the Bus and DMA for handling
+    /// DMA register accesses at memory-mapped addresses.
+    ///
+    /// # Arguments
+    ///
+    /// * `dma` - Shared reference to DMA
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::memory::Bus;
+    /// use psrx::core::dma::DMA;
+    /// use std::rc::Rc;
+    /// use std::cell::RefCell;
+    ///
+    /// let mut bus = Bus::new();
+    /// let dma = Rc::new(RefCell::new(DMA::new()));
+    /// bus.set_dma(dma.clone());
+    /// ```
+    pub fn set_dma(&mut self, dma: Rc<RefCell<DMA>>) {
+        self.dma = Some(dma);
     }
 
     /// Reset the bus to initial state

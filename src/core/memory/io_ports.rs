@@ -140,6 +140,55 @@ impl Bus {
                 }
             }
 
+            // DMA channel registers (0x1F801080-0x1F8010EF)
+            0x1F801080..=0x1F8010EF => {
+                if let Some(dma) = &self.dma {
+                    // Calculate channel and register offset
+                    let offset = paddr - 0x1F801080;
+                    let channel = (offset / 0x10) as usize;
+                    let reg = offset % 0x10;
+
+                    let value = match reg {
+                        0x00 => dma.borrow().read_madr(channel),
+                        0x04 => dma.borrow().read_bcr(channel),
+                        0x08 => dma.borrow().read_chcr(channel),
+                        _ => {
+                            log::warn!("Invalid DMA register offset 0x{:02X}", reg);
+                            0
+                        }
+                    };
+                    log::trace!("DMA{} reg+0x{:X} read -> 0x{:08X}", channel, reg, value);
+                    Ok(value)
+                } else {
+                    log::warn!("DMA access before DMA initialized");
+                    Ok(0)
+                }
+            }
+
+            // DMA Control Register (DPCR) (0x1F8010F0)
+            Self::DMA_DPCR => {
+                if let Some(dma) = &self.dma {
+                    let value = dma.borrow().read_control();
+                    log::trace!("DPCR read at 0x{:08X} -> 0x{:08X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("DPCR access before DMA initialized");
+                    Ok(0x07654321)
+                }
+            }
+
+            // DMA Interrupt Register (DICR) (0x1F8010F4)
+            Self::DMA_DICR => {
+                if let Some(dma) = &self.dma {
+                    let value = dma.borrow().read_interrupt();
+                    log::trace!("DICR read at 0x{:08X} -> 0x{:08X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!("DICR access before DMA initialized");
+                    Ok(0)
+                }
+            }
+
             // Timer 0 Counter (0x1F801100)
             Self::TIMER0_COUNTER => {
                 if let Some(timers) = &self.timers {
@@ -362,6 +411,54 @@ impl Bus {
                     Ok(())
                 } else {
                     log::warn!("I_MASK write before interrupt_controller initialized");
+                    Ok(())
+                }
+            }
+
+            // DMA channel registers (0x1F801080-0x1F8010EF)
+            0x1F801080..=0x1F8010EF => {
+                if let Some(dma) = &self.dma {
+                    // Calculate channel and register offset
+                    let offset = paddr - 0x1F801080;
+                    let channel = (offset / 0x10) as usize;
+                    let reg = offset % 0x10;
+
+                    match reg {
+                        0x00 => dma.borrow_mut().write_madr(channel, value),
+                        0x04 => dma.borrow_mut().write_bcr(channel, value),
+                        0x08 => dma.borrow_mut().write_chcr(channel, value),
+                        _ => {
+                            log::warn!("Invalid DMA register offset 0x{:02X}", reg);
+                        }
+                    }
+                    log::trace!("DMA{} reg+0x{:X} write = 0x{:08X}", channel, reg, value);
+                    Ok(())
+                } else {
+                    log::warn!("DMA write before DMA initialized");
+                    Ok(())
+                }
+            }
+
+            // DMA Control Register (DPCR) (0x1F8010F0)
+            Self::DMA_DPCR => {
+                if let Some(dma) = &self.dma {
+                    dma.borrow_mut().write_control(value);
+                    log::trace!("DPCR write at 0x{:08X} = 0x{:08X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("DPCR write before DMA initialized");
+                    Ok(())
+                }
+            }
+
+            // DMA Interrupt Register (DICR) (0x1F8010F4)
+            Self::DMA_DICR => {
+                if let Some(dma) = &self.dma {
+                    dma.borrow_mut().write_interrupt(value);
+                    log::trace!("DICR write at 0x{:08X} = 0x{:08X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!("DICR write before DMA initialized");
                     Ok(())
                 }
             }
