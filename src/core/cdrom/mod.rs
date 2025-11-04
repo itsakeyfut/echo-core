@@ -415,7 +415,6 @@ impl CDROM {
     /// cdrom.execute_command(0x01); // GetStat
     /// assert!(!cdrom.response_empty());
     /// ```
-
     /// Generate status byte from current drive state
     ///
     /// The status byte encodes various drive states:
