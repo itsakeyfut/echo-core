@@ -306,16 +306,24 @@ impl GPU {
 
             // Read color+vertex pair
             let color_word = self.command_fifo.pop_front().unwrap();
-            colors.push(Color::from_u32(color_word));
 
+            // Check if next word exists and is a terminator before committing the color
             if let Some(&vertex_word) = self.command_fifo.front() {
                 if vertex_word == 0x5000_5000 || vertex_word == 0x5555_5555 {
-                    // Terminator encountered, exit loop without popping
-                    // (it will be popped on next iteration)
-                    continue;
+                    // Terminator follows color - malformed command
+                    // Don't add color without matching vertex to maintain colors.len() == vertices.len()
+                    log::warn!(
+                        "Shaded polyline has color without matching vertex before terminator"
+                    );
+                    break;
                 }
                 let vertex_word = self.command_fifo.pop_front().unwrap();
+                colors.push(Color::from_u32(color_word));
                 vertices.push(Vertex::from_u32(vertex_word));
+            } else {
+                // No more words after color - shouldn't happen as we checked for terminator
+                log::warn!("Shaded polyline color without vertex at end of FIFO");
+                break;
             }
 
             // Safety limit to prevent infinite loops
@@ -374,16 +382,24 @@ impl GPU {
 
             // Read color+vertex pair
             let color_word = self.command_fifo.pop_front().unwrap();
-            colors.push(Color::from_u32(color_word));
 
+            // Check if next word exists and is a terminator before committing the color
             if let Some(&vertex_word) = self.command_fifo.front() {
                 if vertex_word == 0x5000_5000 || vertex_word == 0x5555_5555 {
-                    // Terminator encountered, exit loop without popping
-                    // (it will be popped on next iteration)
-                    continue;
+                    // Terminator follows color - malformed command
+                    // Don't add color without matching vertex to maintain colors.len() == vertices.len()
+                    log::warn!(
+                        "Shaded polyline has color without matching vertex before terminator"
+                    );
+                    break;
                 }
                 let vertex_word = self.command_fifo.pop_front().unwrap();
+                colors.push(Color::from_u32(color_word));
                 vertices.push(Vertex::from_u32(vertex_word));
+            } else {
+                // No more words after color - shouldn't happen as we checked for terminator
+                log::warn!("Shaded polyline color without vertex at end of FIFO");
+                break;
             }
 
             // Safety limit
