@@ -679,13 +679,21 @@ impl GPU {
             0x38 => self.parse_shaded_quad_opaque(),
             0x3A => self.parse_shaded_quad_semi_transparent(),
 
-            // Lines
+            // Lines (monochrome)
             0x40 => self.parse_line_opaque(),
             0x42 => self.parse_line_semi_transparent(),
 
-            // Polylines
+            // Polylines (monochrome)
             0x48 => self.parse_polyline_opaque(),
             0x4A => self.parse_polyline_semi_transparent(),
+
+            // Lines (shaded/Gouraud)
+            0x50 => self.parse_shaded_line_opaque(),
+            0x52 => self.parse_shaded_line_semi_transparent(),
+
+            // Polylines (shaded/Gouraud)
+            0x58 => self.parse_shaded_polyline_opaque(),
+            0x5A => self.parse_shaded_polyline_semi_transparent(),
 
             // Monochrome rectangles
             0x60 => self.parse_monochrome_rect_variable_opaque(),

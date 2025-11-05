@@ -725,6 +725,164 @@ impl Rasterizer {
         }
     }
 
+    /// Draw a line with gradient color interpolation (Gouraud shading)
+    ///
+    /// Draws a line segment between two points with colors interpolated linearly
+    /// between the two endpoints. Uses Bresenham's algorithm for line rasterization
+    /// and linear interpolation for color.
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Mutable reference to VRAM buffer
+    /// * `x0` - Start X coordinate
+    /// * `y0` - Start Y coordinate
+    /// * `c0` - Start color (r, g, b) in 8-bit RGB
+    /// * `x1` - End X coordinate
+    /// * `y1` - End Y coordinate
+    /// * `c1` - End color (r, g, b) in 8-bit RGB
+    ///
+    /// # Algorithm
+    ///
+    /// Uses Bresenham's line algorithm with linear color interpolation:
+    /// 1. Calculate line parameters (dx, dy, steps)
+    /// 2. For each pixel along the line:
+    ///    - Calculate interpolation factor t = distance / total_length
+    ///    - Interpolate color: C = c0 * (1-t) + c1 * t
+    ///    - Convert to 15-bit and write pixel
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::gpu::Rasterizer;
+    ///
+    /// let mut vram = vec![0u16; 1024 * 512];
+    /// let mut rasterizer = Rasterizer::new();
+    ///
+    /// // Draw a gradient line from red to blue
+    /// rasterizer.draw_gradient_line(&mut vram, 0, 0, (255, 0, 0), 100, 100, (0, 0, 255));
+    /// ```
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_gradient_line(
+        &mut self,
+        vram: &mut [u16],
+        x0: i16,
+        y0: i16,
+        c0: (u8, u8, u8),
+        x1: i16,
+        y1: i16,
+        c1: (u8, u8, u8),
+    ) {
+        let dx = (x1 - x0).abs();
+        let dy = -(y1 - y0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+
+        // Calculate total distance for interpolation
+        let total_distance = ((dx * dx + dy * dy) as f32).sqrt();
+        if total_distance == 0.0 {
+            // Single point - just draw it with the start color
+            let (clip_left, clip_top, clip_right, clip_bottom) = self.clip_rect;
+            if x0 >= clip_left && x0 <= clip_right && y0 >= clip_top && y0 <= clip_bottom {
+                let color = Self::rgb_to_rgb15(c0.0, c0.1, c0.2);
+                Self::write_pixel(vram, x0, y0, color);
+            }
+            return;
+        }
+
+        let mut x = x0;
+        let mut y = y0;
+
+        loop {
+            // Check clipping bounds before drawing
+            let (clip_left, clip_top, clip_right, clip_bottom) = self.clip_rect;
+            if x >= clip_left && x <= clip_right && y >= clip_top && y <= clip_bottom {
+                // Calculate interpolation factor (0.0 at start, 1.0 at end)
+                let dist_x = x - x0;
+                let dist_y = y - y0;
+                let current_distance = ((dist_x * dist_x + dist_y * dist_y) as f32).sqrt();
+                let t = current_distance / total_distance;
+
+                // Interpolate color
+                let r = (c0.0 as f32 * (1.0 - t) + c1.0 as f32 * t) as u8;
+                let g = (c0.1 as f32 * (1.0 - t) + c1.1 as f32 * t) as u8;
+                let b = (c0.2 as f32 * (1.0 - t) + c1.2 as f32 * t) as u8;
+
+                let color = Self::rgb_to_rgb15(r, g, b);
+                Self::write_pixel(vram, x, y, color);
+            }
+
+            if x == x1 && y == y1 {
+                break;
+            }
+
+            let e2 = 2 * err;
+            if e2 >= dy {
+                err += dy;
+                x += sx;
+            }
+            if e2 <= dx {
+                err += dx;
+                y += sy;
+            }
+        }
+    }
+
+    /// Draw a gradient polyline (connected line segments with per-vertex colors)
+    ///
+    /// Draws multiple connected line segments with colors interpolated between
+    /// consecutive vertices. Each line segment uses gradient interpolation.
+    ///
+    /// # Arguments
+    ///
+    /// * `vram` - Mutable reference to VRAM buffer
+    /// * `points` - Slice of (x, y) coordinates defining the polyline vertices
+    /// * `colors` - Slice of (r, g, b) colors for each vertex in 8-bit RGB
+    ///
+    /// # Notes
+    ///
+    /// Requires at least 2 points and 2 colors. The number of colors should
+    /// match the number of points.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use psrx::core::gpu::Rasterizer;
+    ///
+    /// let mut vram = vec![0u16; 1024 * 512];
+    /// let mut rasterizer = Rasterizer::new();
+    ///
+    /// // Draw a gradient polyline: red -> green -> blue
+    /// let points = [(100, 100), (200, 100), (150, 200)];
+    /// let colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255)];
+    /// rasterizer.draw_gradient_polyline(&mut vram, &points, &colors);
+    /// ```
+    pub fn draw_gradient_polyline(
+        &mut self,
+        vram: &mut [u16],
+        points: &[(i16, i16)],
+        colors: &[(u8, u8, u8)],
+    ) {
+        if points.len() < 2 || colors.len() < 2 {
+            return;
+        }
+
+        // Use the minimum of points and colors length
+        let len = points.len().min(colors.len());
+
+        for i in 0..len - 1 {
+            self.draw_gradient_line(
+                vram,
+                points[i].0,
+                points[i].1,
+                colors[i],
+                points[i + 1].0,
+                points[i + 1].1,
+                colors[i + 1],
+            );
+        }
+    }
+
     /// Draw a gradient triangle with per-vertex colors
     ///
     /// Renders a triangle with colors interpolated across the surface using
