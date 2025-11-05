@@ -136,4 +136,126 @@ impl GPU {
         self.rasterizer
             .draw_polyline(&mut self.vram, &points, color_15bit);
     }
+
+    /// Render a shaded line with Gouraud shading
+    ///
+    /// Applies the drawing offset to both vertices and rasterizes the line
+    /// with color interpolation between the two endpoints.
+    ///
+    /// # Arguments
+    ///
+    /// * `v0` - Start vertex
+    /// * `c0` - Start vertex color
+    /// * `v1` - End vertex
+    /// * `c1` - End vertex color
+    /// * `semi_transparent` - Whether semi-transparency is enabled
+    ///
+    /// # Notes
+    ///
+    /// Semi-transparency is currently ignored (will be implemented in #36).
+    /// The drawing offset is applied to both endpoints before rasterization.
+    pub(in crate::core::gpu) fn render_shaded_line(
+        &mut self,
+        v0: Vertex,
+        c0: Color,
+        v1: Vertex,
+        c1: Color,
+        semi_transparent: bool,
+    ) {
+        // Apply drawing offset
+        let x0 = v0.x.wrapping_add(self.draw_offset.0);
+        let y0 = v0.y.wrapping_add(self.draw_offset.1);
+        let x1 = v1.x.wrapping_add(self.draw_offset.0);
+        let y1 = v1.y.wrapping_add(self.draw_offset.1);
+
+        log::trace!(
+            "Rendering {}shaded line: ({}, {}) color=({},{},{}) -> ({}, {}) color=({},{},{})",
+            if semi_transparent {
+                "semi-transparent "
+            } else {
+                ""
+            },
+            x0,
+            y0,
+            c0.r,
+            c0.g,
+            c0.b,
+            x1,
+            y1,
+            c1.r,
+            c1.g,
+            c1.b
+        );
+
+        // For now, ignore semi_transparent (will be implemented in #36)
+        let _ = semi_transparent;
+
+        // Rasterize the line with color interpolation
+        self.rasterizer.draw_gradient_line(
+            &mut self.vram,
+            x0,
+            y0,
+            (c0.r, c0.g, c0.b),
+            x1,
+            y1,
+            (c1.r, c1.g, c1.b),
+        );
+    }
+
+    /// Render a shaded polyline (connected line segments with per-vertex colors)
+    ///
+    /// Applies the drawing offset to all vertices and draws connected line
+    /// segments with color interpolation between consecutive vertices.
+    ///
+    /// # Arguments
+    ///
+    /// * `vertices` - Slice of vertices defining the polyline
+    /// * `colors` - Slice of colors for each vertex
+    /// * `semi_transparent` - Whether semi-transparency is enabled
+    ///
+    /// # Notes
+    ///
+    /// Requires at least 2 vertices and 2 colors. If fewer than 2 are provided,
+    /// no drawing occurs. The number of colors should match the number of vertices.
+    pub(in crate::core::gpu) fn render_shaded_polyline(
+        &mut self,
+        vertices: &[Vertex],
+        colors: &[Color],
+        semi_transparent: bool,
+    ) {
+        if vertices.len() < 2 || colors.len() < 2 {
+            return;
+        }
+
+        log::trace!(
+            "Rendering {}shaded polyline with {} vertices",
+            if semi_transparent {
+                "semi-transparent "
+            } else {
+                ""
+            },
+            vertices.len()
+        );
+
+        // For now, ignore semi_transparent (will be implemented in #36)
+        let _ = semi_transparent;
+
+        // Apply drawing offset to all vertices
+        let points: Vec<(i16, i16)> = vertices
+            .iter()
+            .map(|v| {
+                (
+                    v.x.wrapping_add(self.draw_offset.0),
+                    v.y.wrapping_add(self.draw_offset.1),
+                )
+            })
+            .collect();
+
+        // Convert colors to tuples
+        let color_tuples: Vec<(u8, u8, u8)> = colors.iter().map(|c| (c.r, c.g, c.b)).collect();
+
+        // Rasterize the shaded polyline
+        self.rasterizer
+            .draw_gradient_polyline(&mut self.vram, &points, &color_tuples);
+    }
 }
