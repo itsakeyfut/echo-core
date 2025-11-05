@@ -477,6 +477,9 @@ impl System {
                 .request(interrupts::TIMER2);
         }
 
+        // Tick CD-ROM drive (synchronized with CPU cycles)
+        self.cdrom.borrow_mut().tick(cpu_cycles);
+
         // TODO: Step SPU in future phases
         // self.spu.step()?;
 

@@ -9,6 +9,9 @@ plan/
 SCPH*.BIN
 SCPH*.bin
 
+# ROM files (copyrighted, must not be committed)
+*.cue
+
 # Environment configuration (keep .env.example)
 .env
 
