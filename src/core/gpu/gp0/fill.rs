@@ -63,7 +63,7 @@ impl GPU {
     /// let mut gpu = GPU::new();
     ///
     /// // Fill 100×100 region at (50, 50) with red (0xFF0000)
-    /// gpu.write_gp0(0x02FF0000); // Command + Red color
+    /// gpu.write_gp0(0x020000FF); // Command + Red color (red in bits 0-7)
     /// gpu.write_gp0(0x00320032); // X=50, Y=50
     /// gpu.write_gp0(0x00640064); // Width=100, Height=100
     ///
