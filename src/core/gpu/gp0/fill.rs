@@ -107,9 +107,11 @@ impl GPU {
         let x = x & 0x3FF; // 10-bit (0-1023)
         let y = y & 0x1FF; // 9-bit (0-511)
 
-        // Apply width/height masking
-        let width = width & 0x3FF; // 10-bit max
-        let height = height & 0x1FF; // 9-bit max
+        // Apply width/height masking (zero encodes full span on hardware)
+        let width_raw = width & 0x3FF; // 10-bit max (0 ⇒ 1024 pixels)
+        let width = if width_raw == 0 { 0x400 } else { width_raw };
+        let height_raw = height & 0x1FF; // 9-bit max (0 ⇒ 512 pixels)
+        let height = if height_raw == 0 { 0x200 } else { height_raw };
 
         // Hardware aligns width to 16-pixel boundaries (rounds up)
         let aligned_width = (width + 15) & !15;
@@ -267,12 +269,13 @@ mod tests {
     fn test_fill_rectangle_zero_size() {
         let mut gpu = GPU::new();
 
-        // Fill with zero width/height - should do nothing
+        // Fill with zero width/height - hardware treats this as full VRAM (1024×512)
         gpu.write_gp0(0x02FFFFFF); // Command + White color
         gpu.write_gp0(0x00000000); // X=0, Y=0
         gpu.write_gp0(0x00000000); // Width=0, Height=0
 
-        // VRAM should remain black
-        assert_eq!(gpu.read_vram(0, 0), 0x0000);
+        // Zero dimensions map to the full 1024×512 VRAM region
+        assert_eq!(gpu.read_vram(0, 0), 0x7FFF);
+        assert_eq!(gpu.read_vram(1023, 511), 0x7FFF);
     }
 }
