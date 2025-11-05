@@ -17,12 +17,14 @@
 //!
 //! This module implements all GP0 command processing including:
 //! - VRAM transfer operations (CPU↔VRAM, VRAM↔VRAM)
+//! - VRAM fill operations (Fill Rectangle)
 //! - Polygon rendering (triangles, quadrilaterals)
 //! - Rectangle rendering (monochrome and textured)
 //! - Line rendering
 //! - Drawing mode settings (texture page, draw area, draw offset, etc.)
 
 mod drawing_mode;
+mod fill;
 mod line;
 mod polygon;
 mod rectangle;
