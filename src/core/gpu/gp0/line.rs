@@ -312,6 +312,7 @@ impl GPU {
                 if vertex_word == 0x5000_5000 || vertex_word == 0x5555_5555 {
                     // Terminator follows color - malformed command
                     // Don't add color without matching vertex to maintain colors.len() == vertices.len()
+                    self.command_fifo.pop_front(); // Pop terminator to maintain FIFO sync
                     log::warn!(
                         "Shaded polyline has color without matching vertex before terminator"
                     );
@@ -388,6 +389,7 @@ impl GPU {
                 if vertex_word == 0x5000_5000 || vertex_word == 0x5555_5555 {
                     // Terminator follows color - malformed command
                     // Don't add color without matching vertex to maintain colors.len() == vertices.len()
+                    self.command_fifo.pop_front(); // Pop terminator to maintain FIFO sync
                     log::warn!(
                         "Shaded polyline has color without matching vertex before terminator"
                     );
