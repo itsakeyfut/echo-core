@@ -1850,3 +1850,184 @@ fn test_is_in_vblank() {
 
     assert!(!gpu.is_in_vblank());
 }
+
+// ========== Shaded Line Tests ==========
+
+#[test]
+fn test_shaded_line_rendering() {
+    let mut gpu = GPU::new();
+
+    let v0 = Vertex { x: 10, y: 10 };
+    let c0 = Color { r: 255, g: 0, b: 0 }; // Red
+    let v1 = Vertex { x: 50, y: 50 };
+    let c1 = Color { r: 0, g: 0, b: 255 }; // Blue
+
+    gpu.render_shaded_line(v0, c0, v1, c1, false);
+
+    // Check start and end points are drawn
+    assert_ne!(gpu.read_vram(10, 10), 0);
+    assert_ne!(gpu.read_vram(50, 50), 0);
+
+    // Check a point on the line (should have interpolated color)
+    assert_ne!(gpu.read_vram(30, 30), 0);
+}
+
+#[test]
+fn test_shaded_line_with_drawing_offset() {
+    let mut gpu = GPU::new();
+    gpu.draw_offset = (100, 100);
+
+    let v0 = Vertex { x: 10, y: 10 };
+    let c0 = Color { r: 255, g: 0, b: 0 };
+    let v1 = Vertex { x: 50, y: 50 };
+    let c1 = Color { r: 0, g: 255, b: 0 };
+
+    gpu.render_shaded_line(v0, c0, v1, c1, false);
+
+    // Line should be drawn at offset position
+    assert_ne!(gpu.read_vram(110, 110), 0); // 10 + 100
+    assert_ne!(gpu.read_vram(150, 150), 0); // 50 + 100
+}
+
+#[test]
+fn test_shaded_polyline_rendering() {
+    let mut gpu = GPU::new();
+
+    let vertices = vec![
+        Vertex { x: 10, y: 10 },
+        Vertex { x: 50, y: 10 },
+        Vertex { x: 50, y: 50 },
+    ];
+    let colors = vec![
+        Color { r: 255, g: 0, b: 0 }, // Red
+        Color { r: 0, g: 255, b: 0 }, // Green
+        Color { r: 0, g: 0, b: 255 }, // Blue
+    ];
+
+    gpu.render_shaded_polyline(&vertices, &colors, false);
+
+    // Check vertices
+    assert_ne!(gpu.read_vram(10, 10), 0);
+    assert_ne!(gpu.read_vram(50, 10), 0);
+    assert_ne!(gpu.read_vram(50, 50), 0);
+
+    // Check points on edges (should have interpolated colors)
+    assert_ne!(gpu.read_vram(30, 10), 0); // On first segment
+    assert_ne!(gpu.read_vram(50, 30), 0); // On second segment
+}
+
+#[test]
+fn test_gp0_shaded_line_command() {
+    let mut gpu = GPU::new();
+
+    // GP0(0x50): Shaded Line command (opaque)
+    // Word 0: 0x50FF0000 (command + red color)
+    // Word 1: 0x000A000A (vertex1: 10, 10)
+    // Word 2: 0x000000FF (color2: blue)
+    // Word 3: 0x00320032 (vertex2: 50, 50)
+    gpu.write_gp0(0x50FF_0000);
+    gpu.write_gp0(0x000A_000A);
+    gpu.write_gp0(0x0000_00FF);
+    gpu.write_gp0(0x0032_0032);
+
+    // Check line was drawn
+    assert_ne!(gpu.read_vram(10, 10), 0);
+    assert_ne!(gpu.read_vram(50, 50), 0);
+    assert_ne!(gpu.read_vram(30, 30), 0);
+}
+
+#[test]
+fn test_gp0_shaded_line_semi_transparent() {
+    let mut gpu = GPU::new();
+
+    // GP0(0x52): Shaded Line command (semi-transparent)
+    gpu.write_gp0(0x52FF_FF00); // Yellow
+    gpu.write_gp0(0x0014_0014); // (20, 20)
+    gpu.write_gp0(0x0000_FFFF); // Cyan
+    gpu.write_gp0(0x003C_003C); // (60, 60)
+
+    // Check line was drawn
+    assert_ne!(gpu.read_vram(20, 20), 0);
+    assert_ne!(gpu.read_vram(60, 60), 0);
+}
+
+#[test]
+fn test_gp0_shaded_polyline_command() {
+    let mut gpu = GPU::new();
+
+    // GP0(0x58): Shaded Polyline command (opaque)
+    gpu.write_gp0(0x58FF_0000); // Red
+    gpu.write_gp0(0x000A_000A); // Vertex1 (10, 10)
+    gpu.write_gp0(0x0000_FF00); // Green
+    gpu.write_gp0(0x0032_000A); // Vertex2 (10, 50)
+    gpu.write_gp0(0x0000_00FF); // Blue
+    gpu.write_gp0(0x0032_0032); // Vertex3 (50, 50)
+    gpu.write_gp0(0x5555_5555); // Terminator
+
+    // Check vertices
+    assert_ne!(gpu.read_vram(10, 10), 0);
+    assert_ne!(gpu.read_vram(10, 50), 0);
+    assert_ne!(gpu.read_vram(50, 50), 0);
+}
+
+#[test]
+fn test_gp0_shaded_polyline_terminator() {
+    let mut gpu = GPU::new();
+
+    // Test with alternative terminator 0x50005000
+    gpu.write_gp0(0x5800_00FF); // Blue
+    gpu.write_gp0(0x0014_0014); // (20, 20)
+    gpu.write_gp0(0x00FF_0000); // Red
+    gpu.write_gp0(0x0028_0014); // (20, 40)
+    gpu.write_gp0(0x5000_5000); // Alternative terminator
+
+    // Check vertices
+    assert_ne!(gpu.read_vram(20, 20), 0);
+    assert_ne!(gpu.read_vram(20, 40), 0);
+}
+
+#[test]
+fn test_shaded_polyline_semi_transparent() {
+    let mut gpu = GPU::new();
+
+    // GP0(0x5A): Shaded Polyline (semi-transparent)
+    gpu.write_gp0(0x5AFF_FF00); // Yellow
+    gpu.write_gp0(0x000F_000F); // (15, 15)
+    gpu.write_gp0(0x00FF_00FF); // Magenta
+    gpu.write_gp0(0x0023_000F); // (15, 35)
+    gpu.write_gp0(0x0000_FFFF); // Cyan
+    gpu.write_gp0(0x0023_0023); // (35, 35)
+    gpu.write_gp0(0x5555_5555); // Terminator
+
+    // Check vertices
+    assert_ne!(gpu.read_vram(15, 15), 0);
+    assert_ne!(gpu.read_vram(15, 35), 0);
+    assert_ne!(gpu.read_vram(35, 35), 0);
+}
+
+#[test]
+fn test_shaded_line_parsing_incomplete_data() {
+    let mut gpu = GPU::new();
+
+    // Send incomplete shaded line command (only 2 words instead of 4)
+    gpu.write_gp0(0x50FF_0000);
+    gpu.write_gp0(0x000A_000A);
+
+    // Should not crash, command should remain in FIFO waiting for more data
+    assert!(!gpu.command_fifo.is_empty());
+}
+
+#[test]
+fn test_shaded_polyline_parsing_incomplete_data() {
+    let mut gpu = GPU::new();
+
+    // Send shaded polyline without terminator
+    gpu.write_gp0(0x58FF_0000);
+    gpu.write_gp0(0x000A_000A);
+    gpu.write_gp0(0x0000_FF00);
+    gpu.write_gp0(0x0032_000A);
+
+    // Should not process until terminator arrives
+    // Command should remain in FIFO
+    assert!(!gpu.command_fifo.is_empty());
+}
