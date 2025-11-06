@@ -69,7 +69,8 @@ fn main() -> Result<()> {
             .load_disc(cdrom_path)
             .map_err(|e| {
                 error!("Failed to load CD-ROM: {}", e);
-                psrx::core::error::EmulatorError::Parse(format!("Failed to load CD-ROM: {}", e))
+                // CdRomError is automatically converted to EmulatorError via #[from]
+                psrx::core::error::EmulatorError::CdRom(e)
             })?;
         info!("CD-ROM loaded successfully");
     }

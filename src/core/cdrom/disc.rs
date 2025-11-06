@@ -19,6 +19,7 @@
 //! and provides sector reading functionality.
 
 use super::CDPosition;
+use crate::core::error::CdRomError;
 
 /// Disc image loaded from .bin/.cue files
 ///
@@ -91,7 +92,7 @@ impl DiscImage {
     /// # Returns
     ///
     /// - `Ok(DiscImage)` if loading succeeded
-    /// - `Err(Box<dyn std::error::Error>)` if loading failed
+    /// - `Err(CdRomError)` if loading failed
     ///
     /// # Example
     ///
@@ -100,12 +101,14 @@ impl DiscImage {
     ///
     /// let disc = DiscImage::load("game.cue").unwrap();
     /// ```
-    pub fn load(cue_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load(cue_path: &str) -> Result<Self, CdRomError> {
         let cue_data = std::fs::read_to_string(cue_path)?;
         let bin_path = Self::get_bin_path_from_cue(cue_path, &cue_data)?;
 
         let mut tracks = Self::parse_cue(&cue_data)?;
-        let data = std::fs::read(bin_path)?;
+        let data = std::fs::read(&bin_path).map_err(|e| {
+            CdRomError::DiscLoadError(format!("Failed to read bin file '{}': {}", bin_path, e))
+        })?;
 
         // Calculate track lengths based on file size and positions
         Self::calculate_track_lengths(&mut tracks, data.len());
@@ -131,10 +134,7 @@ impl DiscImage {
     /// # Returns
     ///
     /// Full path to the .bin file
-    fn get_bin_path_from_cue(
-        cue_path: &str,
-        cue_data: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    fn get_bin_path_from_cue(cue_path: &str, cue_data: &str) -> Result<String, CdRomError> {
         // Find FILE directive
         for line in cue_data.lines() {
             let line = line.trim();
@@ -158,7 +158,9 @@ impl DiscImage {
             }
         }
 
-        Err("No FILE directive found in .cue file".into())
+        Err(CdRomError::DiscLoadError(
+            "No FILE directive found in .cue file".to_string(),
+        ))
     }
 
     /// Parse .cue file content to extract track information
@@ -170,7 +172,7 @@ impl DiscImage {
     /// # Returns
     ///
     /// Vector of tracks parsed from the .cue file
-    pub(super) fn parse_cue(cue_data: &str) -> Result<Vec<Track>, Box<dyn std::error::Error>> {
+    pub(super) fn parse_cue(cue_data: &str) -> Result<Vec<Track>, CdRomError> {
         let mut tracks = Vec::new();
         let mut current_track: Option<Track> = None;
 
@@ -224,16 +226,29 @@ impl DiscImage {
     /// # Returns
     ///
     /// CDPosition parsed from the string
-    pub(super) fn parse_msf(msf: &str) -> Result<CDPosition, Box<dyn std::error::Error>> {
+    pub(super) fn parse_msf(msf: &str) -> Result<CDPosition, CdRomError> {
         let parts: Vec<&str> = msf.split(':').collect();
         if parts.len() != 3 {
-            return Err("Invalid MSF format".into());
+            return Err(CdRomError::DiscLoadError(format!(
+                "Invalid MSF format: '{}'",
+                msf
+            )));
         }
 
+        let minute = parts[0]
+            .parse()
+            .map_err(|_| CdRomError::DiscLoadError(format!("Invalid minute in MSF: '{}'", msf)))?;
+        let second = parts[1]
+            .parse()
+            .map_err(|_| CdRomError::DiscLoadError(format!("Invalid second in MSF: '{}'", msf)))?;
+        let sector = parts[2]
+            .parse()
+            .map_err(|_| CdRomError::DiscLoadError(format!("Invalid sector in MSF: '{}'", msf)))?;
+
         Ok(CDPosition {
-            minute: parts[0].parse()?,
-            second: parts[1].parse()?,
-            sector: parts[2].parse()?,
+            minute,
+            second,
+            sector,
         })
     }
 

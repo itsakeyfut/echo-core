@@ -95,4 +95,10 @@ pub enum CdRomError {
 
     #[error("Seek error: {0}")]
     SeekError(String),
+
+    #[error("Disc load error: {0}")]
+    DiscLoadError(String),
+
+    #[error("I/O error: {0}")]
+    IoError(#[from] std::io::Error),
 }

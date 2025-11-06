@@ -500,7 +500,7 @@ impl CDROM {
     /// # Returns
     ///
     /// - `Ok(())` if disc loaded successfully
-    /// - `Err(Box<dyn std::error::Error>)` if loading failed
+    /// - `Err(CdRomError)` if loading failed
     ///
     /// # Example
     ///
@@ -510,7 +510,7 @@ impl CDROM {
     /// let mut cdrom = CDROM::new();
     /// cdrom.load_disc("game.cue").unwrap();
     /// ```
-    pub fn load_disc(&mut self, cue_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn load_disc(&mut self, cue_path: &str) -> Result<(), crate::core::error::CdRomError> {
         let disc = DiscImage::load(cue_path)?;
         self.disc = Some(disc);
         self.status.shell_open = false;
