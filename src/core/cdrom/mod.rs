@@ -35,6 +35,7 @@
 //! | 0x0A    | Init    | Initialize drive                         |
 //! | 0x0E    | SetMode | Set drive mode (speed, sector size, etc) |
 //! | 0x15    | SeekL   | Seek to target position (data)           |
+//! | 0x19    | Test    | Test/diagnostic commands                 |
 //! | 0x1A    | GetID   | Get disc identification                  |
 //! | 0x1B    | ReadS   | Start reading sectors with retry         |
 //! | 0x1E    | ReadTOC | Read table of contents                   |
@@ -131,8 +132,41 @@ pub struct CDROM {
     /// Loaded disc image (if any)
     pub(super) disc: Option<DiscImage>,
 
+    /// Drive mode settings (speed, sector size, etc)
+    pub(super) mode: CDMode,
+
     /// Current index/status register select
     index: u8,
+}
+
+/// CD-ROM drive mode settings
+///
+/// Controls drive behavior such as read speed, sector size, and read mode.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct CDMode {
+    /// Double speed (2x) mode enabled
+    pub(super) double_speed: bool,
+
+    /// XA-ADPCM enabled
+    pub(super) xa_adpcm: bool,
+
+    /// XA-Filter enabled (process only XA-ADPCM sectors that match filter)
+    pub(super) xa_filter: bool,
+
+    /// Sector size: true = 2340/2328 bytes (whole sector), false = 2048/2024 bytes (data only)
+    pub(super) size_2340: bool,
+
+    /// Ignore bit
+    pub(super) ignore_bit: bool,
+
+    /// Report interrupts for all sectors (not just data sectors)
+    pub(super) report_all: bool,
+
+    /// Auto pause at end of track
+    pub(super) auto_pause: bool,
+
+    /// Report CD-DA audio sectors
+    pub(super) cdda_report: bool,
 }
 
 /// CD-ROM drive state
@@ -249,6 +283,7 @@ impl CDROM {
             interrupt_enable: 0,
             status: CDStatus::default(),
             disc: None,
+            mode: CDMode::default(),
             index: 0,
         }
     }
