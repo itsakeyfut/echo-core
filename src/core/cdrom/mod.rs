@@ -150,6 +150,9 @@ pub(super) struct CDMode {
     /// XA-ADPCM enabled
     pub(super) xa_adpcm: bool,
 
+    /// XA-Filter enabled (process only XA-ADPCM sectors that match filter)
+    pub(super) xa_filter: bool,
+
     /// Sector size: true = 2340/2328 bytes (whole sector), false = 2048/2024 bytes (data only)
     pub(super) size_2340: bool,
 

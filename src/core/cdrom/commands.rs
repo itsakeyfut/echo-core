@@ -185,9 +185,10 @@ impl CDROM {
         self.mode.cdda_report = (mode_byte & 0x01) != 0;
         self.mode.auto_pause = (mode_byte & 0x02) != 0;
         self.mode.report_all = (mode_byte & 0x04) != 0;
-        self.mode.xa_adpcm = (mode_byte & 0x40) != 0;
+        self.mode.xa_filter = (mode_byte & 0x08) != 0;
         self.mode.ignore_bit = (mode_byte & 0x10) != 0;
         self.mode.size_2340 = (mode_byte & 0x20) != 0;
+        self.mode.xa_adpcm = (mode_byte & 0x40) != 0;
         self.mode.double_speed = (mode_byte & 0x80) != 0;
 
         log::trace!(
@@ -230,7 +231,8 @@ impl CDROM {
     ///
     /// # Sub-functions (first parameter byte)
     ///
-    /// - 0x20: Get BIOS date/version (returns "YYYY/MM/DD A" or similar)
+    /// - 0x20: Get BIOS date/version (returns 4 bytes: YY, MM, DD, Version in BCD)
+    /// - 0x04: Get CD controller chip ID (returns 5 bytes)
     /// - Other sub-functions are hardware diagnostic tests
     ///
     /// # Response
