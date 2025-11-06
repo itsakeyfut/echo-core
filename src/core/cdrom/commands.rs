@@ -50,6 +50,7 @@ impl CDROM {
             0x0A => self.cmd_init(),
             0x0E => self.cmd_setmode(),
             0x15 => self.cmd_seekl(),
+            0x19 => self.cmd_test(),
             0x1A => self.cmd_getid(),
             0x1B => self.cmd_reads(),
             0x1E => self.cmd_readtoc(),
@@ -157,7 +158,19 @@ impl CDROM {
     /// Command 0x0E: SetMode
     ///
     /// Set drive mode (speed, sector size, etc).
-    /// Parameters are consumed but not yet implemented.
+    ///
+    /// # Mode byte format (parameter)
+    ///
+    /// ```text
+    /// Bit 0: CD-DA mode (0=Off, 1=On)
+    /// Bit 1: Auto Pause (0=Off, 1=On)
+    /// Bit 2: Report (0=Off, 1=Report interrupts for all sectors)
+    /// Bit 3: XA-Filter (0=Off, 1=Process only XA-ADPCM sectors)
+    /// Bit 4: Ignore Bit (0=Off, 1=Ignore sector size and setloc position)
+    /// Bit 5: Sector Size (0=2048 bytes, 1=2340 bytes)
+    /// Bit 6: XA-ADPCM (0=Off, 1=Send XA-ADPCM to SPU)
+    /// Bit 7: Double Speed (0=Off, 1=On, 2x speed)
+    /// ```
     pub(super) fn cmd_setmode(&mut self) {
         if self.param_fifo.is_empty() {
             log::warn!("CD-ROM: SetMode with no parameters");
@@ -165,10 +178,27 @@ impl CDROM {
             return;
         }
 
-        let mode = self.param_fifo.pop_front().unwrap();
-        log::debug!("CD-ROM: SetMode = 0x{:02X}", mode);
+        let mode_byte = self.param_fifo.pop_front().unwrap();
+        log::debug!("CD-ROM: SetMode = 0x{:02X}", mode_byte);
 
-        // TODO: Store and use mode settings
+        // Parse mode byte and update mode settings
+        self.mode.cdda_report = (mode_byte & 0x01) != 0;
+        self.mode.auto_pause = (mode_byte & 0x02) != 0;
+        self.mode.report_all = (mode_byte & 0x04) != 0;
+        self.mode.xa_adpcm = (mode_byte & 0x40) != 0;
+        self.mode.ignore_bit = (mode_byte & 0x10) != 0;
+        self.mode.size_2340 = (mode_byte & 0x20) != 0;
+        self.mode.whole_sector = (mode_byte & 0x20) != 0;
+        self.mode.double_speed = (mode_byte & 0x80) != 0;
+
+        log::trace!(
+            "CD-ROM: Mode settings - Speed: {}x, Size: {} bytes, XA-ADPCM: {}, Report All: {}",
+            if self.mode.double_speed { 2 } else { 1 },
+            if self.mode.size_2340 { 2340 } else { 2048 },
+            self.mode.xa_adpcm,
+            self.mode.report_all
+        );
+
         self.response_fifo.push_back(self.get_status_byte());
         self.trigger_interrupt(3); // INT3 (acknowledge)
     }
@@ -192,6 +222,62 @@ impl CDROM {
         } else {
             log::warn!("CD-ROM: SeekL with no target set");
             self.error_response();
+        }
+    }
+
+    /// Command 0x19: Test
+    ///
+    /// Test/diagnostic commands with various sub-functions.
+    ///
+    /// # Sub-functions (first parameter byte)
+    ///
+    /// - 0x20: Get BIOS date/version (returns "YYYY/MM/DD A" or similar)
+    /// - Other sub-functions are hardware diagnostic tests
+    ///
+    /// # Response
+    ///
+    /// Varies by sub-function. Most return status byte and test results.
+    pub(super) fn cmd_test(&mut self) {
+        if self.param_fifo.is_empty() {
+            log::warn!("CD-ROM: Test with no parameters");
+            self.error_response();
+            return;
+        }
+
+        let subfunction = self.param_fifo.pop_front().unwrap();
+        log::debug!("CD-ROM: Test sub-function 0x{:02X}", subfunction);
+
+        match subfunction {
+            0x20 => {
+                // Get BIOS date/version
+                // Real hardware returns: YY, MM, DD, Version (4 bytes)
+                // For emulation, return a fixed date: 1998/08/07 (SCPH-1001 date)
+                self.response_fifo.push_back(0x98); // Year (98 = 1998)
+                self.response_fifo.push_back(0x08); // Month
+                self.response_fifo.push_back(0x07); // Day
+                self.response_fifo.push_back(0xC3); // Version byte
+
+                log::trace!("CD-ROM: Test 0x20 - Returned BIOS date 1998/08/07");
+                self.trigger_interrupt(3); // INT3 (acknowledge)
+            }
+            0x04 => {
+                // Get CD controller chip ID/version
+                // Return fixed value for emulation
+                self.response_fifo.push_back(0x00); // Status
+                self.response_fifo.push_back(0x00); // Chip ID byte 1
+                self.response_fifo.push_back(0x00); // Chip ID byte 2
+                self.response_fifo.push_back(0x00); // Chip ID byte 3
+                self.response_fifo.push_back(0x00); // Chip ID byte 4
+
+                log::trace!("CD-ROM: Test 0x04 - Returned chip ID");
+                self.trigger_interrupt(3); // INT3 (acknowledge)
+            }
+            _ => {
+                log::warn!("CD-ROM: Unknown Test sub-function 0x{:02X}", subfunction);
+                // For unknown test commands, return status byte
+                self.response_fifo.push_back(self.get_status_byte());
+                self.trigger_interrupt(3); // INT3 (acknowledge)
+            }
         }
     }
 
@@ -242,13 +328,54 @@ impl CDROM {
     /// Command 0x1E: ReadTOC
     ///
     /// Read table of contents from disc.
+    ///
+    /// This command reads the disc's TOC (track information) and stores it
+    /// internally. The TOC is used by subsequent commands like GetTD (Get Track Duration).
+    ///
+    /// # Response
+    ///
+    /// First response (INT3): Status byte
+    /// Second response (INT2): Status byte (after TOC read completes)
+    ///
+    /// # Timing
+    ///
+    /// The TOC read takes approximately 1 second on real hardware.
+    /// For now, we respond immediately.
     pub(super) fn cmd_readtoc(&mut self) {
         log::debug!("CD-ROM: ReadTOC");
 
+        if self.disc.is_none() {
+            log::warn!("CD-ROM: ReadTOC with no disc loaded");
+            self.status.id_error = true;
+            self.error_response();
+            return;
+        }
+
+        // First response: acknowledge
         self.response_fifo.push_back(self.get_status_byte());
         self.trigger_interrupt(3); // INT3 (acknowledge)
 
-        // Second response after TOC read completes
+        // Log TOC information for debugging
+        if let Some(ref disc) = self.disc {
+            let track_count = disc.track_count();
+            log::debug!("CD-ROM: ReadTOC - {} tracks on disc", track_count);
+
+            for i in 1..=track_count {
+                if let Some(track) = disc.get_track(i as u8) {
+                    log::trace!(
+                        "CD-ROM: Track {} - Type: {:?}, Start: {:02}:{:02}:{:02}, Length: {} sectors",
+                        track.number,
+                        track.track_type,
+                        track.start_position.minute,
+                        track.start_position.second,
+                        track.start_position.sector,
+                        track.length_sectors
+                    );
+                }
+            }
+        }
+
+        // Second response: TOC read complete
         self.response_fifo.push_back(self.get_status_byte());
         self.trigger_interrupt(2); // INT2 (complete)
     }
