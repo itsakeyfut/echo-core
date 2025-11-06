@@ -263,8 +263,8 @@ impl CDROM {
             }
             0x04 => {
                 // Get CD controller chip ID/version
-                // Return fixed value for emulation
-                self.response_fifo.push_back(0x00); // Status
+                // Return actual drive status and fixed chip ID for emulation
+                self.response_fifo.push_back(self.get_status_byte());
                 self.response_fifo.push_back(0x00); // Chip ID byte 1
                 self.response_fifo.push_back(0x00); // Chip ID byte 2
                 self.response_fifo.push_back(0x00); // Chip ID byte 3
