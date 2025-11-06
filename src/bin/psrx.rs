@@ -26,6 +26,10 @@ struct Args {
     /// Path to PlayStation BIOS file (e.g., SCPH1001.BIN)
     bios_file: String,
 
+    /// Path to CD-ROM image file (.cue)
+    #[arg(short = 'c', long)]
+    cdrom: Option<String>,
+
     /// Number of instructions to execute
     #[arg(short = 'n', long, default_value = "100000")]
     instructions: usize,
@@ -55,6 +59,21 @@ fn main() -> Result<()> {
     }
 
     info!("BIOS loaded successfully");
+
+    // Load CD-ROM image if provided
+    if let Some(cdrom_path) = &args.cdrom {
+        info!("Loading CD-ROM from: {}", cdrom_path);
+        system
+            .cdrom()
+            .borrow_mut()
+            .load_disc(cdrom_path)
+            .map_err(|e| {
+                error!("Failed to load CD-ROM: {}", e);
+                // CdRomError is automatically converted to EmulatorError via #[from]
+                psrx::core::error::EmulatorError::CdRom(e)
+            })?;
+        info!("CD-ROM loaded successfully");
+    }
 
     // Reset system to start execution
     info!("Starting emulation...");

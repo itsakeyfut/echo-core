@@ -477,6 +477,17 @@ impl System {
                 .request(interrupts::TIMER2);
         }
 
+        // Tick CD-ROM drive (synchronized with CPU cycles)
+        self.cdrom.borrow_mut().tick(cpu_cycles);
+
+        // Request CD-ROM interrupt if flag is set
+        let cdrom_irq_flag = self.cdrom.borrow().interrupt_flag();
+        if cdrom_irq_flag != 0 {
+            self.interrupt_controller
+                .borrow_mut()
+                .request(interrupts::CDROM);
+        }
+
         // TODO: Step SPU in future phases
         // self.spu.step()?;
 
