@@ -147,13 +147,10 @@ pub(super) struct CDMode {
     /// Double speed (2x) mode enabled
     pub(super) double_speed: bool,
 
-    /// Sector size: true = 2340 bytes (whole sector), false = 2048 bytes (data only)
-    pub(super) whole_sector: bool,
-
     /// XA-ADPCM enabled
     pub(super) xa_adpcm: bool,
 
-    /// Sector size: true = 2340/2328 bytes, false = 2048/2024 bytes
+    /// Sector size: true = 2340/2328 bytes (whole sector), false = 2048/2024 bytes (data only)
     pub(super) size_2340: bool,
 
     /// Ignore bit

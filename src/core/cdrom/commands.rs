@@ -188,7 +188,6 @@ impl CDROM {
         self.mode.xa_adpcm = (mode_byte & 0x40) != 0;
         self.mode.ignore_bit = (mode_byte & 0x10) != 0;
         self.mode.size_2340 = (mode_byte & 0x20) != 0;
-        self.mode.whole_sector = (mode_byte & 0x20) != 0;
         self.mode.double_speed = (mode_byte & 0x80) != 0;
 
         log::trace!(
