@@ -31,6 +31,10 @@ use std::env;
 struct Args {
     /// Path to PlayStation BIOS file (e.g., SCPH1001.BIN)
     bios_file: String,
+
+    /// Path to CD-ROM disc image (.cue file)
+    #[arg(short = 'c', long)]
+    cdrom: Option<String>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -65,6 +69,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     info!("BIOS loaded successfully");
+
+    // Load CD-ROM disc if specified
+    if let Some(cdrom_path) = &args.cdrom {
+        info!("Loading CD-ROM disc from: {}", cdrom_path);
+        if let Err(e) = system.cdrom().borrow_mut().load_disc(cdrom_path) {
+            error!("Failed to load CD-ROM disc: {}", e);
+            return Err(Box::new(e));
+        }
+        info!("CD-ROM disc loaded successfully");
+    }
 
     // Reset system to start execution
     info!("Starting emulator...");
