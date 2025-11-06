@@ -486,10 +486,6 @@ impl System {
             self.interrupt_controller
                 .borrow_mut()
                 .request(interrupts::CDROM);
-            // Acknowledge the interrupt flag to prevent duplicates
-            self.cdrom
-                .borrow_mut()
-                .acknowledge_interrupt(cdrom_irq_flag);
         }
 
         // TODO: Step SPU in future phases
