@@ -224,7 +224,11 @@ impl TimingEventManager {
     /// // VBlank every 564,480 cycles (60 Hz)
     /// let vblank = timing.register_periodic_event("VBlank", 564_480);
     /// ```
-    pub fn register_periodic_event(&mut self, name: &'static str, interval: TickCount) -> EventHandle {
+    pub fn register_periodic_event(
+        &mut self,
+        name: &'static str,
+        interval: TickCount,
+    ) -> EventHandle {
         let handle = self.events.len();
         self.events.push(TimingEvent::new(handle, name, interval));
         handle
@@ -307,10 +311,10 @@ impl TimingEventManager {
 
                 // Sort active events first, then by next_run_time
                 let should_swap = match (active_i, active_j) {
-                    (false, true) => true,  // Inactive before active
-                    (true, false) => false, // Active before inactive
-                    (true, true) => time_i > time_j,  // Both active: sort by time
-                    (false, false) => false, // Both inactive: don't care
+                    (false, true) => true,           // Inactive before active
+                    (true, false) => false,          // Active before inactive
+                    (true, true) => time_i > time_j, // Both active: sort by time
+                    (false, false) => false,         // Both inactive: don't care
                 };
 
                 if should_swap {
@@ -382,7 +386,7 @@ impl TimingEventManager {
         for handle in &events_to_execute {
             let event = &mut self.events[*handle];
             let ticks_late = (self.global_tick_counter - event.next_run_time) as TickCount;
-            let event_id = event.id;  // Save ID before mutable access
+            let event_id = event.id; // Save ID before mutable access
 
             log::trace!(
                 "Timing: Event '{}' executed (late: {} ticks)",
@@ -399,7 +403,7 @@ impl TimingEventManager {
                 event.active = false;
             }
 
-            triggered_events.push(event_id);  // Push original ID, not current index
+            triggered_events.push(event_id); // Push original ID, not current index
         }
 
         // Resort events if any were executed
