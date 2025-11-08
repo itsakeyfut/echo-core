@@ -15,6 +15,7 @@
 
 use crate::core::error::Result;
 use crate::core::memory::Bus;
+use crate::core::timing::TimingEventManager;
 use std::collections::HashMap;
 
 /// Instruction cache for MIPS R3000A
@@ -480,6 +481,110 @@ impl CPU {
         // For now, all instructions take 1 cycle
         Ok(1)
     }
+
+    /// Execute instructions in a loop with timing event integration
+    ///
+    /// This is the main CPU execution loop for event-driven timing.
+    /// Executes instructions until the timing system signals to exit
+    /// (e.g., frame complete).
+    ///
+    /// # Execution Model
+    ///
+    /// Based on DuckStation's architecture:
+    /// 1. Check if `pending_ticks >= downcount`
+    /// 2. If yes, run timing events
+    /// 3. Execute one instruction
+    /// 4. Increment `pending_ticks`
+    /// 5. Check for interrupts → set `downcount = 0` for immediate event processing
+    /// 6. Repeat until `should_exit_loop()` returns true
+    ///
+    /// # Arguments
+    ///
+    /// * `bus` - Memory bus for reading instructions and data
+    /// * `timing` - Timing event manager
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) when execution completes normally
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::cpu::CPU;
+    /// use psrx::core::memory::Bus;
+    /// use psrx::core::timing::TimingEventManager;
+    ///
+    /// let mut cpu = CPU::new();
+    /// let mut bus = Bus::new();
+    /// let mut timing = TimingEventManager::new();
+    ///
+    /// // Set frame target (e.g., 564,480 cycles for one frame at 60 Hz)
+    /// timing.set_frame_target(564_480);
+    ///
+    /// // Execute until frame complete
+    /// cpu.execute(&mut bus, &mut timing).unwrap();
+    /// ```
+    pub fn execute(&mut self, bus: &mut Bus, timing: &mut TimingEventManager) -> Result<()> {
+        loop {
+            // Check if timing events need to run
+            if timing.pending_ticks >= timing.downcount {
+                // Run all pending timing events
+                timing.run_events();
+
+                // Check if we should exit (e.g., frame complete)
+                if timing.should_exit_loop() {
+                    break;
+                }
+            }
+
+            // Increment pending ticks for this CPU cycle
+            timing.pending_ticks += 1;
+
+            // Check for interrupts before fetching instruction
+            if self.should_handle_interrupt(bus) {
+                self.handle_interrupt();
+                // Force immediate event processing for interrupt handling
+                timing.downcount = 0;
+            }
+
+            // The instruction fetched below will execute now. If we were in a delay slot,
+            // clear the flag; any branch/jump executed in this step will set it again.
+            self.in_branch_delay = false;
+
+            // Resolve load delay from previous instruction
+            if let Some(delay) = self.load_delay.take() {
+                self.set_reg(delay.reg, delay.value);
+            }
+
+            // Instruction fetch with cache support
+            let pc = self.pc;
+
+            // SIMPLIFIED INSTRUCTION CACHE: Always use cache when available
+            // This solves the BIOS initialization issue where RAM is zeroed
+            // while code is executing. Cache entries are never overwritten.
+            let instruction = if let Some(cached_instr) = self.icache.fetch(pc) {
+                // Cache hit - use cached instruction
+                cached_instr
+            } else {
+                // Cache miss - read from RAM and cache it
+                let instr = bus.read32(pc)?;
+                self.icache.store(pc, instr);
+                instr
+            };
+
+            self.current_instruction = instruction;
+
+            // Update PC (delay slot handling)
+            self.pc = self.next_pc;
+            self.next_pc = self.next_pc.wrapping_add(4);
+
+            // Execute instruction
+            self.execute_instruction(bus)?;
+        }
+
+        Ok(())
+    }
+
     pub fn exception(&mut self, cause: ExceptionCause) {
         // Save current status (push exception level)
         let sr = self.cop0.regs[COP0::SR];
