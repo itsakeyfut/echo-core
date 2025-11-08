@@ -257,7 +257,12 @@ impl TimingEventManager {
         // Calculate next run time first (before borrowing event)
         let current_time = self.get_current_time();
 
-        let event = &mut self.events[handle];
+        // Find event by ID (not index) since sorting changes positions
+        let event = self
+            .events
+            .iter_mut()
+            .find(|event| event.id == handle)
+            .unwrap_or_else(|| panic!("invalid event handle {}", handle));
         event.next_run_time = current_time + ticks as GlobalTicks;
         event.last_run_time = current_time;
         event.active = true;
@@ -277,7 +282,13 @@ impl TimingEventManager {
     ///
     /// * `handle` - Event handle
     pub fn deactivate(&mut self, handle: EventHandle) {
-        self.events[handle].active = false;
+        // Find event by ID (not index) since sorting changes positions
+        let event = self
+            .events
+            .iter_mut()
+            .find(|event| event.id == handle)
+            .unwrap_or_else(|| panic!("invalid event handle {}", handle));
+        event.active = false;
         self.update_downcount();
     }
 
