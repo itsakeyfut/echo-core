@@ -25,6 +25,7 @@
 //! - Controller (Input devices)
 //! - Timer (3 timer/counter channels)
 //! - Interrupt Controller (IRQ management)
+//! - Timing Event System (Global timing and event scheduling)
 //! - System integration
 
 pub mod cdrom;
@@ -38,6 +39,7 @@ pub mod memory;
 pub mod spu;
 pub mod system;
 pub mod timer;
+pub mod timing;
 
 // Re-export commonly used types
 pub use cdrom::CDROM;
@@ -51,3 +53,4 @@ pub use memory::Bus;
 pub use spu::SPU;
 pub use system::System;
 pub use timer::Timers;
+pub use timing::TimingEventManager;
