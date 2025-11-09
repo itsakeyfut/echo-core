@@ -820,7 +820,9 @@ mod tests {
         // Verify timing manager is initialized properly
         assert_eq!(system.timing.global_tick_counter, 0);
         assert_eq!(system.timing.pending_ticks, 0);
-        assert_eq!(system.timing.downcount, i32::MAX);
+        // With GPU events activated, downcount should be set to HBlank interval (2146 cycles)
+        // which is the smallest periodic event
+        assert_eq!(system.timing.downcount, 2146);
     }
 
     #[test]

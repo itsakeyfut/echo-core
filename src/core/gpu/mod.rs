@@ -860,6 +860,11 @@ impl GPU {
             CYCLES_PER_FRAME,
         ));
 
+        // Activate VBlank event
+        if let Some(handle) = self.vblank_event {
+            timing.schedule(handle, CYCLES_PER_FRAME);
+        }
+
         // HBlank event: fires every scanline
         // = CYCLES_PER_FRAME / SCANLINES_PER_FRAME = 564_480 / 263 ≈ 2146 cycles
         const CYCLES_PER_SCANLINE: i32 = 2_146;
@@ -869,7 +874,12 @@ impl GPU {
             CYCLES_PER_SCANLINE,
         ));
 
-        log::info!("GPU: Timing events registered (VBlank={} cycles, HBlank={} cycles)",
+        // Activate HBlank event
+        if let Some(handle) = self.hblank_event {
+            timing.schedule(handle, CYCLES_PER_SCANLINE);
+        }
+
+        log::info!("GPU: Timing events registered and activated (VBlank={} cycles, HBlank={} cycles)",
                    CYCLES_PER_FRAME, CYCLES_PER_SCANLINE);
     }
 
