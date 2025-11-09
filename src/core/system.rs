@@ -344,6 +344,9 @@ impl System {
         // Register timing events for GPU
         gpu.borrow_mut().register_events(&mut timing);
 
+        // Register timing events for Timers
+        timers.borrow_mut().register_events(&mut timing);
+
         log::info!("System: All components initialized and timing events registered");
 
         Self {
@@ -464,28 +467,11 @@ impl System {
 
         // Tick GPU (legacy timing for backward compatibility)
         // Event-driven timing handles VBlank/HBlank via timing events
-        let (vblank_irq_legacy, hblank_irq_legacy) = self.gpu.borrow_mut().tick(cpu_cycles);
+        let (_vblank_irq_legacy, hblank_irq_legacy) = self.gpu.borrow_mut().tick(cpu_cycles);
 
-        // Tick timers with HBlank signal
+        // Tick timers with HBlank signal (legacy timing)
         // For now, in_hblank is simplified (always false)
-        let timer_irqs = self.timers.borrow_mut().tick(cpu_cycles, false, hblank_irq_legacy);
-
-        // Request timer interrupts
-        if timer_irqs[0] {
-            self.interrupt_controller
-                .borrow_mut()
-                .request(interrupts::TIMER0);
-        }
-        if timer_irqs[1] {
-            self.interrupt_controller
-                .borrow_mut()
-                .request(interrupts::TIMER1);
-        }
-        if timer_irqs[2] {
-            self.interrupt_controller
-                .borrow_mut()
-                .request(interrupts::TIMER2);
-        }
+        let timer_irqs_legacy = self.timers.borrow_mut().tick(cpu_cycles, false, hblank_irq_legacy);
 
         // Run pending timing events to get list of triggered events
         // Note: CPU::execute() also calls this, but we may need to run it here
@@ -517,10 +503,42 @@ impl System {
                 .request(interrupts::VBLANK);
         }
 
+        // Process Timer timing events (overflow detection)
+        self.timers
+            .borrow_mut()
+            .process_events(&mut self.timing, &triggered_events);
+
+        // Poll timer interrupts from event-driven timing
+        let timer_irqs_event = self.timers.borrow_mut().poll_interrupts();
+
         // Re-tick timers if event-driven HBlank occurred
         // This ensures timers see the HBlank signal from timing events
         if hblank_irq {
             let _timer_irqs = self.timers.borrow_mut().tick(0, false, true);
+        }
+
+        // Merge timer interrupts from both event-driven and legacy timing
+        let timer_irqs = [
+            timer_irqs_legacy[0] || timer_irqs_event[0],
+            timer_irqs_legacy[1] || timer_irqs_event[1],
+            timer_irqs_legacy[2] || timer_irqs_event[2],
+        ];
+
+        // Request timer interrupts (merged from both timing methods)
+        if timer_irqs[0] {
+            self.interrupt_controller
+                .borrow_mut()
+                .request(interrupts::TIMER0);
+        }
+        if timer_irqs[1] {
+            self.interrupt_controller
+                .borrow_mut()
+                .request(interrupts::TIMER1);
+        }
+        if timer_irqs[2] {
+            self.interrupt_controller
+                .borrow_mut()
+                .request(interrupts::TIMER2);
         }
 
         // Tick CD-ROM drive (synchronized with CPU cycles) - for legacy timing

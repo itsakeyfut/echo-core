@@ -53,6 +53,8 @@
 //!
 //! - [PSX-SPX: Timers](http://problemkaputt.de/psx-spx.htm#timers)
 
+use super::timing::EventHandle;
+
 /// Timer mode control register
 #[derive(Debug, Clone, Default)]
 pub struct TimerMode {
@@ -112,6 +114,15 @@ pub struct TimerChannel {
 
     /// Sync mode 3 latch (set on first sync edge, cleared when sync disabled)
     sync_latched: bool,
+
+    /// Overflow timing event handle
+    overflow_event: Option<EventHandle>,
+
+    /// Interrupt pending flag (for event-driven timing)
+    interrupt_pending: bool,
+
+    /// Flag indicating that the timer needs rescheduling
+    needs_reschedule: bool,
 }
 
 impl TimerChannel {
@@ -140,6 +151,9 @@ impl TimerChannel {
             reached_max: false,
             last_sync: false,
             sync_latched: false,
+            overflow_event: None,
+            interrupt_pending: false,
+            needs_reschedule: false,
         }
     }
 
@@ -215,6 +229,9 @@ impl TimerChannel {
         self.last_sync = false;
         self.sync_latched = false;
 
+        // Mark for rescheduling (event-driven timing)
+        self.needs_reschedule = true;
+
         log::debug!(
             "Timer {} mode: sync={} source={} target_irq={} max_irq={}",
             self.channel_id,
@@ -242,6 +259,10 @@ impl TimerChannel {
     /// * `value` - New target value
     pub fn write_target(&mut self, value: u16) {
         self.target = value;
+
+        // Mark for rescheduling (event-driven timing)
+        self.needs_reschedule = true;
+
         log::trace!("Timer {} target = 0x{:04X}", self.channel_id, value);
     }
 
@@ -488,6 +509,201 @@ impl Timers {
             cycles
         };
         irqs[2] = self.channels[2].tick(timer2_cycles, false);
+
+        irqs
+    }
+
+    /// Register timing events for timer overflow
+    ///
+    /// This should be called during system initialization to register timer
+    /// timing events with the timing manager.
+    ///
+    /// # Arguments
+    ///
+    /// * `timing` - Timing event manager
+    pub fn register_events(&mut self, timing: &mut super::timing::TimingEventManager) {
+        const EVENT_NAMES: [&str; 3] = ["Timer0 Overflow", "Timer1 Overflow", "Timer2 Overflow"];
+
+        for i in 0..3 {
+            self.channels[i].overflow_event = Some(timing.register_event(EVENT_NAMES[i]));
+            log::debug!("Timer {}: Registered overflow event", i);
+        }
+
+        log::info!("Timers: Timing events registered for all 3 channels");
+    }
+
+    /// Process timer timing events
+    ///
+    /// This should be called by System when timing events fire.
+    /// Also handles rescheduling when mode/target changes occur.
+    ///
+    /// # Arguments
+    ///
+    /// * `timing` - Timing event manager
+    /// * `triggered_events` - List of event handles that have fired
+    pub fn process_events(
+        &mut self,
+        timing: &mut super::timing::TimingEventManager,
+        triggered_events: &[EventHandle],
+    ) {
+        // Process fired overflow events
+        for i in 0..3 {
+            if let Some(handle) = self.channels[i].overflow_event {
+                if triggered_events.contains(&handle) {
+                    self.timer_overflow_callback(i, timing);
+                }
+            }
+        }
+
+        // Handle pending rescheduling (from mode/target writes)
+        for i in 0..3 {
+            if self.channels[i].needs_reschedule {
+                self.channels[i].needs_reschedule = false;
+                self.reschedule_timer(i, timing);
+            }
+        }
+    }
+
+    /// Timer overflow callback (called when overflow_event fires)
+    ///
+    /// Handles timer overflow and reschedules the next overflow event.
+    ///
+    /// # Arguments
+    ///
+    /// * `channel` - Timer channel index (0-2)
+    /// * `timing` - Timing event manager
+    fn timer_overflow_callback(&mut self, channel: usize, timing: &mut super::timing::TimingEventManager) {
+        let ch = &mut self.channels[channel];
+
+        // Reset counter to 0 if reset_on_target is enabled
+        if ch.mode.reset_on_target {
+            ch.counter = 0;
+            ch.reached_target = true;
+        } else {
+            // Otherwise wrap around
+            ch.counter = ch.counter.wrapping_add(1);
+        }
+
+        // Set interrupt flags
+        if ch.mode.irq_on_target || ch.mode.irq_on_max {
+            ch.interrupt_pending = true;
+            ch.irq_flag = true;
+        }
+
+        log::trace!("Timer {}: Overflow event fired", channel);
+
+        // Reschedule for next overflow
+        self.reschedule_timer(channel, timing);
+    }
+
+    /// Reschedule timer overflow event
+    ///
+    /// Calculates when the next overflow will occur and schedules the event.
+    ///
+    /// # Arguments
+    ///
+    /// * `channel` - Timer channel index (0-2)
+    /// * `timing` - Timing event manager
+    fn reschedule_timer(&mut self, channel: usize, timing: &mut super::timing::TimingEventManager) {
+        let ch = &self.channels[channel];
+
+        // Get the event handle
+        let Some(handle) = ch.overflow_event else {
+            return;
+        };
+
+        // Determine the target value
+        let target = if ch.mode.irq_on_target && ch.target > 0 {
+            ch.target
+        } else if ch.mode.irq_on_max {
+            0xFFFF
+        } else {
+            // No interrupt conditions enabled, don't schedule
+            timing.deactivate(handle);
+            return;
+        };
+
+        // Calculate cycles until overflow
+        let remaining = target.saturating_sub(ch.counter) as i32;
+        if remaining <= 0 {
+            // Already at or past target, schedule immediately
+            timing.schedule(handle, 1);
+            return;
+        }
+
+        // Get clock divider based on clock source
+        let divider = self.get_clock_divider(channel);
+        let cycles_until_overflow = remaining * divider;
+
+        timing.schedule(handle, cycles_until_overflow);
+        log::trace!(
+            "Timer {}: Scheduled overflow in {} cycles (counter={}, target={}, divider={})",
+            channel,
+            cycles_until_overflow,
+            ch.counter,
+            target,
+            divider
+        );
+    }
+
+    /// Get clock divider for a timer channel
+    ///
+    /// Returns the number of CPU cycles per timer tick based on the clock source.
+    ///
+    /// # Arguments
+    ///
+    /// * `channel` - Timer channel index (0-2)
+    ///
+    /// # Returns
+    ///
+    /// Number of CPU cycles per timer tick
+    fn get_clock_divider(&self, channel: usize) -> i32 {
+        let ch = &self.channels[channel];
+
+        match channel {
+            0 => {
+                // Timer 0: system clock or pixel clock
+                if ch.mode.clock_source & 1 != 0 {
+                    8 // Pixel clock (simplified, approximately 1/8 of CPU clock)
+                } else {
+                    1 // System clock
+                }
+            }
+            1 => {
+                // Timer 1: system clock or hblank
+                if ch.mode.clock_source & 1 != 0 {
+                    2146 // HBlank (cycles per scanline)
+                } else {
+                    1 // System clock
+                }
+            }
+            2 => {
+                // Timer 2: system clock or system clock / 8
+                if ch.mode.clock_source & 2 != 0 {
+                    8 // System clock / 8
+                } else {
+                    1 // System clock
+                }
+            }
+            _ => 1,
+        }
+    }
+
+    /// Poll timer interrupt flags
+    ///
+    /// Returns interrupt flags and clears them.
+    /// Replaces the return value of tick() for event-driven timing.
+    ///
+    /// # Returns
+    ///
+    /// Array of 3 booleans indicating interrupt status for each timer
+    pub fn poll_interrupts(&mut self) -> [bool; 3] {
+        let mut irqs = [false; 3];
+
+        for i in 0..3 {
+            irqs[i] = self.channels[i].interrupt_pending;
+            self.channels[i].interrupt_pending = false;
+        }
 
         irqs
     }
