@@ -17,8 +17,15 @@
 //!
 //! This module contains implementations of all CD-ROM commands
 //! (GetStat, SetLoc, ReadN, etc.)
+//!
+//! Commands are now executed via timing events with proper delays:
+//! 1. CPU writes command -> queued for scheduling
+//! 2. After ACK delay -> execute_command_callback() sends INT3
+//! 3. For multi-stage commands -> queue second response
+//! 4. After completion delay -> execute_second_response_callback() sends INT2
 
-use super::{bcd_to_dec, CDPosition, CDState, CDROM};
+use super::{bcd_to_dec, CDPosition, CDState, SecondResponseType, CDROM};
+use crate::core::timing::{TickCount, TimingEventManager};
 
 impl CDROM {
     /// Execute CD-ROM command
@@ -379,5 +386,325 @@ impl CDROM {
         // Second response: TOC read complete
         self.response_fifo.push_back(self.get_status_byte());
         self.trigger_interrupt(2); // INT2 (complete)
+    }
+}
+
+// ============================================================================
+// Timing Event Callbacks
+// ============================================================================
+
+impl CDROM {
+    /// Execute command callback (called when command_event fires)
+    ///
+    /// Executes the pending command after ACK delay.
+    /// Sends INT3 (acknowledge) and may queue second response.
+    ///
+    /// # Arguments
+    ///
+    /// * `timing` - Timing event manager
+    pub(super) fn execute_command_callback(&mut self, timing: &mut TimingEventManager) {
+        let Some(cmd) = self.pending_command.take() else {
+            return;
+        };
+
+        log::debug!("CD-ROM: Executing command 0x{:02X} after ACK delay", cmd);
+
+        // Execute command-specific logic
+        match cmd {
+            0x01 => {
+                // GetStat: Single response, no second response needed
+                self.send_ack_and_stat();
+                log::trace!("CD-ROM: GetStat command complete");
+            }
+            0x02 => {
+                // SetLoc: Parse parameters and set seek target
+                self.send_ack_and_stat();
+                if self.param_fifo.len() >= 3 {
+                    let minute = self.param_fifo.pop_front().unwrap();
+                    let second = self.param_fifo.pop_front().unwrap();
+                    let sector = self.param_fifo.pop_front().unwrap();
+
+                    self.seek_target = Some(CDPosition::new(
+                        bcd_to_dec(minute),
+                        bcd_to_dec(second),
+                        bcd_to_dec(sector),
+                    ));
+                    log::debug!(
+                        "CD-ROM: SetLoc to {:02}:{:02}:{:02}",
+                        bcd_to_dec(minute),
+                        bcd_to_dec(second),
+                        bcd_to_dec(sector)
+                    );
+                }
+            }
+            0x06 | 0x1B => {
+                // ReadN / ReadS: Start reading
+                self.send_ack_and_stat();
+                self.state = CDState::Reading;
+                self.status.reading = true;
+                // Sector reading will be handled by sector_read_event
+            }
+            0x09 => {
+                // Pause: Stop reading, queue second response
+                self.send_ack_and_stat();
+                self.state = CDState::Idle;
+                self.status.reading = false;
+                self.status.playing = false;
+                self.queue_second_response(SecondResponseType::Pause, timing);
+            }
+            0x0A => {
+                // Init: Initialize drive, queue second response
+                self.send_ack_and_stat();
+                self.status.motor_on = true;
+                self.state = CDState::Idle;
+                self.status.reading = false;
+                self.status.seeking = false;
+                self.status.playing = false;
+                self.queue_second_response(SecondResponseType::Init, timing);
+            }
+            0x0E => {
+                // SetMode: Parse mode parameter
+                self.send_ack_and_stat();
+                if let Some(mode_byte) = self.param_fifo.pop_front() {
+                    self.mode.cdda_report = (mode_byte & 0x01) != 0;
+                    self.mode.auto_pause = (mode_byte & 0x02) != 0;
+                    self.mode.report_all = (mode_byte & 0x04) != 0;
+                    self.mode.xa_filter = (mode_byte & 0x08) != 0;
+                    self.mode.ignore_bit = (mode_byte & 0x10) != 0;
+                    self.mode.size_2340 = (mode_byte & 0x20) != 0;
+                    self.mode.xa_adpcm = (mode_byte & 0x40) != 0;
+                    self.mode.double_speed = (mode_byte & 0x80) != 0;
+                    log::debug!("CD-ROM: SetMode = 0x{:02X}", mode_byte);
+                }
+            }
+            0x15 => {
+                // SeekL: Start seeking, queue second response
+                self.send_ack_and_stat();
+                if self.seek_target.is_some() {
+                    self.state = CDState::Seeking;
+                    self.status.seeking = true;
+                    self.seek_ticks = 0;
+                    self.queue_second_response(SecondResponseType::Seek, timing);
+                } else {
+                    log::warn!("CD-ROM: SeekL with no target set");
+                    self.error_response();
+                }
+            }
+            0x19 => {
+                // Test: Handle test sub-functions
+                if let Some(subfunction) = self.param_fifo.pop_front() {
+                    match subfunction {
+                        0x20 => {
+                            // Get BIOS date
+                            self.response_fifo.push_back(0x98); // Year
+                            self.response_fifo.push_back(0x08); // Month
+                            self.response_fifo.push_back(0x07); // Day
+                            self.response_fifo.push_back(0xC3); // Version
+                            self.trigger_interrupt(3); // INT3
+                        }
+                        0x04 => {
+                            // Get chip ID
+                            self.response_fifo.push_back(self.get_status_byte());
+                            self.response_fifo.push_back(0x00);
+                            self.response_fifo.push_back(0x00);
+                            self.response_fifo.push_back(0x00);
+                            self.response_fifo.push_back(0x00);
+                            self.trigger_interrupt(3); // INT3
+                        }
+                        _ => {
+                            self.send_ack_and_stat();
+                        }
+                    }
+                } else {
+                    self.send_ack_and_stat();
+                }
+            }
+            0x1A => {
+                // GetID: Queue second response with disc info
+                self.send_ack_and_stat();
+                self.queue_second_response(SecondResponseType::GetID, timing);
+            }
+            0x1E => {
+                // ReadTOC: Queue second response
+                if self.disc.is_some() {
+                    self.send_ack_and_stat();
+                    self.queue_second_response(SecondResponseType::ReadTOC, timing);
+                } else {
+                    self.status.id_error = true;
+                    self.error_response();
+                }
+            }
+            _ => {
+                log::warn!("CD-ROM: Unknown command 0x{:02X}", cmd);
+                self.error_response();
+            }
+        }
+    }
+
+    /// Execute GetID second response
+    ///
+    /// Populates response FIFO with disc identification information.
+    fn do_getid_read(&mut self) {
+        if self.disc.is_some() {
+            self.async_response_fifo.push_back(self.get_status_byte());
+            self.async_response_fifo.push_back(0x00); // Licensed
+            self.async_response_fifo.push_back(0x20); // Audio+CDROM
+            self.async_response_fifo.push_back(0x00); // SCEx string (unused)
+            self.async_response_fifo.push_back(b'S'); // SCEx region
+            self.async_response_fifo.push_back(b'C');
+            self.async_response_fifo.push_back(b'E');
+            self.async_response_fifo.push_back(b'A'); // SCEA
+        } else {
+            self.status.id_error = true;
+            self.async_response_fifo.push_back(self.get_status_byte() | 0x01);
+            self.async_response_fifo.push_back(0x80); // Error code
+        }
+    }
+
+    /// Execute ReadTOC second response
+    ///
+    /// Completes TOC reading operation.
+    fn do_toc_read(&mut self) {
+        self.async_response_fifo.push_back(self.get_status_byte());
+
+        // Log TOC information for debugging
+        if let Some(ref disc) = self.disc {
+            let track_count = disc.track_count();
+            log::debug!("CD-ROM: ReadTOC complete - {} tracks", track_count);
+        }
+    }
+
+    /// Execute Init second response
+    ///
+    /// Completes drive initialization.
+    fn do_init_complete(&mut self) {
+        self.async_response_fifo.push_back(self.get_status_byte());
+    }
+
+    /// Execute Pause second response
+    ///
+    /// Completes pause operation.
+    fn do_pause_complete(&mut self) {
+        self.async_response_fifo.push_back(self.get_status_byte());
+    }
+
+    /// Execute Seek second response
+    ///
+    /// Completes seek operation and updates position.
+    fn do_seek_complete(&mut self) {
+        // Complete seek
+        if let Some(target) = self.seek_target {
+            self.position = target;
+            self.state = CDState::Idle;
+            self.status.seeking = false;
+            log::debug!(
+                "CD-ROM: Seek complete to {:02}:{:02}:{:02}",
+                self.position.minute,
+                self.position.second,
+                self.position.sector
+            );
+        }
+        self.async_response_fifo.push_back(self.get_status_byte());
+    }
+
+    /// Execute second response callback
+    ///
+    /// Delivers the second response for commands that need it.
+    /// Schedules async interrupt delivery.
+    ///
+    /// # Arguments
+    ///
+    /// * `timing` - Timing event manager
+    pub(super) fn execute_second_response_callback(&mut self, timing: &mut TimingEventManager) {
+        let Some(response_type) = self.pending_second_response.take() else {
+            return;
+        };
+
+        log::trace!("CD-ROM: Executing second response {:?}", response_type);
+
+        // Prepare response based on type
+        match response_type {
+            SecondResponseType::None => return,
+            SecondResponseType::GetID => {
+                self.do_getid_read();
+                let int_level = if self.disc.is_some() { 2 } else { 5 };
+                self.schedule_async_interrupt(int_level, timing);
+            }
+            SecondResponseType::ReadTOC => {
+                self.do_toc_read();
+                self.schedule_async_interrupt(2, timing); // INT2
+            }
+            SecondResponseType::Init => {
+                self.do_init_complete();
+                self.schedule_async_interrupt(2, timing); // INT2
+            }
+            SecondResponseType::Pause => {
+                self.do_pause_complete();
+                self.schedule_async_interrupt(2, timing); // INT2
+            }
+            SecondResponseType::Seek => {
+                self.do_seek_complete();
+                self.schedule_async_interrupt(2, timing); // INT2
+            }
+        }
+    }
+
+    /// Deliver async interrupt callback
+    ///
+    /// Delivers a pending async interrupt to the CPU.
+    /// Moves data from async_response_fifo to main response_fifo.
+    ///
+    /// # Arguments
+    ///
+    /// * `timing` - Timing event manager
+    pub(super) fn deliver_async_interrupt_callback(&mut self, timing: &mut TimingEventManager) {
+        if self.pending_async_interrupt == 0 {
+            return;
+        }
+
+        // Move async response to main response FIFO
+        while let Some(byte) = self.async_response_fifo.pop_front() {
+            self.response_fifo.push_back(byte);
+        }
+
+        // Trigger the interrupt
+        let interrupt_level = self.pending_async_interrupt;
+        self.trigger_interrupt(interrupt_level);
+        self.pending_async_interrupt = 0;
+
+        // Update last interrupt time
+        self.last_interrupt_time = timing.global_tick_counter as TickCount;
+
+        log::trace!("CD-ROM: Delivered async INT{}", interrupt_level);
+    }
+
+    /// Read sector callback (called by sector_read_event)
+    ///
+    /// Reads one sector and triggers INT1 (data ready).
+    pub(super) fn read_sector_callback(&mut self, _timing: &mut TimingEventManager) {
+        if self.state != CDState::Reading {
+            return;
+        }
+
+        // Read sector from disc
+        if let Some(data) = self.read_current_sector() {
+            self.data_buffer = data;
+            self.data_index = 0;
+
+            log::trace!(
+                "CD-ROM: Read sector at {:02}:{:02}:{:02}",
+                self.position.minute,
+                self.position.second,
+                self.position.sector
+            );
+
+            // Advance to next sector
+            self.advance_position();
+
+            // Trigger INT1 (data ready) immediately
+            // Note: In real hardware there's a small delay, but we'll deliver immediately
+            self.response_fifo.push_back(self.get_status_byte());
+            self.trigger_interrupt(1); // INT1
+        }
     }
 }

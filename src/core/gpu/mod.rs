@@ -49,6 +49,8 @@
 
 use std::collections::VecDeque;
 
+use super::timing::EventHandle;
+
 // Module declarations
 mod gp0;
 mod gp1;
@@ -154,6 +156,20 @@ pub struct GPU {
     /// True during horizontal blanking periods. Currently simplified (always false).
     /// Can be extended later for proper HBlank timing if needed by games.
     in_hblank: bool,
+
+    // Timing event handles
+    /// VBlank event handle
+    vblank_event: Option<EventHandle>,
+
+    /// HBlank event handle
+    hblank_event: Option<EventHandle>,
+
+    // Interrupt flags
+    /// VBlank interrupt pending flag
+    vblank_interrupt_pending: bool,
+
+    /// HBlank interrupt pending flag
+    hblank_interrupt_pending: bool,
 }
 
 impl GPU {
@@ -224,6 +240,10 @@ impl GPU {
             dots: 0,
             in_vblank: false,
             in_hblank: false,
+            vblank_event: None,
+            hblank_event: None,
+            vblank_interrupt_pending: false,
+            hblank_interrupt_pending: false,
         };
 
         // Initialize rasterizer with default clip rect
@@ -817,6 +837,132 @@ impl GPU {
                 log::warn!("Unknown GP1 command: 0x{:02X}", command);
             }
         }
+    }
+
+    /// Register timing events for GPU VBlank and HBlank
+    ///
+    /// This should be called during system initialization to register GPU
+    /// timing events with the timing manager.
+    ///
+    /// # Arguments
+    ///
+    /// * `timing` - Timing event manager
+    pub fn register_events(&mut self, timing: &mut super::timing::TimingEventManager) {
+        // VBlank event: fires every frame (~16.67ms for NTSC 60Hz)
+        // Total cycles per frame = DOTS_PER_SCANLINE * SCANLINES_PER_FRAME
+        // = 3413 * 263 = 897,619 cycles
+        // But PSX CPU runs at 33.8688 MHz, and at 60fps that's 564,480 cycles/frame
+        // Using the standard PSX timing
+        const CYCLES_PER_FRAME: i32 = 564_480;
+
+        self.vblank_event = Some(timing.register_periodic_event(
+            "GPU VBlank",
+            CYCLES_PER_FRAME,
+        ));
+
+        // Activate VBlank event
+        if let Some(handle) = self.vblank_event {
+            timing.schedule(handle, CYCLES_PER_FRAME);
+        }
+
+        // HBlank event: fires every scanline
+        // = CYCLES_PER_FRAME / SCANLINES_PER_FRAME = 564_480 / 263 ≈ 2146 cycles
+        const CYCLES_PER_SCANLINE: i32 = 2_146;
+
+        self.hblank_event = Some(timing.register_periodic_event(
+            "GPU HBlank",
+            CYCLES_PER_SCANLINE,
+        ));
+
+        // Activate HBlank event
+        if let Some(handle) = self.hblank_event {
+            timing.schedule(handle, CYCLES_PER_SCANLINE);
+        }
+
+        log::info!("GPU: Timing events registered and activated (VBlank={} cycles, HBlank={} cycles)",
+                   CYCLES_PER_FRAME, CYCLES_PER_SCANLINE);
+    }
+
+    /// Process GPU timing events
+    ///
+    /// This should be called by System when timing events fire.
+    ///
+    /// # Arguments
+    ///
+    /// * `timing` - Timing event manager
+    /// * `triggered_events` - List of event handles that have fired
+    pub fn process_events(
+        &mut self,
+        _timing: &mut super::timing::TimingEventManager,
+        triggered_events: &[EventHandle],
+    ) {
+        // Check if VBlank event fired
+        if let Some(handle) = self.vblank_event {
+            if triggered_events.contains(&handle) {
+                self.vblank_callback();
+            }
+        }
+
+        // Check if HBlank event fired
+        if let Some(handle) = self.hblank_event {
+            if triggered_events.contains(&handle) {
+                self.hblank_callback();
+            }
+        }
+    }
+
+    /// VBlank callback (called when vblank_event fires)
+    ///
+    /// Triggered at the start of vertical blanking period (scanline 243).
+    fn vblank_callback(&mut self) {
+        // Reset scanline counter at start of VBlank
+        self.scanline = Self::VBLANK_START;
+        self.in_vblank = true;
+        self.dots = 0;
+
+        // Set VBlank interrupt pending
+        self.vblank_interrupt_pending = true;
+
+        log::trace!("GPU: VBlank");
+    }
+
+    /// HBlank callback (called when hblank_event fires)
+    ///
+    /// Triggered at the end of each scanline.
+    fn hblank_callback(&mut self) {
+        self.scanline += 1;
+        self.dots = 0;
+
+        // Wrap scanline counter
+        if self.scanline >= Self::SCANLINES_PER_FRAME {
+            self.scanline = 0;
+        }
+
+        // Update VBlank status
+        self.in_vblank = self.scanline >= Self::VBLANK_START && self.scanline < Self::VBLANK_END;
+
+        // Set HBlank interrupt pending (always signal for timer synchronization)
+        self.hblank_interrupt_pending = true;
+
+        log::trace!("GPU: HBlank (scanline {})", self.scanline);
+    }
+
+    /// Poll GPU interrupt flags
+    ///
+    /// Returns interrupt flags and clears them.
+    /// Replaces the return value of tick() for event-driven timing.
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (vblank_interrupt, hblank_interrupt)
+    pub fn poll_interrupts(&mut self) -> (bool, bool) {
+        let vblank = self.vblank_interrupt_pending;
+        let hblank = self.hblank_interrupt_pending;
+
+        self.vblank_interrupt_pending = false;
+        self.hblank_interrupt_pending = false;
+
+        (vblank, hblank)
     }
 }
 

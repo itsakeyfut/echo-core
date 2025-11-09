@@ -75,12 +75,31 @@
 
 use std::collections::VecDeque;
 
+use super::timing::{EventHandle, TickCount};
+
 mod commands;
 mod disc;
 #[cfg(test)]
 mod tests;
 
 pub use disc::{DiscImage, Track, TrackType};
+
+/// Second response types for command completion
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SecondResponseType {
+    /// No second response pending
+    None,
+    /// GetID command second response
+    GetID,
+    /// ReadTOC command second response
+    ReadTOC,
+    /// Init command second response
+    Init,
+    /// Pause command second response
+    Pause,
+    /// Seek command second response
+    Seek,
+}
 
 /// CD-ROM drive controller
 ///
@@ -137,6 +156,38 @@ pub struct CDROM {
 
     /// Current index/status register select
     index: u8,
+
+    // Timing event handles
+    /// Command event handle (ACK delay)
+    command_event: Option<EventHandle>,
+
+    /// Command second response event handle
+    command_second_response_event: Option<EventHandle>,
+
+    /// Async interrupt delivery event handle
+    async_interrupt_event: Option<EventHandle>,
+
+    /// Sector read event handle
+    sector_read_event: Option<EventHandle>,
+
+    // Timing state
+    /// Pending command (waiting for ACK delay)
+    pending_command: Option<u8>,
+
+    /// Pending second response type
+    pending_second_response: Option<SecondResponseType>,
+
+    /// Pending async interrupt value
+    pending_async_interrupt: u8,
+
+    /// Last interrupt delivery time (for minimum delay enforcement)
+    last_interrupt_time: TickCount,
+
+    /// Second response FIFO (for async interrupt delivery)
+    async_response_fifo: VecDeque<u8>,
+
+    /// Command that needs to be scheduled (set by write_register, processed by System)
+    command_to_schedule: Option<u8>,
 }
 
 /// CD-ROM drive mode settings
@@ -256,6 +307,39 @@ impl CDROM {
     /// Maximum FIFO size (16 bytes)
     const FIFO_SIZE: usize = 16;
 
+    // Timing constants (based on DuckStation)
+    /// Minimum delay between interrupt deliveries (~30μs)
+    const MINIMUM_INTERRUPT_DELAY: TickCount = 1000;
+
+    /// Sector read timing at 1x speed (~13,300 cycles per sector)
+    const CYCLES_PER_SECTOR_1X: TickCount = 13_300;
+
+    /// Sector read timing at 2x speed (~6,650 cycles per sector)
+    const CYCLES_PER_SECTOR_2X: TickCount = 6_650;
+
+    // ACK delay constants (based on DuckStation)
+    /// Default ACK delay for most commands (~150μs)
+    const DEFAULT_ACK_DELAY: TickCount = 5_000;
+
+    /// ACK delay for Init command (~600μs)
+    const INIT_ACK_DELAY: TickCount = 20_000;
+
+    /// ACK delay for ReadN/ReadS/Pause commands (~210μs)
+    const READ_ACK_DELAY: TickCount = 7_000;
+
+    // Second response delay constants
+    /// GetID second response delay (~1ms)
+    const GETID_SECOND_RESPONSE_DELAY: TickCount = 33_000;
+
+    /// ReadTOC second response delay (~15ms)
+    const READTOC_SECOND_RESPONSE_DELAY: TickCount = 500_000;
+
+    /// Init second response delay (~2ms)
+    const INIT_SECOND_RESPONSE_DELAY: TickCount = 70_000;
+
+    /// Seek second response delay (simplified, varies by distance)
+    const SEEK_SECOND_RESPONSE_DELAY: TickCount = 100_000;
+
     /// Create a new CD-ROM controller
     ///
     /// Initializes the controller in idle state with no disc loaded.
@@ -285,6 +369,16 @@ impl CDROM {
             disc: None,
             mode: CDMode::default(),
             index: 0,
+            command_event: None,
+            command_second_response_event: None,
+            async_interrupt_event: None,
+            sector_read_event: None,
+            pending_command: None,
+            pending_second_response: Some(SecondResponseType::None),
+            pending_async_interrupt: 0,
+            last_interrupt_time: 0,
+            async_response_fifo: VecDeque::new(),
+            command_to_schedule: None,
         }
     }
 
@@ -511,6 +605,16 @@ impl CDROM {
 
         self.interrupt_flag |= 1 << (level - 1);
         log::trace!("CD-ROM: Triggered INT{}", level);
+    }
+
+    /// Send ACK response with status byte
+    ///
+    /// Pushes status byte to response FIFO and triggers INT3 (acknowledge).
+    /// This is the standard first response for all commands.
+    pub(super) fn send_ack_and_stat(&mut self) {
+        self.response_fifo.push_back(self.get_status_byte());
+        self.trigger_interrupt(3); // INT3 (acknowledge)
+        log::trace!("CD-ROM: Sent ACK with status 0x{:02X}", self.get_status_byte());
     }
 
     /// Generate an error response
@@ -825,10 +929,44 @@ impl CDROM {
         }
     }
 
+    /// Schedule command for delayed execution
+    ///
+    /// This is the new entry point for command execution via timing events.
+    /// Instead of executing commands immediately, we schedule them with appropriate delays.
+    ///
+    /// # Arguments
+    ///
+    /// * `cmd` - Command byte
+    /// * `timing` - Timing event manager
+    pub fn write_command(&mut self, cmd: u8, timing: &mut super::timing::TimingEventManager) {
+        log::debug!("CD-ROM: Write command 0x{:02X}", cmd);
+
+        // Store pending command
+        self.pending_command = Some(cmd);
+
+        // Get ACK delay for this command
+        let ack_delay = self.get_ack_delay_for_command(cmd);
+
+        // Schedule command event
+        if let Some(handle) = self.command_event {
+            timing.schedule(handle, ack_delay);
+            log::trace!(
+                "CD-ROM: Scheduled command 0x{:02X} with ACK delay {}",
+                cmd,
+                ack_delay
+            );
+        } else {
+            log::error!("CD-ROM: Command event not registered!");
+        }
+    }
+
     /// Write to a CD-ROM register
     ///
     /// The CD-ROM controller has 4 registers (0x1F801800-0x1F801803),
     /// with behavior depending on the current index value (0-3).
+    ///
+    /// This method is called from the memory bus. For command writes,
+    /// it needs access to the timing system.
     ///
     /// # Arguments
     ///
@@ -843,13 +981,23 @@ impl CDROM {
     /// 0x1F801802: Parameter FIFO (index 0) / Interrupt Enable (index 1) / Audio Volume (index 2-3)
     /// 0x1F801803: Request Register (index 0) / Interrupt Flag (index 1) / Audio Volume (index 2-3)
     /// ```
+    ///
+    /// # Note
+    ///
+    /// Command writes (0x1F801801, index 0) should use write_command_with_timing() instead
+    /// to properly schedule delayed execution. This method is kept for compatibility but
+    /// will execute commands immediately (old behavior).
     pub fn write_register(&mut self, addr: u32, value: u8) {
         match (addr, self.index) {
             // 0x1F801800: Index/Status register (all indices)
             (Self::REG_INDEX, _) => self.set_index(value),
 
             // 0x1F801801: Command register (index 0)
-            (Self::REG_DATA, 0) => self.execute_command(value),
+            // Store command to be scheduled by System (which has timing access)
+            (Self::REG_DATA, 0) => {
+                log::debug!("CD-ROM: Command 0x{:02X} queued for scheduling", value);
+                self.command_to_schedule = Some(value);
+            }
 
             // 0x1F801801: Sound Map Data Out (index 1-3) - not implemented
             (Self::REG_DATA, 1..=3) => {
@@ -888,6 +1036,206 @@ impl CDROM {
                 );
             }
         }
+    }
+
+    /// Write to a CD-ROM register with timing system access
+    ///
+    /// This is the proper entry point for register writes that need timing support.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - Register address (0x1F801800-0x1F801803)
+    /// * `value` - Value to write
+    /// * `timing` - Timing event manager
+    pub fn write_register_with_timing(
+        &mut self,
+        addr: u32,
+        value: u8,
+        timing: &mut super::timing::TimingEventManager,
+    ) {
+        match (addr, self.index) {
+            // 0x1F801801: Command register (index 0) - use timing system
+            (Self::REG_DATA, 0) => self.write_command(value, timing),
+
+            // All other registers don't need timing system
+            _ => self.write_register(addr, value),
+        }
+    }
+
+    /// Get ACK delay for a specific command
+    ///
+    /// # Arguments
+    ///
+    /// * `cmd` - Command byte
+    ///
+    /// # Returns
+    ///
+    /// Number of cycles to delay before ACK
+    fn get_ack_delay_for_command(&self, cmd: u8) -> TickCount {
+        match cmd {
+            0x0A => Self::INIT_ACK_DELAY,               // Init
+            0x06 | 0x1B | 0x09 => Self::READ_ACK_DELAY, // ReadN, ReadS, Pause
+            _ => Self::DEFAULT_ACK_DELAY,
+        }
+    }
+
+    /// Get second response delay for a specific command
+    ///
+    /// # Arguments
+    ///
+    /// * `response_type` - Type of second response
+    ///
+    /// # Returns
+    ///
+    /// Number of cycles to delay before second response
+    fn get_second_response_delay(&self, response_type: SecondResponseType) -> TickCount {
+        match response_type {
+            SecondResponseType::GetID => Self::GETID_SECOND_RESPONSE_DELAY,
+            SecondResponseType::ReadTOC => Self::READTOC_SECOND_RESPONSE_DELAY,
+            SecondResponseType::Init => Self::INIT_SECOND_RESPONSE_DELAY,
+            SecondResponseType::Seek => Self::SEEK_SECOND_RESPONSE_DELAY,
+            SecondResponseType::Pause => 10_000, // ~300μs
+            SecondResponseType::None => 0,
+        }
+    }
+
+    /// Schedule async interrupt delivery
+    ///
+    /// # Arguments
+    ///
+    /// * `interrupt_level` - Interrupt level to deliver (1-5)
+    /// * `timing` - Timing event manager
+    fn schedule_async_interrupt(
+        &mut self,
+        interrupt_level: u8,
+        timing: &mut super::timing::TimingEventManager,
+    ) {
+        if self.pending_async_interrupt != 0 {
+            log::warn!("CD-ROM: Async interrupt already pending");
+            return;
+        }
+
+        self.pending_async_interrupt = interrupt_level;
+
+        // Check if we need to delay delivery
+        let current_time = timing.global_tick_counter as TickCount;
+        let time_since_last_interrupt = current_time - self.last_interrupt_time;
+
+        if time_since_last_interrupt >= Self::MINIMUM_INTERRUPT_DELAY {
+            // Deliver immediately
+            if let Some(handle) = self.async_interrupt_event {
+                timing.schedule(handle, 0);
+            }
+        } else {
+            // Schedule with minimum delay
+            let delay = Self::MINIMUM_INTERRUPT_DELAY - time_since_last_interrupt;
+            if let Some(handle) = self.async_interrupt_event {
+                timing.schedule(handle, delay);
+            }
+        }
+    }
+
+    /// Queue second response for delayed execution
+    ///
+    /// # Arguments
+    ///
+    /// * `response_type` - Type of second response
+    /// * `timing` - Timing event manager
+    fn queue_second_response(
+        &mut self,
+        response_type: SecondResponseType,
+        timing: &mut super::timing::TimingEventManager,
+    ) {
+        self.pending_second_response = Some(response_type);
+        let delay = self.get_second_response_delay(response_type);
+
+        if let Some(handle) = self.command_second_response_event {
+            timing.schedule(handle, delay);
+            log::trace!(
+                "CD-ROM: Queued second response {:?} with delay {}",
+                response_type,
+                delay
+            );
+        }
+    }
+
+    // Note: Callback implementations moved to commands.rs
+
+    /// Process timing events and command scheduling
+    ///
+    /// This should be called by System after each CPU step to:
+    /// 1. Schedule any pending commands written via write_register()
+    /// 2. Process any fired timing events
+    ///
+    /// # Arguments
+    ///
+    /// * `timing` - Timing event manager
+    /// * `triggered_events` - List of event handles that have fired
+    pub fn process_events(
+        &mut self,
+        timing: &mut super::timing::TimingEventManager,
+        triggered_events: &[EventHandle],
+    ) {
+        // First, schedule any pending command
+        if let Some(cmd) = self.command_to_schedule.take() {
+            self.write_command(cmd, timing);
+        }
+
+        // Then check and process fired events
+        if let Some(handle) = self.command_event {
+            if triggered_events.contains(&handle) {
+                self.execute_command_callback(timing);
+            }
+        }
+
+        if let Some(handle) = self.command_second_response_event {
+            if triggered_events.contains(&handle) {
+                self.execute_second_response_callback(timing);
+            }
+        }
+
+        if let Some(handle) = self.async_interrupt_event {
+            if triggered_events.contains(&handle) {
+                self.deliver_async_interrupt_callback(timing);
+            }
+        }
+
+        if let Some(handle) = self.sector_read_event {
+            if triggered_events.contains(&handle) {
+                self.read_sector_callback(timing);
+            }
+        }
+    }
+
+    /// Register timing events for CD-ROM operations
+    ///
+    /// This should be called during system initialization to register all
+    /// CD-ROM timing events with the timing manager.
+    ///
+    /// # Arguments
+    ///
+    /// * `timing` - Timing event manager
+    pub fn register_events(&mut self, timing: &mut super::timing::TimingEventManager) {
+        // Register command event (ACK delay)
+        self.command_event = Some(timing.register_event("CDROM Command"));
+
+        // Register command second response event
+        self.command_second_response_event = Some(timing.register_event("CDROM Second Response"));
+
+        // Register async interrupt event
+        self.async_interrupt_event = Some(timing.register_event("CDROM Async Interrupt"));
+
+        // Register sector read event (periodic, activated when reading starts)
+        let cycles_per_sector = if self.mode.double_speed {
+            Self::CYCLES_PER_SECTOR_2X
+        } else {
+            Self::CYCLES_PER_SECTOR_1X
+        };
+
+        self.sector_read_event =
+            Some(timing.register_periodic_event("CDROM Sector Read", cycles_per_sector));
+
+        log::info!("CD-ROM: Timing events registered successfully");
     }
 }
 

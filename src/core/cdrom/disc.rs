@@ -358,4 +358,32 @@ impl DiscImage {
     pub fn get_track(&self, track_num: u8) -> Option<&Track> {
         self.tracks.iter().find(|t| t.number == track_num)
     }
+
+    /// Create a dummy disc image for testing
+    ///
+    /// Creates a minimal valid disc image with a single data track.
+    /// Used in tests where a disc needs to be present but the actual data
+    /// doesn't matter.
+    ///
+    /// # Returns
+    ///
+    /// A minimal disc image with one track
+    #[cfg(test)]
+    pub fn new_dummy() -> Self {
+        let track = Track {
+            number: 1,
+            track_type: TrackType::Mode2_2352,
+            start_position: CDPosition::new(0, 2, 0),
+            length_sectors: 100,
+            file_offset: 0,
+        };
+
+        // Create minimal dummy data (100 sectors * 2352 bytes)
+        let data = vec![0u8; 100 * 2352];
+
+        Self {
+            tracks: vec![track],
+            data,
+        }
+    }
 }

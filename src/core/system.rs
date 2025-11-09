@@ -27,6 +27,7 @@ use super::interrupt::{interrupts, InterruptController};
 use super::memory::Bus;
 use super::spu::SPU;
 use super::timer::Timers;
+use super::timing::TimingEventManager;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -273,6 +274,8 @@ pub struct System {
     cpu: CPU,
     /// Memory bus
     bus: Bus,
+    /// Timing event manager
+    timing: TimingEventManager,
     /// GPU instance (shared via Rc<RefCell> for memory-mapped access)
     gpu: Rc<RefCell<GPU>>,
     /// SPU instance
@@ -304,6 +307,7 @@ impl System {
     ///
     /// Initializes all hardware components to their reset state.
     /// Sets up memory-mapped I/O connections between components.
+    /// Registers timing events for all components.
     ///
     /// # Returns
     /// Initialized System instance
@@ -331,9 +335,24 @@ impl System {
         bus.set_timers(timers.clone());
         bus.set_interrupt_controller(interrupt_controller.clone());
 
+        // Create timing manager
+        let mut timing = TimingEventManager::new();
+
+        // Register timing events for CD-ROM
+        cdrom.borrow_mut().register_events(&mut timing);
+
+        // Register timing events for GPU
+        gpu.borrow_mut().register_events(&mut timing);
+
+        // Register timing events for Timers
+        timers.borrow_mut().register_events(&mut timing);
+
+        log::info!("System: All components initialized and timing events registered");
+
         Self {
             cpu: CPU::new(),
             bus,
+            timing,
             gpu,
             spu: SPU::new(),
             cdrom,
@@ -446,8 +465,36 @@ impl System {
             self.cpu.prefill_icache(addr, instruction);
         }
 
-        // Tick GPU (synchronized with CPU cycles) and get interrupt signals
-        let (vblank_irq, hblank_irq) = self.gpu.borrow_mut().tick(cpu_cycles);
+        // Tick GPU (legacy timing for backward compatibility)
+        // Event-driven timing handles VBlank/HBlank via timing events
+        let (_vblank_irq_legacy, hblank_irq_legacy) = self.gpu.borrow_mut().tick(cpu_cycles);
+
+        // Tick timers with HBlank signal (legacy timing)
+        // For now, in_hblank is simplified (always false)
+        let timer_irqs_legacy = self.timers.borrow_mut().tick(cpu_cycles, false, hblank_irq_legacy);
+
+        // Run pending timing events to get list of triggered events
+        // Note: CPU::execute() also calls this, but we may need to run it here
+        // for events triggered during this step
+        let triggered_events = if self.timing.pending_ticks > 0 {
+            self.timing.run_events()
+        } else {
+            Vec::new()
+        };
+
+        // Process CD-ROM timing events
+        // This handles both command scheduling and event callbacks
+        self.cdrom
+            .borrow_mut()
+            .process_events(&mut self.timing, &triggered_events);
+
+        // Process GPU timing events (VBlank/HBlank)
+        self.gpu
+            .borrow_mut()
+            .process_events(&mut self.timing, &triggered_events);
+
+        // Poll GPU interrupts from event-driven timing
+        let (vblank_irq, hblank_irq) = self.gpu.borrow_mut().poll_interrupts();
 
         // Request VBlank interrupt
         if vblank_irq {
@@ -456,11 +503,28 @@ impl System {
                 .request(interrupts::VBLANK);
         }
 
-        // Tick timers with HBlank signal
-        // For now, in_hblank is simplified (always false)
-        let timer_irqs = self.timers.borrow_mut().tick(cpu_cycles, false, hblank_irq);
+        // Process Timer timing events (overflow detection)
+        self.timers
+            .borrow_mut()
+            .process_events(&mut self.timing, &triggered_events);
 
-        // Request timer interrupts
+        // Poll timer interrupts from event-driven timing
+        let timer_irqs_event = self.timers.borrow_mut().poll_interrupts();
+
+        // Re-tick timers if event-driven HBlank occurred
+        // This ensures timers see the HBlank signal from timing events
+        if hblank_irq {
+            let _timer_irqs = self.timers.borrow_mut().tick(0, false, true);
+        }
+
+        // Merge timer interrupts from both event-driven and legacy timing
+        let timer_irqs = [
+            timer_irqs_legacy[0] || timer_irqs_event[0],
+            timer_irqs_legacy[1] || timer_irqs_event[1],
+            timer_irqs_legacy[2] || timer_irqs_event[2],
+        ];
+
+        // Request timer interrupts (merged from both timing methods)
         if timer_irqs[0] {
             self.interrupt_controller
                 .borrow_mut()
@@ -477,7 +541,8 @@ impl System {
                 .request(interrupts::TIMER2);
         }
 
-        // Tick CD-ROM drive (synchronized with CPU cycles)
+        // Tick CD-ROM drive (synchronized with CPU cycles) - for legacy timing
+        // TODO: Remove this once all CD-ROM timing is event-driven
         self.cdrom.borrow_mut().tick(cpu_cycles);
 
         // Request CD-ROM interrupt if flag is set
@@ -529,8 +594,8 @@ impl System {
     /// The PlayStation CPU runs at approximately 33.8688 MHz.
     /// At 60 fps, one frame requires approximately 564,480 cycles.
     ///
-    /// During frame execution, the GPU is ticked alongside the CPU to keep
-    /// components synchronized for accurate emulation.
+    /// This method uses event-driven execution through the timing system.
+    /// The CPU executes until the timing system signals the frame is complete.
     ///
     /// # Returns
     ///
@@ -550,12 +615,15 @@ impl System {
         // PSX CPU runs at ~33.8688 MHz
         // At 60 fps, one frame = 33868800 / 60 ≈ 564,480 cycles
         const CYCLES_PER_FRAME: u64 = 564_480;
-        let target_cycles = self.cycles + CYCLES_PER_FRAME;
 
-        while self.cycles < target_cycles && self.running {
-            // Execute CPU instruction (via step() to enable tracing)
-            self.step()?;
-        }
+        // Set frame target in timing system
+        self.timing.set_frame_target(CYCLES_PER_FRAME);
+
+        // Execute CPU until timing system signals frame complete
+        self.cpu.execute(&mut self.bus, &mut self.timing)?;
+
+        // Update total cycles from timing system
+        self.cycles = self.timing.global_tick_counter;
 
         Ok(())
     }
@@ -744,6 +812,73 @@ mod tests {
         let system = System::new();
         assert_eq!(system.cycles(), 0);
         assert_eq!(system.pc(), 0xBFC00000);
+    }
+
+    #[test]
+    fn test_system_timing_manager_created() {
+        let system = System::new();
+        // Verify timing manager is initialized properly
+        assert_eq!(system.timing.global_tick_counter, 0);
+        assert_eq!(system.timing.pending_ticks, 0);
+        // With GPU events activated, downcount should be set to HBlank interval (2146 cycles)
+        // which is the smallest periodic event
+        assert_eq!(system.timing.downcount, 2146);
+    }
+
+    #[test]
+    fn test_run_frame_uses_timing_system() {
+        let mut system = System::new();
+
+        // Create an infinite loop in BIOS
+        let jump_bytes = 0x0BF00000u32.to_le_bytes();
+        system.bus_mut().write_bios_for_test(0, &jump_bytes);
+        system
+            .bus_mut()
+            .write_bios_for_test(4, &[0x00, 0x00, 0x00, 0x00]);
+
+        system.reset();
+
+        // Run one frame
+        system.run_frame().unwrap();
+
+        // Verify that timing system's global counter was updated
+        const CYCLES_PER_FRAME: u64 = 564_480;
+        assert!(system.timing.global_tick_counter >= CYCLES_PER_FRAME);
+        assert_eq!(system.cycles(), system.timing.global_tick_counter);
+    }
+
+    #[test]
+    fn test_frame_target_stops_execution() {
+        let mut system = System::new();
+
+        // Create an infinite loop in BIOS
+        let jump_bytes = 0x0BF00000u32.to_le_bytes();
+        system.bus_mut().write_bios_for_test(0, &jump_bytes);
+        system
+            .bus_mut()
+            .write_bios_for_test(4, &[0x00, 0x00, 0x00, 0x00]);
+
+        system.reset();
+
+        // Run frame should set frame target and stop execution
+        let initial_cycles = system.cycles();
+        system.run_frame().unwrap();
+
+        const CYCLES_PER_FRAME: u64 = 564_480;
+        let cycles_executed = system.cycles() - initial_cycles;
+
+        // Verify frame target mechanism works:
+        // 1. Should execute at least the target number of cycles
+        assert!(
+            cycles_executed >= CYCLES_PER_FRAME,
+            "Expected at least {} cycles, got {}",
+            CYCLES_PER_FRAME,
+            cycles_executed
+        );
+
+        // 2. Should stop execution (not run indefinitely)
+        // The infinite loop test proves the frame target mechanism stopped execution
+        // Note: May overshoot target due to instruction and event processing granularity
     }
 
     #[test]
