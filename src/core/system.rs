@@ -341,6 +341,9 @@ impl System {
         // Register timing events for CD-ROM
         cdrom.borrow_mut().register_events(&mut timing);
 
+        // Register timing events for GPU
+        gpu.borrow_mut().register_events(&mut timing);
+
         log::info!("System: All components initialized and timing events registered");
 
         Self {
@@ -459,19 +462,13 @@ impl System {
             self.cpu.prefill_icache(addr, instruction);
         }
 
-        // Tick GPU (synchronized with CPU cycles) and get interrupt signals
-        let (vblank_irq, hblank_irq) = self.gpu.borrow_mut().tick(cpu_cycles);
-
-        // Request VBlank interrupt
-        if vblank_irq {
-            self.interrupt_controller
-                .borrow_mut()
-                .request(interrupts::VBLANK);
-        }
+        // Tick GPU (legacy timing for backward compatibility)
+        // Event-driven timing handles VBlank/HBlank via timing events
+        let (vblank_irq_legacy, hblank_irq_legacy) = self.gpu.borrow_mut().tick(cpu_cycles);
 
         // Tick timers with HBlank signal
         // For now, in_hblank is simplified (always false)
-        let timer_irqs = self.timers.borrow_mut().tick(cpu_cycles, false, hblank_irq);
+        let timer_irqs = self.timers.borrow_mut().tick(cpu_cycles, false, hblank_irq_legacy);
 
         // Request timer interrupts
         if timer_irqs[0] {
@@ -504,6 +501,27 @@ impl System {
         self.cdrom
             .borrow_mut()
             .process_events(&mut self.timing, &triggered_events);
+
+        // Process GPU timing events (VBlank/HBlank)
+        self.gpu
+            .borrow_mut()
+            .process_events(&mut self.timing, &triggered_events);
+
+        // Poll GPU interrupts from event-driven timing
+        let (vblank_irq, hblank_irq) = self.gpu.borrow_mut().poll_interrupts();
+
+        // Request VBlank interrupt
+        if vblank_irq {
+            self.interrupt_controller
+                .borrow_mut()
+                .request(interrupts::VBLANK);
+        }
+
+        // Re-tick timers if event-driven HBlank occurred
+        // This ensures timers see the HBlank signal from timing events
+        if hblank_irq {
+            let _timer_irqs = self.timers.borrow_mut().tick(0, false, true);
+        }
 
         // Tick CD-ROM drive (synchronized with CPU cycles) - for legacy timing
         // TODO: Remove this once all CD-ROM timing is event-driven
