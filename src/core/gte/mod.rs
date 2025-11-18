@@ -362,28 +362,30 @@ impl GTE {
         self.data[Self::MAC2] = mac2.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
         self.data[Self::MAC3] = mac3.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
 
-        // Perspective transformation
+        // Reset FLAGS for this operation (we currently only model divide overflow).
+        self.flags = 0;
+
+        // Perspective transformation.
+        // MAC values are in 12.4 fixed point; apply a 12-bit scale so that
+        // typical PSX-style ranges don't collapse to zero.
         let h = self.control[Self::H] as i64;
         let z = mac3;
 
-        // Handle division with PlayStation hardware behavior:
-        // - Negative Z is saturated to 0
-        // - Z <= 0 triggers divide overflow (FLAG bit 14)
-        // - Scale is clamped to 0x1FFFF (not 1!)
         let (sx, sy) = if z <= 0 {
-            // Divide overflow case: set FLAG bit 14 and use maximum scale
+            // Divide overflow case: negative/zero Z.
             self.flags |= 1 << 14; // Bit 14: divide overflow
 
-            // Use maximum scale (0x1FFFF) for overflow case
+            // Saturated scale value used by the real GTE on overflow.
             let scale = 0x1FFFF_i64;
-            let sx = (scale * mac1) as i32;
-            let sy = (scale * mac2) as i32;
+            let sx = ((scale * mac1) >> 12).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+            let sy = ((scale * mac2) >> 12).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
             (sx, sy)
         } else {
-            // Normal division with scale clamped to 0x1FFFF
-            let scale = (h / z).min(0x1FFFF);
-            let sx = (scale * mac1) as i32;
-            let sy = (scale * mac2) as i32;
+            // Normal division with fixed-point aware scale,
+            // clamped to the hardware 17-bit range.
+            let scale = ((h << 12) / z).min(0x1FFFF);
+            let sx = ((scale * mac1) >> 12).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+            let sy = ((scale * mac2) >> 12).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
             (sx, sy)
         };
 
@@ -416,9 +418,8 @@ impl GTE {
         self.data[Self::IR2] = mac2.clamp(-32768, 32767) as i32;
         self.data[Self::IR3] = mac3.clamp(0, 65535) as i32;
 
-        // Clear flags for simplicity (proper implementation would track all flags)
-        self.flags = 0;
-        self.data[Self::LZCR] = 0;
+        // Mirror FLAGS into the shared LZCR/FLAG register slot.
+        self.data[Self::LZCR] = self.flags as i32;
     }
 
     /// RTPT: Rotate, Translate, Perspective Transform, Triple
