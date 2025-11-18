@@ -149,8 +149,8 @@ fn run_ci(verbose: bool) -> Result<()> {
         "Test",
         || {
             run_test(
-                false, false, false, false, false, false, false, false, false, false, false,
-                false, false,
+                false, false, false, false, false, false, false, false, false, false, false, false,
+                false,
             )
         },
         verbose,
@@ -429,8 +429,8 @@ fn run_pre_commit() -> Result<()> {
         "Test",
         || {
             run_test(
-                false, false, false, false, false, false, false, false, false, false, false,
-                false, false,
+                false, false, false, false, false, false, false, false, false, false, false, false,
+                false,
             )
         },
         false,
