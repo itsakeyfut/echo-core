@@ -334,9 +334,19 @@ impl GTE {
         let rt = self.get_rotation_matrix();
 
         // Matrix multiplication: MAC = RT * V
-        let mac1 = ((rt[0][0] * vx + rt[0][1] * vy + rt[0][2] * vz) as i64) >> shift;
-        let mac2 = ((rt[1][0] * vx + rt[1][1] * vy + rt[1][2] * vz) as i64) >> shift;
-        let mac3 = ((rt[2][0] * vx + rt[2][1] * vy + rt[2][2] * vz) as i64) >> shift;
+        // Cast to i64 before multiplication to prevent intermediate i32 overflow
+        let mac1 = (rt[0][0] as i64 * vx as i64
+            + rt[0][1] as i64 * vy as i64
+            + rt[0][2] as i64 * vz as i64)
+            >> shift;
+        let mac2 = (rt[1][0] as i64 * vx as i64
+            + rt[1][1] as i64 * vy as i64
+            + rt[1][2] as i64 * vz as i64)
+            >> shift;
+        let mac3 = (rt[2][0] as i64 * vx as i64
+            + rt[2][1] as i64 * vy as i64
+            + rt[2][2] as i64 * vz as i64)
+            >> shift;
 
         // Add translation vector
         let trx = self.control[Self::TRX] as i64;
@@ -529,9 +539,19 @@ impl GTE {
         };
 
         // Matrix multiplication
-        let mac1 = ((matrix[0][0] * vx + matrix[0][1] * vy + matrix[0][2] * vz) as i64) >> shift;
-        let mac2 = ((matrix[1][0] * vx + matrix[1][1] * vy + matrix[1][2] * vz) as i64) >> shift;
-        let mac3 = ((matrix[2][0] * vx + matrix[2][1] * vy + matrix[2][2] * vz) as i64) >> shift;
+        // Cast to i64 before multiplication to prevent intermediate i32 overflow
+        let mac1 = (matrix[0][0] as i64 * vx as i64
+            + matrix[0][1] as i64 * vy as i64
+            + matrix[0][2] as i64 * vz as i64)
+            >> shift;
+        let mac2 = (matrix[1][0] as i64 * vx as i64
+            + matrix[1][1] as i64 * vy as i64
+            + matrix[1][2] as i64 * vz as i64)
+            >> shift;
+        let mac3 = (matrix[2][0] as i64 * vx as i64
+            + matrix[2][1] as i64 * vy as i64
+            + matrix[2][2] as i64 * vz as i64)
+            >> shift;
 
         // Add translation vector (simplified - using TR for now)
         let (tx, ty, tz) = match cv {
