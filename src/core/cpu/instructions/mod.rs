@@ -27,6 +27,7 @@ use crate::core::memory::Bus;
 mod arithmetic;
 mod branch;
 mod cop0;
+mod cop2;
 mod exception;
 mod jump;
 mod load;
@@ -72,6 +73,7 @@ impl CPU {
             0x0E => self.op_xori(instruction),      // XORI
             0x0F => self.op_lui(instruction),       // LUI
             0x10 => self.execute_cop0(instruction), // COP0
+            0x12 => self.execute_cop2(instruction), // COP2
             0x20 => self.op_lb(instruction, bus),   // LB
             0x21 => self.op_lh(instruction, bus),   // LH
             0x22 => self.op_lwl(instruction, bus),  // LWL
@@ -246,6 +248,41 @@ impl CPU {
             _ => {
                 log::warn!(
                     "Unimplemented COP0 sub-opcode: 0x{:02X} at PC=0x{:08X}",
+                    sub_op,
+                    self.pc
+                );
+                Ok(())
+            }
+        }
+    }
+
+    /// Handle COP2 instructions (opcode 0x12)
+    ///
+    /// COP2 instructions are used to interact with Coprocessor 2 (GTE).
+    ///
+    /// # Arguments
+    ///
+    /// * `instruction` - The full 32-bit instruction
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) on success
+    fn execute_cop2(&mut self, instruction: u32) -> Result<()> {
+        // COP2 sub-opcode is in bits [25:21]
+        let sub_op = (instruction >> 21) & 0x1F;
+
+        match sub_op {
+            0x00 => self.op_mfc2(instruction), // MFC2 - Move From COP2
+            0x02 => self.op_cfc2(instruction), // CFC2 - Move Control From COP2
+            0x04 => self.op_mtc2(instruction), // MTC2 - Move To COP2
+            0x06 => self.op_ctc2(instruction), // CTC2 - Move Control To COP2
+            0x10..=0x1F => {
+                // GTE command (sub_op bit 4 is set)
+                self.op_gte_command(instruction)
+            }
+            _ => {
+                log::warn!(
+                    "Unimplemented COP2 sub-opcode: 0x{:02X} at PC=0x{:08X}",
                     sub_op,
                     self.pc
                 );
