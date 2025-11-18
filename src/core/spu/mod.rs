@@ -471,6 +471,15 @@ impl SPU {
             value |= 1 << 6;
         }
         value |= (self.control.transfer_mode as u16) << 4;
+        if self.control.external_audio_reverb {
+            value |= 1 << 3;
+        }
+        if self.control.cd_audio_reverb {
+            value |= 1 << 2;
+        }
+        if self.control.external_audio_enabled {
+            value |= 1 << 1;
+        }
         if self.control.cd_audio_enabled {
             value |= 1 << 0;
         }
@@ -486,9 +495,21 @@ impl SPU {
     fn write_control(&mut self, value: u16) {
         self.control.enabled = (value & (1 << 15)) != 0;
         self.control.unmute = (value & (1 << 14)) != 0;
+        // Bits 10-13: noise clock (shift)
         self.control.noise_clock = ((value >> 10) & 0xF) as u8;
         self.control.reverb_enabled = (value & (1 << 7)) != 0;
         self.control.irq_enabled = (value & (1 << 6)) != 0;
+        // Bits 5-4: transfer mode
+        self.control.transfer_mode = match (value >> 4) & 0x3 {
+            1 => TransferMode::ManualWrite,
+            2 => TransferMode::DMAWrite,
+            3 => TransferMode::DMARead,
+            _ => TransferMode::Stop,
+        };
+        // Bits 3-1: external/CD audio flags
+        self.control.external_audio_reverb = (value & (1 << 3)) != 0;
+        self.control.cd_audio_reverb = (value & (1 << 2)) != 0;
+        self.control.external_audio_enabled = (value & (1 << 1)) != 0;
         self.control.cd_audio_enabled = (value & (1 << 0)) != 0;
 
         log::debug!(
@@ -837,6 +858,31 @@ mod tests {
         // Read back
         let control = spu.read_register(0x1F801DAA);
         assert_eq!(control & 0xC080, 0xC080);
+    }
+
+    #[test]
+    fn test_control_register_round_trip() {
+        let mut spu = SPU::new();
+
+        // Test transfer modes and audio flags round-trip
+        // Bits: enabled(15), unmute(14), reverb(7), irq(6),
+        //       DMAWrite mode(5-4=10b), ext_reverb(3), cd_reverb(2), ext_en(1), cd_en(0)
+        let test_value = 0xC0E0 | (2 << 4) | 0x0F; // DMAWrite + all audio flags
+        spu.write_register(0x1F801DAA, test_value);
+
+        assert!(spu.control.enabled);
+        assert!(spu.control.unmute);
+        assert!(spu.control.reverb_enabled);
+        assert!(spu.control.irq_enabled);
+        assert!(matches!(spu.control.transfer_mode, TransferMode::DMAWrite));
+        assert!(spu.control.external_audio_reverb);
+        assert!(spu.control.cd_audio_reverb);
+        assert!(spu.control.external_audio_enabled);
+        assert!(spu.control.cd_audio_enabled);
+
+        // Read back and verify exact match
+        let read_back = spu.read_register(0x1F801DAA);
+        assert_eq!(read_back, test_value);
     }
 
     #[test]
