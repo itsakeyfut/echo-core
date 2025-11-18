@@ -739,7 +739,11 @@ impl crate::core::memory::IODevice for Timers {
         let reg_offset = offset % 0x10;
 
         if timer_index >= 3 {
-            log::warn!("Invalid timer index {} at offset 0x{:02X}", timer_index, offset);
+            log::warn!(
+                "Invalid timer index {} at offset 0x{:02X}",
+                timer_index,
+                offset
+            );
             return Ok(0);
         }
 
@@ -755,7 +759,10 @@ impl crate::core::memory::IODevice for Timers {
             0x04 => {
                 // Note: read_mode() requires &mut self due to flag clearing
                 // This is a limitation of the trait design - we'll log a warning
-                log::warn!("TIMER{} mode read via IODevice (requires mutable access)", timer_index);
+                log::warn!(
+                    "TIMER{} mode read via IODevice (requires mutable access)",
+                    timer_index
+                );
                 Ok(0) // TODO: Need to handle this properly
             }
 
@@ -780,7 +787,11 @@ impl crate::core::memory::IODevice for Timers {
         let reg_offset = offset % 0x10;
 
         if timer_index >= 3 {
-            log::warn!("Invalid timer index {} at offset 0x{:02X}", timer_index, offset);
+            log::warn!(
+                "Invalid timer index {} at offset 0x{:02X}",
+                timer_index,
+                offset
+            );
             return Ok(());
         }
 
