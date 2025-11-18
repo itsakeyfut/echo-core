@@ -45,18 +45,39 @@ enum Commands {
         doc: bool,
         #[arg(long)]
         ignored: bool,
+        /// Run only CD-ROM module tests
+        #[arg(long)]
+        cdrom: bool,
+        /// Run only Controller module tests
+        #[arg(long)]
+        controller: bool,
         /// Run only CPU module tests
         #[arg(long)]
         cpu: bool,
+        /// Run only DMA module tests
+        #[arg(long)]
+        dma: bool,
         /// Run only GPU module tests
         #[arg(long)]
         gpu: bool,
+        /// Run only GTE module tests
+        #[arg(long)]
+        gte: bool,
+        /// Run only Interrupt module tests
+        #[arg(long)]
+        interrupt: bool,
         /// Run only Memory module tests
         #[arg(long)]
         memory: bool,
+        /// Run only SPU module tests
+        #[arg(long)]
+        spu: bool,
         /// Run only System module tests
         #[arg(long)]
         system: bool,
+        /// Run only Timer module tests
+        #[arg(long)]
+        timer: bool,
     },
     /// Run benchmarks
     Bench,
@@ -90,11 +111,21 @@ fn main() -> Result<()> {
         Commands::Test {
             doc,
             ignored,
+            cdrom,
+            controller,
             cpu,
+            dma,
             gpu,
+            gte,
+            interrupt,
             memory,
+            spu,
             system,
-        } => run_test(doc, ignored, cpu, gpu, memory, system),
+            timer,
+        } => run_test(
+            doc, ignored, cdrom, controller, cpu, dma, gpu, gte, interrupt, memory, spu, system,
+            timer,
+        ),
         Commands::Bench => run_bench(),
         Commands::BiosBoot {
             bios_path,
@@ -116,7 +147,12 @@ fn run_ci(verbose: bool) -> Result<()> {
     run_task("Build", || run_build(false), verbose)?;
     run_task(
         "Test",
-        || run_test(false, false, false, false, false, false),
+        || {
+            run_test(
+                false, false, false, false, false, false, false, false, false, false, false, false,
+                false,
+            )
+        },
         verbose,
     )?;
 
@@ -186,10 +222,17 @@ fn run_build(release: bool) -> Result<()> {
 fn run_test(
     doc: bool,
     ignored: bool,
+    cdrom: bool,
+    controller: bool,
     cpu: bool,
+    dma: bool,
     gpu: bool,
+    gte: bool,
+    interrupt: bool,
     memory: bool,
+    spu: bool,
     system: bool,
+    timer: bool,
 ) -> Result<()> {
     if doc {
         // Run doc tests
@@ -204,7 +247,9 @@ fn run_test(
     }
 
     // Determine which module tests to run
-    let module_flags = [cpu, gpu, memory, system];
+    let module_flags = [
+        cdrom, controller, cpu, dma, gpu, gte, interrupt, memory, spu, system, timer,
+    ];
     let module_count = module_flags.iter().filter(|&&f| f).count();
 
     if module_count == 0 {
@@ -221,10 +266,17 @@ fn run_test(
 
     // Run each module's tests sequentially
     let modules = [
+        (cdrom, "core::cdrom", "CD-ROM"),
+        (controller, "core::controller", "Controller"),
         (cpu, "core::cpu", "CPU"),
+        (dma, "core::dma", "DMA"),
         (gpu, "core::gpu", "GPU"),
+        (gte, "core::gte", "GTE"),
+        (interrupt, "core::interrupt", "Interrupt"),
         (memory, "core::memory", "Memory"),
+        (spu, "core::spu", "SPU"),
         (system, "core::system", "System"),
+        (timer, "core::timer", "Timer"),
     ];
 
     let mut all_success = true;
@@ -375,7 +427,12 @@ fn run_pre_commit() -> Result<()> {
     run_task("Clippy", || run_clippy(false), false)?;
     run_task(
         "Test",
-        || run_test(false, false, false, false, false, false),
+        || {
+            run_test(
+                false, false, false, false, false, false, false, false, false, false, false, false,
+                false,
+            )
+        },
         false,
     )?;
 

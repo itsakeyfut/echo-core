@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use crate::core::error::Result;
+use crate::core::gte::GTE;
 use crate::core::memory::Bus;
 use crate::core::timing::TimingEventManager;
 use std::collections::HashMap;
@@ -139,6 +140,9 @@ pub struct CPU {
     /// Coprocessor 0 (System Control Unit)
     cop0: COP0,
 
+    /// Coprocessor 2 (Geometry Transformation Engine)
+    gte: GTE,
+
     /// Load delay slot management
     ///
     /// On PSX, load instruction results cannot be used in the next instruction
@@ -213,6 +217,7 @@ impl CPU {
             hi: 0,
             lo: 0,
             cop0: COP0::new(),
+            gte: GTE::new(),
             load_delay: None,
             in_branch_delay: false,
             current_instruction: 0,
@@ -240,6 +245,7 @@ impl CPU {
         self.hi = 0;
         self.lo = 0;
         self.cop0.reset();
+        self.gte.reset();
         self.load_delay = None;
         self.in_branch_delay = false;
         self.current_instruction = 0;
