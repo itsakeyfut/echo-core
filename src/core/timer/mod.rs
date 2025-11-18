@@ -719,6 +719,146 @@ impl Default for Timers {
     }
 }
 
+/// ⚠️ **UNUSED PREPARATORY CODE - NOT CURRENTLY INVOKED** ⚠️
+///
+/// This IODevice trait implementation for Timers is **dead code** that exists only for
+/// future Phase 2 work. It is NOT used by any current code path.
+///
+/// **Current Implementation**: The Bus directly calls timer methods via
+/// `timers.borrow_mut().channel_mut(n).read_mode()`, etc. This provides proper mutable
+/// access and works correctly.
+///
+/// **Future Work (Phase 2+)**: When the Bus architecture is redesigned for trait-based
+/// device routing, this implementation will be activated and the limitations below will
+/// need to be addressed.
+///
+/// ## Timer Register Layout
+///
+/// The PlayStation has 3 timer channels, each with 3 registers:
+/// - Offset 0x00, 0x10, 0x20: Counter value (16-bit, R/W)
+/// - Offset 0x04, 0x14, 0x24: Mode register (16-bit, R/W)
+/// - Offset 0x08, 0x18, 0x28: Target value (16-bit, R/W)
+///
+/// Address range: 0x1F801100 - 0x1F80112F (48 bytes total)
+///
+/// ## Known Limitations (To Be Fixed in Phase 2)
+///
+/// - **Mode register reads return 0**: The `read_mode()` method requires `&mut self` to
+///   clear status flags, but the IODevice trait's `read_register()` only provides `&self`.
+///   The current workaround returns 0 with a warning. This needs interior mutability
+///   (RefCell/atomic types) or trait redesign to fix properly.
+/// - **No runtime impact**: Since this implementation is unused, the limitation doesn't
+///   affect emulation accuracy or behavior.
+#[allow(dead_code)]
+impl crate::core::memory::IODevice for Timers {
+    fn address_range(&self) -> (u32, u32) {
+        // Timer registers: 0x1F801100 - 0x1F80112F (3 timers × 16 bytes)
+        (0x1F801100, 0x1F80112F)
+    }
+
+    fn read_register(&self, offset: u32) -> crate::core::error::Result<u32> {
+        // Calculate which timer and which register
+        let timer_index = ((offset / 0x10) & 0x03) as usize;
+        let reg_offset = offset % 0x10;
+
+        if timer_index >= 3 {
+            log::warn!(
+                "Invalid timer index {} at offset 0x{:02X}",
+                timer_index,
+                offset
+            );
+            return Ok(0);
+        }
+
+        match reg_offset {
+            // Counter value (offset 0x00)
+            0x00 => {
+                let value = self.channel(timer_index).read_counter() as u32;
+                log::trace!("TIMER{} counter read -> 0x{:04X}", timer_index, value);
+                Ok(value)
+            }
+
+            // Mode register (offset 0x04)
+            0x04 => {
+                // Note: read_mode() requires &mut self due to flag clearing
+                // This is a limitation of the trait design - we'll log a warning
+                log::warn!(
+                    "TIMER{} mode read via IODevice (requires mutable access)",
+                    timer_index
+                );
+                Ok(0) // TODO: Need to handle this properly
+            }
+
+            // Target value (offset 0x08)
+            0x08 => {
+                let value = self.channel(timer_index).read_target() as u32;
+                log::trace!("TIMER{} target read -> 0x{:04X}", timer_index, value);
+                Ok(value)
+            }
+
+            // Invalid register offset
+            _ => {
+                log::warn!("Invalid timer register offset 0x{:02X}", reg_offset);
+                Ok(0)
+            }
+        }
+    }
+
+    fn write_register(&mut self, offset: u32, value: u32) -> crate::core::error::Result<()> {
+        // Calculate which timer and which register
+        let timer_index = ((offset / 0x10) & 0x03) as usize;
+        let reg_offset = offset % 0x10;
+
+        if timer_index >= 3 {
+            log::warn!(
+                "Invalid timer index {} at offset 0x{:02X}",
+                timer_index,
+                offset
+            );
+            return Ok(());
+        }
+
+        let value16 = (value & 0xFFFF) as u16;
+
+        match reg_offset {
+            // Counter value (offset 0x00)
+            0x00 => {
+                log::trace!("TIMER{} counter write: 0x{:04X}", timer_index, value16);
+                self.channel_mut(timer_index).write_counter(value16);
+                Ok(())
+            }
+
+            // Mode register (offset 0x04)
+            0x04 => {
+                log::trace!("TIMER{} mode write: 0x{:04X}", timer_index, value16);
+                self.channel_mut(timer_index).write_mode(value16);
+                Ok(())
+            }
+
+            // Target value (offset 0x08)
+            0x08 => {
+                log::trace!("TIMER{} target write: 0x{:04X}", timer_index, value16);
+                self.channel_mut(timer_index).write_target(value16);
+                Ok(())
+            }
+
+            // Invalid register offset
+            _ => {
+                log::warn!(
+                    "Invalid timer register write at offset 0x{:02X} = 0x{:08X}",
+                    reg_offset,
+                    value
+                );
+                Ok(())
+            }
+        }
+    }
+
+    fn name(&self) -> &str {
+        "Timers"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

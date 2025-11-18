@@ -968,3 +968,95 @@ impl Default for GPU {
         Self::new()
     }
 }
+
+/// ⚠️ **UNUSED PREPARATORY CODE - NOT CURRENTLY INVOKED** ⚠️
+///
+/// This IODevice trait implementation for GPU is **preparatory code** that exists for
+/// future Phase 2 work. It is NOT used by any current code path.
+///
+/// **Current Implementation**: The Bus directly calls GPU methods via
+/// `gpu.borrow_mut().read_gpuread()` / `write_gp0()` / `write_gp1()`. This provides
+/// proper mutable access and works correctly.
+///
+/// **Future Work (Phase 2+)**: Before switching the Bus to trait-based device routing,
+/// the GPUREAD limitation below MUST be resolved via one of these approaches:
+/// - Change IODevice trait signature to allow `read_register(&mut self)`
+/// - Use interior mutability (RefCell/Mutex) for VRAM transfer state
+/// - Implement a small IO wrapper type around GPU that handles mutability
+///
+/// ## GPU Register Layout
+///
+/// The GPU has two 32-bit registers accessible via memory-mapped I/O:
+/// - Offset 0x00 (0x1F801810): GP0 (write) / GPUREAD (read)
+/// - Offset 0x04 (0x1F801814): GP1 (write) / GPUSTAT (read)
+///
+/// ## Known Limitations (To Be Fixed Before Activation)
+///
+/// - **GPUREAD register returns status instead of transfer data**: The `read_gpuread()`
+///   method requires `&mut self` to consume VRAM→CPU transfer data, but the IODevice
+///   trait's `read_register()` only provides `&self`. The current workaround returns
+///   `status()` with a warning. **This MUST be fixed before activating trait-based
+///   routing**, otherwise VRAM-to-CPU transfers will not work.
+/// - **No runtime impact currently**: Since this implementation is unused, the limitation
+///   doesn't affect emulation accuracy or behavior.
+#[allow(dead_code)]
+impl crate::core::memory::IODevice for GPU {
+    fn address_range(&self) -> (u32, u32) {
+        // GPU registers: 0x1F801810 - 0x1F801817 (8 bytes, 2 registers)
+        (0x1F801810, 0x1F801817)
+    }
+
+    fn read_register(&self, offset: u32) -> crate::core::error::Result<u32> {
+        match offset {
+            // GPUREAD register (0x1F801810, offset 0x00)
+            0x00 => {
+                // GPUREAD requires &mut self, but trait uses &self
+                // This is a limitation - we'll need to handle this specially
+                // For now, log a warning and return status
+                log::warn!("GPUREAD access via IODevice trait (requires mutable access)");
+                Ok(self.status())
+            }
+
+            // GPUSTAT register (0x1F801814, offset 0x04)
+            0x04 => Ok(self.status()),
+
+            // Invalid offset
+            _ => {
+                log::warn!("Invalid GPU register read at offset 0x{:02X}", offset);
+                Ok(0xFFFFFFFF)
+            }
+        }
+    }
+
+    fn write_register(&mut self, offset: u32, value: u32) -> crate::core::error::Result<()> {
+        match offset {
+            // GP0 register (0x1F801810, offset 0x00)
+            0x00 => {
+                log::trace!("GPU GP0 write: 0x{:08X}", value);
+                self.write_gp0(value);
+                Ok(())
+            }
+
+            // GP1 register (0x1F801814, offset 0x04)
+            0x04 => {
+                log::trace!("GPU GP1 write: 0x{:08X}", value);
+                self.write_gp1(value);
+                Ok(())
+            }
+
+            // Invalid offset
+            _ => {
+                log::warn!(
+                    "Invalid GPU register write at offset 0x{:02X} = 0x{:08X}",
+                    offset,
+                    value
+                );
+                Ok(())
+            }
+        }
+    }
+
+    fn name(&self) -> &str {
+        "GPU"
+    }
+}

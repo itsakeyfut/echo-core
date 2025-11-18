@@ -65,10 +65,12 @@ use std::rc::Rc;
 
 // Sub-modules
 mod cache;
+mod io_device;
 mod io_ports;
 mod region;
 
 // Re-export public types
+pub use io_device::IODevice;
 pub use region::MemoryRegion;
 
 // Tests
