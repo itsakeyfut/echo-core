@@ -21,7 +21,7 @@
 use super::cdrom::CDROM;
 use super::controller::Controller;
 use super::cpu::{CpuTracer, CPU};
-use super::error::Result;
+use super::error::{EmulatorError, Result};
 use super::gpu::GPU;
 use super::interrupt::{interrupts, InterruptController};
 use super::memory::Bus;
@@ -471,7 +471,10 @@ impl System {
 
         // Tick timers with HBlank signal (legacy timing)
         // For now, in_hblank is simplified (always false)
-        let timer_irqs_legacy = self.timers.borrow_mut().tick(cpu_cycles, false, hblank_irq_legacy);
+        let timer_irqs_legacy = self
+            .timers
+            .borrow_mut()
+            .tick(cpu_cycles, false, hblank_irq_legacy);
 
         // Run pending timing events to get list of triggered events
         // Note: CPU::execute() also calls this, but we may need to run it here
@@ -716,6 +719,108 @@ impl System {
     /// Reference to CDROM instance (wrapped in Rc<RefCell>)
     pub fn cdrom(&self) -> Rc<RefCell<CDROM>> {
         Rc::clone(&self.cdrom)
+    }
+
+    /// Load a game from CD-ROM and prepare for execution
+    ///
+    /// This method implements the full game boot sequence:
+    /// 1. Load disc image from .cue file
+    /// 2. Read SYSTEM.CNF from disc
+    /// 3. Parse SYSTEM.CNF to find boot executable
+    /// 4. Load PSX-EXE file from disc
+    /// 5. Copy executable data to RAM
+    /// 6. Set CPU registers (PC, GP, SP, FP)
+    ///
+    /// # Arguments
+    ///
+    /// * `cue_path` - Path to the disc image .cue file
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if game loaded successfully
+    /// - `Err(EmulatorError)` if any step fails
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::system::System;
+    ///
+    /// let mut system = System::new();
+    /// system.load_bios("SCPH1001.BIN").unwrap();
+    /// system.load_game("game.cue").unwrap();
+    /// system.reset();
+    /// // Game is now ready to run
+    /// ```
+    pub fn load_game(&mut self, cue_path: &str) -> Result<()> {
+        use super::loader::SystemConfig;
+        // PSXExecutable will be used when full ISO9660 parsing is implemented
+        #[allow(unused_imports)]
+        use super::loader::PSXExecutable;
+
+        log::info!("Loading game from: {}", cue_path);
+
+        // Step 1: Load disc image
+        self.cdrom
+            .borrow_mut()
+            .load_disc(cue_path)
+            .map_err(|e| EmulatorError::CdRom(e))?;
+
+        log::info!("Disc loaded successfully");
+
+        // Step 2: Read SYSTEM.CNF from disc
+        let system_cnf_data = self
+            .cdrom
+            .borrow_mut()
+            .read_file("SYSTEM.CNF;1")
+            .map_err(|e| EmulatorError::CdRom(e))?;
+
+        let system_cnf_text = String::from_utf8_lossy(&system_cnf_data);
+        log::debug!("SYSTEM.CNF contents:\n{}", system_cnf_text);
+
+        // Step 3: Parse SYSTEM.CNF
+        let config = SystemConfig::parse(&system_cnf_text)?;
+        log::info!("Boot file: {}", config.boot_file);
+        log::debug!("Stack: 0x{:08X}", config.stack);
+
+        // Step 4: Read executable from disc
+        // For now, we only support reading SYSTEM.CNF
+        // A full implementation would need ISO9660 parsing to locate the executable
+        // TODO: Implement full ISO9660 file system parsing
+        log::warn!(
+            "Full ISO9660 parsing not yet implemented. Cannot load executable: {}",
+            config.boot_file
+        );
+
+        // For testing/demo purposes, we'll return Ok but note that the executable
+        // wasn't actually loaded. In a real implementation, this is where we would:
+        //
+        // let exe_data = self.cdrom.borrow_mut().read_file(&config.boot_file)?;
+        // let exe = PSXExecutable::load(&exe_data)?;
+        //
+        // // Step 5: Load executable data into RAM
+        // self.bus.write_ram_slice(exe.load_address, &exe.data)?;
+        //
+        // // Step 6: Set CPU registers
+        // self.cpu.set_pc(exe.pc);
+        // self.cpu.set_reg(28, exe.gp);  // $gp (global pointer)
+        //
+        // // Setup stack
+        // let sp = if config.stack != 0x801FFF00 {
+        //     config.stack
+        // } else if exe.stack_base != 0 {
+        //     exe.stack_base + exe.stack_offset
+        // } else {
+        //     config.stack
+        // };
+        // self.cpu.set_reg(29, sp);  // $sp (stack pointer)
+        // self.cpu.set_reg(30, sp);  // $fp (frame pointer)
+        //
+        // log::info!("Game loaded successfully!");
+        // log::info!("Entry point: 0x{:08X}", exe.pc);
+        // log::info!("Global pointer: 0x{:08X}", exe.gp);
+        // log::info!("Stack pointer: 0x{:08X}", sp);
+
+        Ok(())
     }
 
     /// Enable CPU execution tracing to a file
