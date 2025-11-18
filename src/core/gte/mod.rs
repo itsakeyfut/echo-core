@@ -333,29 +333,29 @@ impl GTE {
         // Get rotation matrix
         let rt = self.get_rotation_matrix();
 
-        // Matrix multiplication: MAC = RT * V
-        // Cast to i64 before multiplication to prevent intermediate i32 overflow
-        let mac1 = (rt[0][0] as i64 * vx as i64
-            + rt[0][1] as i64 * vy as i64
-            + rt[0][2] as i64 * vz as i64)
-            >> shift;
-        let mac2 = (rt[1][0] as i64 * vx as i64
-            + rt[1][1] as i64 * vy as i64
-            + rt[1][2] as i64 * vz as i64)
-            >> shift;
-        let mac3 = (rt[2][0] as i64 * vx as i64
-            + rt[2][1] as i64 * vy as i64
-            + rt[2][2] as i64 * vz as i64)
-            >> shift;
-
-        // Add translation vector
+        // Get translation vector
         let trx = self.control[Self::TRX] as i64;
         let try_val = self.control[Self::TRY] as i64;
         let trz = self.control[Self::TRZ] as i64;
 
-        let mac1 = mac1 + (trx << shift);
-        let mac2 = mac2 + (try_val << shift);
-        let mac3 = mac3 + (trz << shift);
+        // Matrix multiplication with translation: MAC = (RT * V + TR * 0x1000) SAR (sf*12)
+        // Hardware formula: MACn = (TRn*0x1000 + matrix_terms) SAR (sf*12)
+        // Cast to i64 before multiplication to prevent intermediate i32 overflow
+        let mac1 = (rt[0][0] as i64 * vx as i64
+            + rt[0][1] as i64 * vy as i64
+            + rt[0][2] as i64 * vz as i64
+            + (trx << 12))
+            >> shift;
+        let mac2 = (rt[1][0] as i64 * vx as i64
+            + rt[1][1] as i64 * vy as i64
+            + rt[1][2] as i64 * vz as i64
+            + (try_val << 12))
+            >> shift;
+        let mac3 = (rt[2][0] as i64 * vx as i64
+            + rt[2][1] as i64 * vy as i64
+            + rt[2][2] as i64 * vz as i64
+            + (trz << 12))
+            >> shift;
 
         // Store MAC values (saturated to 32-bit)
         self.data[Self::MAC1] = mac1.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
@@ -553,22 +553,7 @@ impl GTE {
             _ => [[0; 3]; 3],
         };
 
-        // Matrix multiplication
-        // Cast to i64 before multiplication to prevent intermediate i32 overflow
-        let mac1 = (matrix[0][0] as i64 * vx as i64
-            + matrix[0][1] as i64 * vy as i64
-            + matrix[0][2] as i64 * vz as i64)
-            >> shift;
-        let mac2 = (matrix[1][0] as i64 * vx as i64
-            + matrix[1][1] as i64 * vy as i64
-            + matrix[1][2] as i64 * vz as i64)
-            >> shift;
-        let mac3 = (matrix[2][0] as i64 * vx as i64
-            + matrix[2][1] as i64 * vy as i64
-            + matrix[2][2] as i64 * vz as i64)
-            >> shift;
-
-        // Add translation vector (simplified - using TR for now)
+        // Select translation vector (simplified - using TR for now)
         let (tx, ty, tz) = match cv {
             0 | 1 => (
                 self.control[Self::TRX] as i64,
@@ -578,9 +563,24 @@ impl GTE {
             _ => (0, 0, 0),
         };
 
-        let mac1 = mac1 + (tx << shift);
-        let mac2 = mac2 + (ty << shift);
-        let mac3 = mac3 + (tz << shift);
+        // Matrix multiplication with translation: MAC = (Matrix * V + T * 0x1000) SAR (sf*12)
+        // Hardware formula: MACn = (Tn*0x1000 + matrix_terms) SAR (sf*12)
+        // Cast to i64 before multiplication to prevent intermediate i32 overflow
+        let mac1 = (matrix[0][0] as i64 * vx as i64
+            + matrix[0][1] as i64 * vy as i64
+            + matrix[0][2] as i64 * vz as i64
+            + (tx << 12))
+            >> shift;
+        let mac2 = (matrix[1][0] as i64 * vx as i64
+            + matrix[1][1] as i64 * vy as i64
+            + matrix[1][2] as i64 * vz as i64
+            + (ty << 12))
+            >> shift;
+        let mac3 = (matrix[2][0] as i64 * vx as i64
+            + matrix[2][1] as i64 * vy as i64
+            + matrix[2][2] as i64 * vz as i64
+            + (tz << 12))
+            >> shift;
 
         // Store results
         self.data[Self::MAC1] = mac1.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
@@ -695,7 +695,7 @@ mod tests {
         // Set translation to zero
         gte.write_control(GTE::TRX, 0);
         gte.write_control(GTE::TRY, 0);
-        gte.write_control(GTE::TRZ, 1000);
+        gte.write_control(GTE::TRZ, 0);
 
         // Set projection parameters
         gte.write_control(GTE::H, 1000);
