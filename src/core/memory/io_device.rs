@@ -40,7 +40,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use psrx::core::memory::io_device::IODevice;
+//! use psrx::core::memory::IODevice;
 //! use psrx::core::error::Result;
 //!
 //! struct MyPeripheral {
@@ -109,7 +109,7 @@ pub trait IODevice {
     /// # Example
     ///
     /// ```no_run
-    /// # use psrx::core::memory::io_device::IODevice;
+    /// # use psrx::core::memory::IODevice;
     /// # struct GPU;
     /// # impl IODevice for GPU {
     /// #     fn address_range(&self) -> (u32, u32) {
@@ -199,16 +199,22 @@ pub trait IODevice {
 
     /// Write a 16-bit value to a device register
     ///
-    /// Default implementation writes the value as 32-bit.
-    /// Devices can override this if they need special 16-bit handling.
+    /// Default implementation performs read-modify-write on the aligned 32-bit word,
+    /// updating only the targeted 16-bit half. Devices can override this if they
+    /// need special 16-bit handling.
     ///
     /// # Arguments
     ///
     /// * `offset` - Offset from device base address (must be 2-byte aligned)
     /// * `value` - 16-bit value to write
     fn write_register16(&mut self, offset: u32, value: u16) -> Result<()> {
-        // Default: write as 32-bit
-        self.write_register(offset & !0x03, value as u32)
+        // Read-modify-write to update only the target 16-bit field
+        let aligned = offset & !0x03;
+        let shift = (offset & 0x02) * 8;
+        let mask = !(0xFFFFu32 << shift);
+        let current = self.read_register(aligned)?;
+        let new_value = (current & mask) | ((value as u32) << shift);
+        self.write_register(aligned, new_value)
     }
 
     /// Read an 8-bit value from a device register
@@ -232,16 +238,22 @@ pub trait IODevice {
 
     /// Write an 8-bit value to a device register
     ///
-    /// Default implementation writes the value as 32-bit.
-    /// Devices can override this if they need special 8-bit handling.
+    /// Default implementation performs read-modify-write on the aligned 32-bit word,
+    /// updating only the targeted 8-bit byte. Devices can override this if they
+    /// need special 8-bit handling.
     ///
     /// # Arguments
     ///
     /// * `offset` - Offset from device base address
     /// * `value` - 8-bit value to write
     fn write_register8(&mut self, offset: u32, value: u8) -> Result<()> {
-        // Default: write as 32-bit
-        self.write_register(offset & !0x03, value as u32)
+        // Read-modify-write to update only the target 8-bit field
+        let aligned = offset & !0x03;
+        let shift = (offset & 0x03) * 8;
+        let mask = !(0xFFu32 << shift);
+        let current = self.read_register(aligned)?;
+        let new_value = (current & mask) | ((value as u32) << shift);
+        self.write_register(aligned, new_value)
     }
 
     /// Optional: Device name for debugging

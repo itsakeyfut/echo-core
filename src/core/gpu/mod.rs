@@ -971,9 +971,22 @@ impl Default for GPU {
 
 /// Implement IODevice trait for GPU to enable trait-based memory-mapped I/O
 ///
+/// **PHASE 1 IMPLEMENTATION**: This trait implementation is preparatory code for
+/// future trait-based I/O routing. Currently, the Bus calls GPU methods directly
+/// via `gpu.borrow_mut()`, so this implementation is NOT actively used by any code path.
+///
 /// The GPU has two 32-bit registers accessible via memory-mapped I/O:
 /// - Offset 0x00 (0x1F801810): GP0 (write) / GPUREAD (read)
 /// - Offset 0x04 (0x1F801814): GP1 (write) / GPUSTAT (read)
+///
+/// ## Known Limitations (Phase 1)
+///
+/// - **GPUREAD register**: The `read_gpuread()` method requires `&mut self` to consume
+///   VRAM→CPU transfer data, but the IODevice trait's `read_register()` uses `&self`.
+///   The current workaround returns `status()` with a warning. This will be fixed in
+///   Phase 2 when the trait is redesigned or when a proper IO wrapper is implemented.
+/// - **Not used in production**: Bus still uses direct GPU access, so this limitation
+///   has no runtime impact.
 impl crate::core::memory::IODevice for GPU {
     fn address_range(&self) -> (u32, u32) {
         // GPU registers: 0x1F801810 - 0x1F801817 (8 bytes, 2 registers)

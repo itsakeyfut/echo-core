@@ -721,12 +721,26 @@ impl Default for Timers {
 
 /// Implement IODevice trait for Timers to enable trait-based memory-mapped I/O
 ///
+/// **PHASE 1 IMPLEMENTATION**: This trait implementation is preparatory code for
+/// future trait-based I/O routing. Currently, the Bus calls timer methods directly
+/// via `timers.borrow_mut().channel_mut(n)`, so this implementation is NOT actively
+/// used by any code path.
+///
 /// The PlayStation has 3 timer channels, each with 3 registers:
 /// - Offset 0x00, 0x10, 0x20: Counter value (16-bit, R/W)
 /// - Offset 0x04, 0x14, 0x24: Mode register (16-bit, R/W)
 /// - Offset 0x08, 0x18, 0x28: Target value (16-bit, R/W)
 ///
 /// Address range: 0x1F801100 - 0x1F80112F (48 bytes total)
+///
+/// ## Known Limitations (Phase 1)
+///
+/// - **Mode register reads**: The `read_mode()` method requires `&mut self` to clear
+///   status flags, but the IODevice trait's `read_register()` uses `&self`. The current
+///   workaround returns 0 with a warning. This will be fixed in Phase 2 when the trait
+///   is redesigned or when interior mutability is added.
+/// - **Not used in production**: Bus still uses direct channel access, so these
+///   limitations have no runtime impact.
 impl crate::core::memory::IODevice for Timers {
     fn address_range(&self) -> (u32, u32) {
         // Timer registers: 0x1F801100 - 0x1F80112F (3 timers × 16 bytes)
