@@ -1092,6 +1092,47 @@ impl Bus {
         );
         self.bios[offset..end].copy_from_slice(data);
     }
+
+    /// Write a byte slice directly to RAM
+    ///
+    /// This method provides efficient bulk writes to RAM, used for loading
+    /// game executables and other large data transfers.
+    ///
+    /// # Arguments
+    ///
+    /// * `address` - Physical RAM address (will be masked to RAM range)
+    /// * `data` - Data to write
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if write succeeds
+    /// - `Err(EmulatorError)` if address is out of bounds
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::memory::Bus;
+    ///
+    /// let mut bus = Bus::new();
+    /// let exe_data = vec![0x01, 0x02, 0x03, 0x04];
+    /// bus.write_ram_slice(0x80010000, &exe_data).unwrap();
+    /// ```
+    pub fn write_ram_slice(&mut self, address: u32, data: &[u8]) -> Result<()> {
+        // Mask to physical RAM address
+        let paddr = (address & 0x1FFFFF) as usize;
+
+        // Check bounds
+        if paddr + data.len() > Self::RAM_SIZE {
+            return Err(EmulatorError::InvalidMemoryAccess { address });
+        }
+
+        // Copy data to RAM
+        self.ram[paddr..paddr + data.len()].copy_from_slice(data);
+
+        log::trace!("Wrote {} bytes to RAM at 0x{:08X}", data.len(), address);
+
+        Ok(())
+    }
 }
 
 impl Default for Bus {

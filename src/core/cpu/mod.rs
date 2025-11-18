@@ -656,6 +656,29 @@ impl CPU {
         self.pc
     }
 
+    /// Set program counter value
+    ///
+    /// Sets the PC and next_PC to specified value. This is used when
+    /// loading game executables that specify the entry point.
+    ///
+    /// # Arguments
+    ///
+    /// * `pc` - New program counter value
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use psrx::core::cpu::CPU;
+    ///
+    /// let mut cpu = CPU::new();
+    /// cpu.set_pc(0x80010000); // Set PC to executable entry point
+    /// assert_eq!(cpu.pc(), 0x80010000);
+    /// ```
+    pub fn set_pc(&mut self, pc: u32) {
+        self.pc = pc;
+        self.next_pc = pc.wrapping_add(4);
+    }
+
     /// Check for pending interrupts and trigger if enabled
     ///
     /// This method checks if interrupts are enabled in the Status Register
