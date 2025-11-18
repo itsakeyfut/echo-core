@@ -556,7 +556,8 @@ impl CDROM {
             self.async_response_fifo.push_back(b'A'); // SCEA
         } else {
             self.status.id_error = true;
-            self.async_response_fifo.push_back(self.get_status_byte() | 0x01);
+            self.async_response_fifo
+                .push_back(self.get_status_byte() | 0x01);
             self.async_response_fifo.push_back(0x80); // Error code
         }
     }
@@ -624,7 +625,7 @@ impl CDROM {
 
         // Prepare response based on type
         match response_type {
-            SecondResponseType::None => return,
+            SecondResponseType::None => (),
             SecondResponseType::GetID => {
                 self.do_getid_read();
                 let int_level = if self.disc.is_some() { 2 } else { 5 };

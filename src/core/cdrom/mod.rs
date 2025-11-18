@@ -614,7 +614,10 @@ impl CDROM {
     pub(super) fn send_ack_and_stat(&mut self) {
         self.response_fifo.push_back(self.get_status_byte());
         self.trigger_interrupt(3); // INT3 (acknowledge)
-        log::trace!("CD-ROM: Sent ACK with status 0x{:02X}", self.get_status_byte());
+        log::trace!(
+            "CD-ROM: Sent ACK with status 0x{:02X}",
+            self.get_status_byte()
+        );
     }
 
     /// Generate an error response
@@ -710,6 +713,77 @@ impl CDROM {
     /// * `position` - New MSF position
     pub fn set_position(&mut self, position: CDPosition) {
         self.position = position;
+    }
+
+    /// Read a file from the disc (simplified ISO9660 implementation)
+    ///
+    /// This is a simplified implementation that can read specific files
+    /// from the PlayStation disc. It handles the special case of SYSTEM.CNF
+    /// which is typically located at a known sector.
+    ///
+    /// # Arguments
+    ///
+    /// * `filename` - File name to read (e.g., "SYSTEM.CNF;1")
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(Vec<u8>)` - File data
+    /// - `Err(CdRomError)` - If file not found or disc not loaded
+    ///
+    /// # Implementation Note
+    ///
+    /// This is a simplified implementation. A full ISO9660 parser would:
+    /// 1. Read the Primary Volume Descriptor at sector 16
+    /// 2. Parse the root directory
+    /// 3. Search for the file in the directory tree
+    ///
+    /// For now, we use known sector locations for common files.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::cdrom::CDROM;
+    ///
+    /// let mut cdrom = CDROM::new();
+    /// // cdrom.load_disc("game.cue").unwrap();
+    /// // let system_cnf = cdrom.read_file("SYSTEM.CNF;1").unwrap();
+    /// ```
+    pub fn read_file(&mut self, filename: &str) -> Result<Vec<u8>, super::error::CdRomError> {
+        if !self.has_disc() {
+            return Err(super::error::CdRomError::NoDisc);
+        }
+
+        // Special case: SYSTEM.CNF is typically at sector 00:00:22 (LBA 22)
+        if filename.to_uppercase().starts_with("SYSTEM.CNF") {
+            let old_position = self.position;
+
+            // Seek to sector 00:00:22
+            self.position = CDPosition::from_lba(22);
+
+            if let Some(sector_data) = self.read_current_sector() {
+                // Restore original position
+                self.position = old_position;
+
+                // Extract text data (skip 24-byte header for Mode 2 sectors)
+                let text_start = 24;
+                let text_data = &sector_data[text_start..];
+
+                // Find null terminator or end of sector
+                let text_end = text_data
+                    .iter()
+                    .position(|&b| b == 0)
+                    .unwrap_or(text_data.len());
+
+                return Ok(text_data[..text_end].to_vec());
+            }
+        }
+
+        // For executables and other files, we would need full ISO9660 parsing
+        // For now, return an error
+        Err(super::error::CdRomError::DiscLoadError(format!(
+            "File not found: {}",
+            filename
+        )))
     }
 
     /// Advance execution by the specified number of CPU cycles

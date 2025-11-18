@@ -21,7 +21,7 @@
 use super::cdrom::CDROM;
 use super::controller::Controller;
 use super::cpu::{CpuTracer, CPU};
-use super::error::Result;
+use super::error::{EmulatorError, Result};
 use super::gpu::GPU;
 use super::interrupt::{interrupts, InterruptController};
 use super::memory::Bus;
@@ -459,6 +459,12 @@ impl System {
             self.cpu.invalidate_icache(addr);
         }
 
+        // Apply icache range invalidation from bulk memory writes (e.g., executable loading)
+        // This efficiently invalidates large ranges without queueing individual addresses
+        for (start, end) in self.bus.drain_icache_invalidate_range_queue() {
+            self.cpu.invalidate_icache_range(start, end);
+        }
+
         // Apply icache prefill from memory writes
         // This ensures instructions are cached before execution
         for (addr, instruction) in self.bus.drain_icache_prefill_queue() {
@@ -471,7 +477,10 @@ impl System {
 
         // Tick timers with HBlank signal (legacy timing)
         // For now, in_hblank is simplified (always false)
-        let timer_irqs_legacy = self.timers.borrow_mut().tick(cpu_cycles, false, hblank_irq_legacy);
+        let timer_irqs_legacy = self
+            .timers
+            .borrow_mut()
+            .tick(cpu_cycles, false, hblank_irq_legacy);
 
         // Run pending timing events to get list of triggered events
         // Note: CPU::execute() also calls this, but we may need to run it here
@@ -716,6 +725,118 @@ impl System {
     /// Reference to CDROM instance (wrapped in Rc<RefCell>)
     pub fn cdrom(&self) -> Rc<RefCell<CDROM>> {
         Rc::clone(&self.cdrom)
+    }
+
+    /// Load a game from CD-ROM and prepare for execution
+    ///
+    /// **Current Implementation Status (Partial):**
+    ///
+    /// Currently implemented:
+    /// 1. Load disc image from .cue file
+    /// 2. Read SYSTEM.CNF from disc (hard-coded filename: "SYSTEM.CNF;1")
+    /// 3. Parse SYSTEM.CNF to find boot executable path
+    ///
+    /// **Not yet implemented (TODO):**
+    /// 4. Full ISO9660 filesystem parsing to locate executable by path
+    /// 5. Load PSX-EXE file from disc
+    /// 6. Copy executable data to RAM
+    /// 7. Set CPU registers (PC, GP, SP, FP)
+    ///
+    /// This method will return an error until ISO9660 support is completed.
+    /// The full game boot sequence is planned for a future phase.
+    ///
+    /// # Arguments
+    ///
+    /// * `cue_path` - Path to the disc image .cue file
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if disc loads and SYSTEM.CNF is parsed successfully
+    /// - `Err(EmulatorError)` currently returns error for unimplemented executable loading
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use psrx::core::system::System;
+    ///
+    /// let mut system = System::new();
+    /// system.load_bios("SCPH1001.BIN").unwrap();
+    ///
+    /// // Currently only loads disc and parses SYSTEM.CNF
+    /// // Full executable loading not yet implemented
+    /// match system.load_game("game.cue") {
+    ///     Ok(_) => println!("Disc loaded, SYSTEM.CNF parsed"),
+    ///     Err(_) => println!("Executable loading not yet implemented"),
+    /// }
+    /// ```
+    pub fn load_game(&mut self, cue_path: &str) -> Result<()> {
+        use super::loader::SystemConfig;
+        // PSXExecutable will be used when full ISO9660 parsing is implemented
+        #[allow(unused_imports)]
+        use super::loader::PSXExecutable;
+
+        log::info!("Loading game from: {}", cue_path);
+
+        // Step 1: Load disc image
+        self.cdrom
+            .borrow_mut()
+            .load_disc(cue_path)
+            .map_err(EmulatorError::CdRom)?;
+
+        log::info!("Disc loaded successfully");
+
+        // Step 2: Read SYSTEM.CNF from disc
+        let system_cnf_data = self
+            .cdrom
+            .borrow_mut()
+            .read_file("SYSTEM.CNF;1")
+            .map_err(EmulatorError::CdRom)?;
+
+        let system_cnf_text = String::from_utf8_lossy(&system_cnf_data);
+        log::debug!("SYSTEM.CNF contents:\n{}", system_cnf_text);
+
+        // Step 3: Parse SYSTEM.CNF
+        let config = SystemConfig::parse(&system_cnf_text)?;
+        log::info!("Boot file: {}", config.boot_file);
+        log::debug!("Stack: 0x{:08X}", config.stack);
+
+        // Step 4: Read executable from disc
+        // A full implementation would need ISO9660 parsing to locate the executable
+        // TODO: Implement full ISO9660 file system parsing
+        //
+        // When implemented, this would be:
+        // let exe_data = self.cdrom.borrow_mut().read_file(&config.boot_file)?;
+        // let exe = PSXExecutable::load(&exe_data)?;
+        //
+        // // Step 5: Load executable data into RAM
+        // self.bus.write_ram_slice(exe.load_address, &exe.data)?;
+        //
+        // // Step 6: Set CPU registers
+        // self.cpu.set_pc(exe.pc);
+        // self.cpu.set_reg(28, exe.gp);  // $gp (global pointer)
+        //
+        // // Setup stack
+        // let sp = if config.stack != 0x801FFF00 {
+        //     config.stack
+        // } else if exe.stack_base != 0 {
+        //     exe.stack_base + exe.stack_offset
+        // } else {
+        //     config.stack
+        // };
+        // self.cpu.set_reg(29, sp);  // $sp (stack pointer)
+        // self.cpu.set_reg(30, sp);  // $fp (frame pointer)
+        //
+        // log::info!("Game loaded successfully!");
+        // log::info!("Entry point: 0x{:08X}", exe.pc);
+        // log::info!("Global pointer: 0x{:08X}", exe.gp);
+        // log::info!("Stack pointer: 0x{:08X}", sp);
+
+        // For now, return error since executable loading is not implemented
+        Err(EmulatorError::LoaderError(format!(
+            "ISO9660 filesystem parsing not yet implemented. Cannot load executable: {}. \
+             Disc loaded successfully and SYSTEM.CNF parsed, but full boot sequence requires ISO9660 support.",
+            config.boot_file
+        )))
     }
 
     /// Enable CPU execution tracing to a file
