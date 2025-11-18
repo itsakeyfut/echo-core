@@ -280,8 +280,8 @@ pub struct System {
     timing: TimingEventManager,
     /// GPU instance (shared via Rc<RefCell> for memory-mapped access)
     gpu: Rc<RefCell<GPU>>,
-    /// SPU instance
-    spu: SPU,
+    /// SPU instance (shared via Rc<RefCell> for memory-mapped access)
+    spu: Rc<RefCell<SPU>>,
     /// DMA controller (shared via Rc<RefCell> for memory-mapped access)
     dma: Rc<RefCell<DMA>>,
     /// CDROM drive (shared via Rc<RefCell> for memory-mapped access)
@@ -334,6 +334,9 @@ impl System {
         // Create Interrupt Controller wrapped in Rc<RefCell> for shared access
         let interrupt_controller = Rc::new(RefCell::new(InterruptController::new()));
 
+        // Create SPU wrapped in Rc<RefCell> for shared access
+        let spu = Rc::new(RefCell::new(SPU::new()));
+
         // Create bus and connect all peripherals for memory-mapped I/O
         let mut bus = Bus::new();
         bus.set_gpu(gpu.clone());
@@ -342,6 +345,7 @@ impl System {
         bus.set_controller_ports(controller_ports.clone());
         bus.set_timers(timers.clone());
         bus.set_interrupt_controller(interrupt_controller.clone());
+        bus.set_spu(spu.clone());
 
         // Create timing manager
         let mut timing = TimingEventManager::new();
@@ -362,7 +366,7 @@ impl System {
             bus,
             timing,
             gpu,
-            spu: SPU::new(),
+            spu,
             dma,
             cdrom,
             controller_ports,
@@ -410,7 +414,9 @@ impl System {
         self.cpu.reset();
         self.bus.reset();
         self.gpu.borrow_mut().reset();
-        self.spu = SPU::new();
+        // Reset SPU by creating a new instance and updating bus connection
+        self.spu = Rc::new(RefCell::new(SPU::new()));
+        self.bus.set_spu(self.spu.clone());
         self.cycles = 0;
         self.running = true;
         self.trace_count = 0;

@@ -871,4 +871,78 @@ impl Bus {
             }
         }
     }
+
+    /// Read from I/O port (16-bit)
+    ///
+    /// Handles reads from 16-bit memory-mapped I/O registers including SPU registers.
+    ///
+    /// # Arguments
+    ///
+    /// * `paddr` - Physical address of I/O port
+    ///
+    /// # Returns
+    ///
+    /// The 16-bit value read from the I/O port
+    pub(super) fn read_io_port16(&self, paddr: u32) -> Result<u16> {
+        match paddr {
+            // SPU registers (0x1F801C00-0x1F801FFF)
+            0x1F801C00..=0x1F801FFF => {
+                if let Some(spu) = &self.spu {
+                    let value = spu.borrow().read_register(paddr);
+                    log::trace!("SPU register read at 0x{:08X} -> 0x{:04X}", paddr, value);
+                    Ok(value)
+                } else {
+                    log::warn!(
+                        "SPU register read before SPU initialized at 0x{:08X}",
+                        paddr
+                    );
+                    Ok(0)
+                }
+            }
+
+            // Other I/O ports (stub for now)
+            _ => {
+                log::trace!("I/O port read16 at 0x{:08X} -> 0x0000", paddr);
+                Ok(0)
+            }
+        }
+    }
+
+    /// Write to I/O port (16-bit)
+    ///
+    /// Handles writes to 16-bit memory-mapped I/O registers including SPU registers.
+    ///
+    /// # Arguments
+    ///
+    /// * `paddr` - Physical address of I/O port
+    /// * `value` - 16-bit value to write
+    ///
+    /// # Returns
+    ///
+    /// Result indicating success or error
+    pub(super) fn write_io_port16(&mut self, paddr: u32, value: u16) -> Result<()> {
+        match paddr {
+            // SPU registers (0x1F801C00-0x1F801FFF)
+            0x1F801C00..=0x1F801FFF => {
+                if let Some(spu) = &self.spu {
+                    spu.borrow_mut().write_register(paddr, value);
+                    log::trace!("SPU register write at 0x{:08X} = 0x{:04X}", paddr, value);
+                    Ok(())
+                } else {
+                    log::warn!(
+                        "SPU register write before SPU initialized at 0x{:08X} = 0x{:04X}",
+                        paddr,
+                        value
+                    );
+                    Ok(())
+                }
+            }
+
+            // Other I/O ports (stub for now)
+            _ => {
+                log::trace!("I/O port write16 at 0x{:08X} = 0x{:04X}", paddr, value);
+                Ok(())
+            }
+        }
+    }
 }
