@@ -104,6 +104,14 @@ pub struct Bus {
     /// Each entry is a physical_address to invalidate
     icache_invalidate_queue: Vec<u32>,
 
+    /// ICache range invalidation queue
+    ///
+    /// For bulk writes (e.g., executable loading), we queue address ranges
+    /// for cache invalidation to avoid queueing thousands of individual addresses.
+    ///
+    /// Each entry is (start_address, end_address)
+    icache_invalidate_range_queue: Vec<(u32, u32)>,
+
     /// Scratchpad (1KB fast RAM)
     ///
     /// Physical address: 0x1F800000-0x1F8003FF
@@ -291,6 +299,7 @@ impl Bus {
             ram: vec![0u8; Self::RAM_SIZE],
             icache_prefill_queue: Vec::new(),
             icache_invalidate_queue: Vec::new(),
+            icache_invalidate_range_queue: Vec::new(),
             scratchpad: [0u8; 1024],
             bios: vec![0u8; Self::BIOS_SIZE],
             cache_control: 0,
@@ -485,6 +494,9 @@ impl Bus {
 
         // Clear icache invalidate queue
         self.icache_invalidate_queue.clear();
+
+        // Clear icache range invalidate queue
+        self.icache_invalidate_range_queue.clear();
 
         // Clear scratchpad (volatile memory)
         self.scratchpad.fill(0);
@@ -1128,6 +1140,10 @@ impl Bus {
 
         // Copy data to RAM
         self.ram[paddr..paddr + data.len()].copy_from_slice(data);
+
+        // Queue icache invalidation for the written range
+        // This ensures instruction cache coherency when loading executables
+        self.queue_icache_range_invalidation(paddr as u32, (paddr + data.len()) as u32);
 
         log::trace!("Wrote {} bytes to RAM at 0x{:08X}", data.len(), address);
 

@@ -51,6 +51,15 @@ impl Bus {
         self.icache_invalidate_queue.drain(..).collect()
     }
 
+    /// Drain the icache range invalidation queue
+    ///
+    /// Returns all queued (start, end) address ranges for invalidation and clears the queue.
+    /// This should be called periodically by the System to invalidate ranges of stale
+    /// cache entries (e.g., when loading executables).
+    pub fn drain_icache_invalidate_range_queue(&mut self) -> Vec<(u32, u32)> {
+        self.icache_invalidate_range_queue.drain(..).collect()
+    }
+
     /// Queue an instruction for ICache prefill
     ///
     /// Called when BIOS copies code to RAM. Queues both cached and uncached
@@ -89,5 +98,26 @@ impl Bus {
         let cached_addr = 0x80000000 | paddr;
         self.icache_invalidate_queue.push(cached_addr);
         self.icache_invalidate_queue.push(paddr); // Also uncached alias
+    }
+
+    /// Queue an address range for ICache invalidation
+    ///
+    /// Called when bulk data is written to RAM (e.g., executable loading).
+    /// Queues both cached and uncached address aliases for the entire range.
+    ///
+    /// # Arguments
+    ///
+    /// * `start_paddr` - Physical start address of the written range
+    /// * `end_paddr` - Physical end address (exclusive) of the written range
+    pub(super) fn queue_icache_range_invalidation(&mut self, start_paddr: u32, end_paddr: u32) {
+        // Queue cached addresses (KSEG0: 0x80000000-0x9FFFFFFF)
+        let cached_start = 0x80000000 | start_paddr;
+        let cached_end = 0x80000000 | end_paddr;
+        self.icache_invalidate_range_queue
+            .push((cached_start, cached_end));
+
+        // Also queue uncached aliases (KUSEG: 0x00000000-0x7FFFFFFF)
+        self.icache_invalidate_range_queue
+            .push((start_paddr, end_paddr));
     }
 }

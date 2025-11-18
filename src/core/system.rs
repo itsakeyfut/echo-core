@@ -459,6 +459,12 @@ impl System {
             self.cpu.invalidate_icache(addr);
         }
 
+        // Apply icache range invalidation from bulk memory writes (e.g., executable loading)
+        // This efficiently invalidates large ranges without queueing individual addresses
+        for (start, end) in self.bus.drain_icache_invalidate_range_queue() {
+            self.cpu.invalidate_icache_range(start, end);
+        }
+
         // Apply icache prefill from memory writes
         // This ensures instructions are cached before execution
         for (addr, instruction) in self.bus.drain_icache_prefill_queue() {
@@ -723,13 +729,21 @@ impl System {
 
     /// Load a game from CD-ROM and prepare for execution
     ///
-    /// This method implements the full game boot sequence:
+    /// **Current Implementation Status (Partial):**
+    ///
+    /// Currently implemented:
     /// 1. Load disc image from .cue file
-    /// 2. Read SYSTEM.CNF from disc
-    /// 3. Parse SYSTEM.CNF to find boot executable
-    /// 4. Load PSX-EXE file from disc
-    /// 5. Copy executable data to RAM
-    /// 6. Set CPU registers (PC, GP, SP, FP)
+    /// 2. Read SYSTEM.CNF from disc (hard-coded filename: "SYSTEM.CNF;1")
+    /// 3. Parse SYSTEM.CNF to find boot executable path
+    ///
+    /// **Not yet implemented (TODO):**
+    /// 4. Full ISO9660 filesystem parsing to locate executable by path
+    /// 5. Load PSX-EXE file from disc
+    /// 6. Copy executable data to RAM
+    /// 7. Set CPU registers (PC, GP, SP, FP)
+    ///
+    /// This method will return an error until ISO9660 support is completed.
+    /// The full game boot sequence is planned for a future phase.
     ///
     /// # Arguments
     ///
@@ -737,8 +751,8 @@ impl System {
     ///
     /// # Returns
     ///
-    /// - `Ok(())` if game loaded successfully
-    /// - `Err(EmulatorError)` if any step fails
+    /// - `Ok(())` if disc loads and SYSTEM.CNF is parsed successfully
+    /// - `Err(EmulatorError)` currently returns error for unimplemented executable loading
     ///
     /// # Example
     ///
@@ -747,9 +761,13 @@ impl System {
     ///
     /// let mut system = System::new();
     /// system.load_bios("SCPH1001.BIN").unwrap();
-    /// system.load_game("game.cue").unwrap();
-    /// system.reset();
-    /// // Game is now ready to run
+    ///
+    /// // Currently only loads disc and parses SYSTEM.CNF
+    /// // Full executable loading not yet implemented
+    /// match system.load_game("game.cue") {
+    ///     Ok(_) => println!("Disc loaded, SYSTEM.CNF parsed"),
+    ///     Err(_) => println!("Executable loading not yet implemented"),
+    /// }
     /// ```
     pub fn load_game(&mut self, cue_path: &str) -> Result<()> {
         use super::loader::SystemConfig;
@@ -783,17 +801,10 @@ impl System {
         log::debug!("Stack: 0x{:08X}", config.stack);
 
         // Step 4: Read executable from disc
-        // For now, we only support reading SYSTEM.CNF
         // A full implementation would need ISO9660 parsing to locate the executable
         // TODO: Implement full ISO9660 file system parsing
-        log::warn!(
-            "Full ISO9660 parsing not yet implemented. Cannot load executable: {}",
-            config.boot_file
-        );
-
-        // For testing/demo purposes, we'll return Ok but note that the executable
-        // wasn't actually loaded. In a real implementation, this is where we would:
         //
+        // When implemented, this would be:
         // let exe_data = self.cdrom.borrow_mut().read_file(&config.boot_file)?;
         // let exe = PSXExecutable::load(&exe_data)?;
         //
@@ -820,7 +831,12 @@ impl System {
         // log::info!("Global pointer: 0x{:08X}", exe.gp);
         // log::info!("Stack pointer: 0x{:08X}", sp);
 
-        Ok(())
+        // For now, return error since executable loading is not implemented
+        Err(EmulatorError::LoaderError(format!(
+            "ISO9660 filesystem parsing not yet implemented. Cannot load executable: {}. \
+             Disc loaded successfully and SYSTEM.CNF parsed, but full boot sequence requires ISO9660 support.",
+            config.boot_file
+        )))
     }
 
     /// Enable CPU execution tracing to a file

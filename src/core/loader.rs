@@ -84,8 +84,11 @@ pub struct SystemConfig {
 
     /// TCB (Thread Control Block) count
     ///
-    /// Default: false (TCB count controlled by kernel)
-    pub tce: bool,
+    /// Specifies the number of thread control blocks to allocate.
+    /// Real SYSTEM.CNF files typically use values like TCB = 4.
+    ///
+    /// Default: 0 (TCB count controlled by kernel/BIOS default)
+    pub tcb_count: u32,
 
     /// Event name/configuration
     pub event: String,
@@ -125,11 +128,12 @@ impl SystemConfig {
     ///
     /// let config = SystemConfig::parse(data).unwrap();
     /// assert_eq!(config.boot_file, "cdrom:\\SLUS_000.01;1");
+    /// assert_eq!(config.tcb_count, 4);
     /// assert_eq!(config.stack, 0x801FFF00);
     /// ```
     pub fn parse(data: &str) -> Result<Self> {
         let mut boot_file = String::new();
-        let mut tce = false;
+        let mut tcb_count = 0;
         let mut event = String::new();
         let mut stack = 0x801FFF00; // Default stack address
 
@@ -148,7 +152,11 @@ impl SystemConfig {
 
                 match key {
                     "BOOT" => boot_file = value.to_string(),
-                    "TCB" => tce = value == "1",
+                    "TCB" => {
+                        tcb_count = value.parse().map_err(|e| {
+                            EmulatorError::LoaderError(format!("Invalid TCB value: {}", e))
+                        })?;
+                    }
                     "EVENT" => event = value.to_string(),
                     "STACK" => {
                         // Parse hex value (with or without 0x prefix)
@@ -172,7 +180,7 @@ impl SystemConfig {
 
         Ok(Self {
             boot_file,
-            tce,
+            tcb_count,
             event,
             stack,
         })
@@ -260,16 +268,18 @@ impl PSXExecutable {
         let stack_offset = u32::from_le_bytes([data[0x34], data[0x35], data[0x36], data[0x37]]);
 
         // Extract executable data
-        let data_start = Self::HEADER_SIZE;
-        let data_end = data_start + load_size as usize;
+        let load_size_usize = load_size as usize;
+        let available = data.len() - Self::HEADER_SIZE; // safe: len ≥ HEADER_SIZE checked above
 
-        if data_end > data.len() {
+        if load_size_usize > available {
             return Err(EmulatorError::LoaderError(format!(
                 "Invalid PSX-EXE: load_size (0x{:X}) exceeds file size",
                 load_size
             )));
         }
 
+        let data_start = Self::HEADER_SIZE;
+        let data_end = data_start + load_size_usize;
         let exe_data = data[data_start..data_end].to_vec();
 
         log::info!(
@@ -300,14 +310,14 @@ mod tests {
     fn test_system_cnf_parsing() {
         let data = r#"
             BOOT = cdrom:\SLUS_000.01;1
-            TCB = 1
+            TCB = 4
             EVENT = 10
             STACK = 0x801FFF00
         "#;
 
         let config = SystemConfig::parse(data).unwrap();
         assert_eq!(config.boot_file, "cdrom:\\SLUS_000.01;1");
-        assert!(config.tce);
+        assert_eq!(config.tcb_count, 4);
         assert_eq!(config.event, "10");
         assert_eq!(config.stack, 0x801FFF00);
     }
@@ -332,7 +342,7 @@ mod tests {
 
         let config = SystemConfig::parse(data).unwrap();
         assert_eq!(config.boot_file, "cdrom:\\BOOT.EXE;1");
-        assert!(!config.tce);
+        assert_eq!(config.tcb_count, 0); // Default value
         assert_eq!(config.event, "");
         assert_eq!(config.stack, 0x801FFF00); // Default value
     }
