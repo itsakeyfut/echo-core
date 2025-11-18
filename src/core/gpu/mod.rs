@@ -969,24 +969,37 @@ impl Default for GPU {
     }
 }
 
-/// Implement IODevice trait for GPU to enable trait-based memory-mapped I/O
+/// ⚠️ **UNUSED PREPARATORY CODE - NOT CURRENTLY INVOKED** ⚠️
 ///
-/// **PHASE 1 IMPLEMENTATION**: This trait implementation is preparatory code for
-/// future trait-based I/O routing. Currently, the Bus calls GPU methods directly
-/// via `gpu.borrow_mut()`, so this implementation is NOT actively used by any code path.
+/// This IODevice trait implementation for GPU is **preparatory code** that exists for
+/// future Phase 2 work. It is NOT used by any current code path.
+///
+/// **Current Implementation**: The Bus directly calls GPU methods via
+/// `gpu.borrow_mut().read_gpuread()` / `write_gp0()` / `write_gp1()`. This provides
+/// proper mutable access and works correctly.
+///
+/// **Future Work (Phase 2+)**: Before switching the Bus to trait-based device routing,
+/// the GPUREAD limitation below MUST be resolved via one of these approaches:
+/// - Change IODevice trait signature to allow `read_register(&mut self)`
+/// - Use interior mutability (RefCell/Mutex) for VRAM transfer state
+/// - Implement a small IO wrapper type around GPU that handles mutability
+///
+/// ## GPU Register Layout
 ///
 /// The GPU has two 32-bit registers accessible via memory-mapped I/O:
 /// - Offset 0x00 (0x1F801810): GP0 (write) / GPUREAD (read)
 /// - Offset 0x04 (0x1F801814): GP1 (write) / GPUSTAT (read)
 ///
-/// ## Known Limitations (Phase 1)
+/// ## Known Limitations (To Be Fixed Before Activation)
 ///
-/// - **GPUREAD register**: The `read_gpuread()` method requires `&mut self` to consume
-///   VRAM→CPU transfer data, but the IODevice trait's `read_register()` uses `&self`.
-///   The current workaround returns `status()` with a warning. This will be fixed in
-///   Phase 2 when the trait is redesigned or when a proper IO wrapper is implemented.
-/// - **Not used in production**: Bus still uses direct GPU access, so this limitation
-///   has no runtime impact.
+/// - **GPUREAD register returns status instead of transfer data**: The `read_gpuread()`
+///   method requires `&mut self` to consume VRAM→CPU transfer data, but the IODevice
+///   trait's `read_register()` only provides `&self`. The current workaround returns
+///   `status()` with a warning. **This MUST be fixed before activating trait-based
+///   routing**, otherwise VRAM-to-CPU transfers will not work.
+/// - **No runtime impact currently**: Since this implementation is unused, the limitation
+///   doesn't affect emulation accuracy or behavior.
+#[allow(dead_code)]
 impl crate::core::memory::IODevice for GPU {
     fn address_range(&self) -> (u32, u32) {
         // GPU registers: 0x1F801810 - 0x1F801817 (8 bytes, 2 registers)

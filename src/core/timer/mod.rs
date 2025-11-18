@@ -719,12 +719,20 @@ impl Default for Timers {
     }
 }
 
-/// Implement IODevice trait for Timers to enable trait-based memory-mapped I/O
+/// ⚠️ **UNUSED PREPARATORY CODE - NOT CURRENTLY INVOKED** ⚠️
 ///
-/// **PHASE 1 IMPLEMENTATION**: This trait implementation is preparatory code for
-/// future trait-based I/O routing. Currently, the Bus calls timer methods directly
-/// via `timers.borrow_mut().channel_mut(n)`, so this implementation is NOT actively
-/// used by any code path.
+/// This IODevice trait implementation for Timers is **dead code** that exists only for
+/// future Phase 2 work. It is NOT used by any current code path.
+///
+/// **Current Implementation**: The Bus directly calls timer methods via
+/// `timers.borrow_mut().channel_mut(n).read_mode()`, etc. This provides proper mutable
+/// access and works correctly.
+///
+/// **Future Work (Phase 2+)**: When the Bus architecture is redesigned for trait-based
+/// device routing, this implementation will be activated and the limitations below will
+/// need to be addressed.
+///
+/// ## Timer Register Layout
 ///
 /// The PlayStation has 3 timer channels, each with 3 registers:
 /// - Offset 0x00, 0x10, 0x20: Counter value (16-bit, R/W)
@@ -733,14 +741,15 @@ impl Default for Timers {
 ///
 /// Address range: 0x1F801100 - 0x1F80112F (48 bytes total)
 ///
-/// ## Known Limitations (Phase 1)
+/// ## Known Limitations (To Be Fixed in Phase 2)
 ///
-/// - **Mode register reads**: The `read_mode()` method requires `&mut self` to clear
-///   status flags, but the IODevice trait's `read_register()` uses `&self`. The current
-///   workaround returns 0 with a warning. This will be fixed in Phase 2 when the trait
-///   is redesigned or when interior mutability is added.
-/// - **Not used in production**: Bus still uses direct channel access, so these
-///   limitations have no runtime impact.
+/// - **Mode register reads return 0**: The `read_mode()` method requires `&mut self` to
+///   clear status flags, but the IODevice trait's `read_register()` only provides `&self`.
+///   The current workaround returns 0 with a warning. This needs interior mutability
+///   (RefCell/atomic types) or trait redesign to fix properly.
+/// - **No runtime impact**: Since this implementation is unused, the limitation doesn't
+///   affect emulation accuracy or behavior.
+#[allow(dead_code)]
 impl crate::core::memory::IODevice for Timers {
     fn address_range(&self) -> (u32, u32) {
         // Timer registers: 0x1F801100 - 0x1F80112F (3 timers × 16 bytes)
