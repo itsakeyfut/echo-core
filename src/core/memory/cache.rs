@@ -120,4 +120,26 @@ impl Bus {
         self.icache_invalidate_range_queue
             .push((start_paddr, end_paddr));
     }
+
+    /// Get mutable reference to RAM
+    ///
+    /// Provides direct mutable access to the main system RAM (2MB).
+    /// This is primarily used by DMA transfers for efficient bulk data operations.
+    ///
+    /// # Returns
+    ///
+    /// Mutable slice to the 2MB RAM buffer
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use psrx::core::memory::Bus;
+    ///
+    /// let mut bus = Bus::new();
+    /// let ram = bus.ram_mut();
+    /// ram[0] = 0x42;
+    /// ```
+    pub fn ram_mut(&mut self) -> &mut [u8] {
+        &mut self.ram
+    }
 }

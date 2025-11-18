@@ -21,6 +21,7 @@
 use super::cdrom::CDROM;
 use super::controller::Controller;
 use super::cpu::{CpuTracer, CPU};
+use super::dma::DMA;
 use super::error::{EmulatorError, Result};
 use super::gpu::GPU;
 use super::interrupt::{interrupts, InterruptController};
@@ -258,6 +259,7 @@ impl Default for ControllerPorts {
 /// - Bus: Memory bus for RAM, BIOS, and I/O
 /// - GPU: Graphics processing unit
 /// - SPU: Sound processing unit
+/// - DMA: Direct Memory Access controller
 /// - Controller Ports: Input device interface
 /// - Timers: 3 timer/counter channels
 ///
@@ -280,6 +282,8 @@ pub struct System {
     gpu: Rc<RefCell<GPU>>,
     /// SPU instance
     spu: SPU,
+    /// DMA controller (shared via Rc<RefCell> for memory-mapped access)
+    dma: Rc<RefCell<DMA>>,
     /// CDROM drive (shared via Rc<RefCell> for memory-mapped access)
     cdrom: Rc<RefCell<CDROM>>,
     /// Controller ports (shared via Rc<RefCell> for memory-mapped access)
@@ -315,6 +319,9 @@ impl System {
         // Create GPU wrapped in Rc<RefCell> for shared access
         let gpu = Rc::new(RefCell::new(GPU::new()));
 
+        // Create DMA controller wrapped in Rc<RefCell> for shared access
+        let dma = Rc::new(RefCell::new(DMA::new()));
+
         // Create CDROM wrapped in Rc<RefCell> for shared access
         let cdrom = Rc::new(RefCell::new(CDROM::new()));
 
@@ -330,6 +337,7 @@ impl System {
         // Create bus and connect all peripherals for memory-mapped I/O
         let mut bus = Bus::new();
         bus.set_gpu(gpu.clone());
+        bus.set_dma(dma.clone());
         bus.set_cdrom(cdrom.clone());
         bus.set_controller_ports(controller_ports.clone());
         bus.set_timers(timers.clone());
@@ -355,6 +363,7 @@ impl System {
             timing,
             gpu,
             spu: SPU::new(),
+            dma,
             cdrom,
             controller_ports,
             timers,
@@ -452,6 +461,22 @@ impl System {
         }
 
         let cpu_cycles = self.cpu.step(&mut self.bus)?;
+
+        // Tick DMA controller to process active transfers
+        // DMA gets access to RAM, GPU, and CD-ROM for data transfers
+        let dma_irq = {
+            let ram = self.bus.ram_mut();
+            let mut gpu = self.gpu.borrow_mut();
+            let mut cdrom = self.cdrom.borrow_mut();
+            self.dma.borrow_mut().tick(ram, &mut gpu, &mut cdrom)
+        };
+
+        // Request DMA interrupt if any transfer completed
+        if dma_irq {
+            self.interrupt_controller
+                .borrow_mut()
+                .request(interrupts::DMA);
+        }
 
         // Apply icache invalidation from memory writes (must come before prefill)
         // This maintains cache coherency when memory is modified
@@ -1563,5 +1588,189 @@ mod tests {
             0,
             "Timer 2 should have triggered"
         );
+    }
+
+    // DMA Integration Tests
+
+    #[test]
+    fn test_dma_integration() {
+        let mut system = System::new();
+
+        // Setup a simple instruction loop in BIOS
+        let jump_bytes = 0x0BF00000u32.to_le_bytes();
+        system.bus_mut().write_bios_for_test(0, &jump_bytes);
+        system
+            .bus_mut()
+            .write_bios_for_test(4, &[0x00, 0x00, 0x00, 0x00]);
+
+        system.reset();
+
+        // Enable DMA channels in DPCR (bit 3 of each nibble enables the channel)
+        system.bus.write32(0x1F8010F0, 0x0FEDCBA8).unwrap(); // All channels enabled with priorities
+
+        // Setup GPU DMA transfer (OTC mode for simplicity)
+        // Use Channel 6 (OTC) which is simpler to test
+        system.bus.write32(0x1F8010E0, 0x00000100).unwrap(); // MADR = 0x100
+        system.bus.write32(0x1F8010E4, 0x00000010).unwrap(); // BCR = 16 entries
+        system.bus.write32(0x1F8010E8, 0x11000002).unwrap(); // CHCR = start + trigger
+
+        // Enable DMA interrupts in DICR
+        system.bus.write32(0x1F8010F4, 0x00FF0000).unwrap(); // Enable all channel interrupts
+
+        // Run a few cycles to trigger DMA
+        for _ in 0..5 {
+            system.step().unwrap();
+        }
+
+        // Check that DMA transfer completed
+        let chcr = system.bus.read32(0x1F8010E8).unwrap();
+        assert_eq!(
+            chcr & 0x01000000,
+            0,
+            "DMA channel 6 should be inactive after transfer"
+        );
+
+        // Check that DMA created the ordering table in RAM
+        // OTC writes backwards: first entry points to previous, last entry is 0x00FFFFFF
+        // With MADR=0x100 and count=16, entries are at 0x100, 0xFC, 0xF8, ... 0xC4
+        // First entry at 0x100 should link to 0xFC
+        let first_entry = system.bus.read32(0x00000100).unwrap();
+        assert_eq!(
+            first_entry, 0x000000FC,
+            "OTC first entry should link to previous address"
+        );
+
+        // Last entry at 0xC4 (0x100 - 15*4 = 0x100 - 0x3C) should be end marker
+        let last_entry = system.bus.read32(0x000000C4).unwrap();
+        assert_eq!(
+            last_entry, 0x00FFFFFF,
+            "OTC last entry should be end marker"
+        );
+    }
+
+    #[test]
+    fn test_dma_gpu_transfer() {
+        let mut system = System::new();
+
+        // Setup a simple instruction loop
+        let jump_bytes = 0x0BF00000u32.to_le_bytes();
+        system.bus_mut().write_bios_for_test(0, &jump_bytes);
+        system
+            .bus_mut()
+            .write_bios_for_test(4, &[0x00, 0x00, 0x00, 0x00]);
+
+        system.reset();
+
+        // Enable DMA channels in DPCR (bit 3 of each nibble enables the channel)
+        system.bus.write32(0x1F8010F0, 0x0FEDCBA8).unwrap();
+
+        // Setup test data in RAM for GPU transfer
+        system.bus.write32(0x00001000, 0xA0000000).unwrap(); // GP0 fill command
+        system.bus.write32(0x00001004, 0x00640064).unwrap(); // Position
+        system.bus.write32(0x00001008, 0x00020002).unwrap(); // Size
+        system.bus.write32(0x0000100C, 0x12345678).unwrap(); // Color data
+
+        // Setup GPU DMA transfer (Channel 2, block mode)
+        system.bus.write32(0x1F8010A0, 0x00001000).unwrap(); // MADR = 0x1000
+        system.bus.write32(0x1F8010A4, 0x00010004).unwrap(); // BCR = 4 words, 1 block
+        system.bus.write32(0x1F8010A8, 0x11000201).unwrap(); // CHCR = to GPU, sync mode 0, start, trigger
+
+        // Run a few cycles to process DMA
+        for _ in 0..10 {
+            system.step().unwrap();
+        }
+
+        // Verify DMA channel is no longer active
+        let chcr = system.bus.read32(0x1F8010A8).unwrap();
+        assert_eq!(
+            chcr & 0x01000000,
+            0,
+            "GPU DMA should be complete and inactive"
+        );
+    }
+
+    #[test]
+    fn test_dma_interrupt() {
+        use crate::core::interrupt::interrupts;
+
+        let mut system = System::new();
+
+        // Setup a simple instruction loop
+        let jump_bytes = 0x0BF00000u32.to_le_bytes();
+        system.bus_mut().write_bios_for_test(0, &jump_bytes);
+        system
+            .bus_mut()
+            .write_bios_for_test(4, &[0x00, 0x00, 0x00, 0x00]);
+
+        system.reset();
+
+        // Enable DMA channels in DPCR (bit 3 of each nibble enables the channel)
+        system.bus.write32(0x1F8010F0, 0x0FEDCBA8).unwrap();
+
+        // Enable DMA interrupts in DICR (master enable + channel 6 enable)
+        system.bus.write32(0x1F8010F4, 0x00C00000).unwrap(); // Bit 23 (master) + bit 22 (ch6)
+
+        // Enable DMA interrupt in interrupt controller
+        system
+            .interrupt_controller
+            .borrow_mut()
+            .write_mask(interrupts::DMA as u32);
+
+        // Setup OTC DMA transfer
+        system.bus.write32(0x1F8010E0, 0x00001000).unwrap(); // MADR = 0x1000
+        system.bus.write32(0x1F8010E4, 0x00000008).unwrap(); // BCR = 8 entries
+        system.bus.write32(0x1F8010E8, 0x11000002).unwrap(); // CHCR = start + trigger
+
+        // Run a few cycles to trigger DMA
+        for _ in 0..5 {
+            system.step().unwrap();
+        }
+
+        // Verify DMA interrupt was raised
+        let i_stat = system.interrupt_controller.borrow().read_status();
+        assert_ne!(
+            i_stat & interrupts::DMA as u32,
+            0,
+            "DMA interrupt should be set in I_STAT"
+        );
+
+        // Verify DICR has channel 6 flag set
+        let dicr = system.bus.read32(0x1F8010F4).unwrap();
+        assert_ne!(
+            dicr & (1 << 30),
+            0,
+            "DICR should have channel 6 interrupt flag set"
+        );
+        assert_ne!(dicr & (1 << 31), 0, "DICR master flag should be set");
+    }
+
+    #[test]
+    fn test_dma_registers_accessible() {
+        let system = System::new();
+
+        // Verify all DMA channel registers are accessible
+        for ch in 0..7 {
+            let base = 0x1F801080 + (ch * 0x10);
+
+            // Read MADR (should be 0 initially)
+            let madr = system.bus.read32(base).unwrap();
+            assert_eq!(madr, 0, "Channel {} MADR should be 0", ch);
+
+            // Read BCR (should be 0 initially)
+            let bcr = system.bus.read32(base + 4).unwrap();
+            assert_eq!(bcr, 0, "Channel {} BCR should be 0", ch);
+
+            // Read CHCR (should be 0 initially)
+            let chcr = system.bus.read32(base + 8).unwrap();
+            assert_eq!(chcr, 0, "Channel {} CHCR should be 0", ch);
+        }
+
+        // Read DPCR (should have default priority)
+        let dpcr = system.bus.read32(0x1F8010F0).unwrap();
+        assert_eq!(dpcr, 0x07654321, "DPCR should have default priority");
+
+        // Read DICR (should be 0 initially)
+        let dicr = system.bus.read32(0x1F8010F4).unwrap();
+        assert_eq!(dicr, 0, "DICR should be 0 initially");
     }
 }
