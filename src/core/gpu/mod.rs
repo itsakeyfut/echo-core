@@ -968,3 +968,69 @@ impl Default for GPU {
         Self::new()
     }
 }
+
+/// Implement IODevice trait for GPU to enable trait-based memory-mapped I/O
+///
+/// The GPU has two 32-bit registers accessible via memory-mapped I/O:
+/// - Offset 0x00 (0x1F801810): GP0 (write) / GPUREAD (read)
+/// - Offset 0x04 (0x1F801814): GP1 (write) / GPUSTAT (read)
+impl crate::core::memory::IODevice for GPU {
+    fn address_range(&self) -> (u32, u32) {
+        // GPU registers: 0x1F801810 - 0x1F801817 (8 bytes, 2 registers)
+        (0x1F801810, 0x1F801817)
+    }
+
+    fn read_register(&self, offset: u32) -> crate::core::error::Result<u32> {
+        match offset {
+            // GPUREAD register (0x1F801810, offset 0x00)
+            0x00 => {
+                // GPUREAD requires &mut self, but trait uses &self
+                // This is a limitation - we'll need to handle this specially
+                // For now, log a warning and return status
+                log::warn!("GPUREAD access via IODevice trait (requires mutable access)");
+                Ok(self.status())
+            }
+
+            // GPUSTAT register (0x1F801814, offset 0x04)
+            0x04 => Ok(self.status()),
+
+            // Invalid offset
+            _ => {
+                log::warn!("Invalid GPU register read at offset 0x{:02X}", offset);
+                Ok(0xFFFFFFFF)
+            }
+        }
+    }
+
+    fn write_register(&mut self, offset: u32, value: u32) -> crate::core::error::Result<()> {
+        match offset {
+            // GP0 register (0x1F801810, offset 0x00)
+            0x00 => {
+                log::trace!("GPU GP0 write: 0x{:08X}", value);
+                self.write_gp0(value);
+                Ok(())
+            }
+
+            // GP1 register (0x1F801814, offset 0x04)
+            0x04 => {
+                log::trace!("GPU GP1 write: 0x{:08X}", value);
+                self.write_gp1(value);
+                Ok(())
+            }
+
+            // Invalid offset
+            _ => {
+                log::warn!(
+                    "Invalid GPU register write at offset 0x{:02X} = 0x{:08X}",
+                    offset,
+                    value
+                );
+                Ok(())
+            }
+        }
+    }
+
+    fn name(&self) -> &str {
+        "GPU"
+    }
+}
