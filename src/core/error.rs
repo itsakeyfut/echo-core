@@ -54,6 +54,9 @@ pub enum EmulatorError {
 
     #[error("CD-ROM error: {0}")]
     CdRom(#[from] CdRomError),
+
+    #[error("Loader error: {0}")]
+    LoaderError(String),
 }
 
 /// GPU-specific error types
