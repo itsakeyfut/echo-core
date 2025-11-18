@@ -855,10 +855,7 @@ impl GPU {
         // Using the standard PSX timing
         const CYCLES_PER_FRAME: i32 = 564_480;
 
-        self.vblank_event = Some(timing.register_periodic_event(
-            "GPU VBlank",
-            CYCLES_PER_FRAME,
-        ));
+        self.vblank_event = Some(timing.register_periodic_event("GPU VBlank", CYCLES_PER_FRAME));
 
         // Activate VBlank event
         if let Some(handle) = self.vblank_event {
@@ -869,18 +866,18 @@ impl GPU {
         // = CYCLES_PER_FRAME / SCANLINES_PER_FRAME = 564_480 / 263 ≈ 2146 cycles
         const CYCLES_PER_SCANLINE: i32 = 2_146;
 
-        self.hblank_event = Some(timing.register_periodic_event(
-            "GPU HBlank",
-            CYCLES_PER_SCANLINE,
-        ));
+        self.hblank_event = Some(timing.register_periodic_event("GPU HBlank", CYCLES_PER_SCANLINE));
 
         // Activate HBlank event
         if let Some(handle) = self.hblank_event {
             timing.schedule(handle, CYCLES_PER_SCANLINE);
         }
 
-        log::info!("GPU: Timing events registered and activated (VBlank={} cycles, HBlank={} cycles)",
-                   CYCLES_PER_FRAME, CYCLES_PER_SCANLINE);
+        log::info!(
+            "GPU: Timing events registered and activated (VBlank={} cycles, HBlank={} cycles)",
+            CYCLES_PER_FRAME,
+            CYCLES_PER_SCANLINE
+        );
     }
 
     /// Process GPU timing events

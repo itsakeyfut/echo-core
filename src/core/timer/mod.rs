@@ -572,7 +572,11 @@ impl Timers {
     ///
     /// * `channel` - Timer channel index (0-2)
     /// * `timing` - Timing event manager
-    fn timer_overflow_callback(&mut self, channel: usize, timing: &mut super::timing::TimingEventManager) {
+    fn timer_overflow_callback(
+        &mut self,
+        channel: usize,
+        timing: &mut super::timing::TimingEventManager,
+    ) {
         let ch = &mut self.channels[channel];
 
         // Reset counter to 0 if reset_on_target is enabled
