@@ -55,6 +55,7 @@ use crate::core::dma::DMA;
 use crate::core::error::{EmulatorError, Result};
 use crate::core::gpu::GPU;
 use crate::core::interrupt::InterruptController;
+use crate::core::spu::SPU;
 use crate::core::system::ControllerPorts;
 use crate::core::timer::Timers;
 use std::cell::RefCell;
@@ -165,6 +166,12 @@ pub struct Bus {
     /// The DMA is shared between the System and Bus to allow
     /// memory-mapped register access while maintaining Rust's safety guarantees.
     dma: Option<Rc<RefCell<DMA>>>,
+
+    /// SPU reference (shared via Rc<RefCell>)
+    ///
+    /// The SPU is shared between the System and Bus to allow
+    /// memory-mapped register access while maintaining Rust's safety guarantees.
+    spu: Option<Rc<RefCell<SPU>>>,
 }
 
 impl Bus {
@@ -309,6 +316,7 @@ impl Bus {
             interrupt_controller: None,
             cdrom: None,
             dma: None,
+            spu: None,
         }
     }
 
@@ -463,6 +471,18 @@ impl Bus {
     /// ```
     pub fn set_dma(&mut self, dma: Rc<RefCell<DMA>>) {
         self.dma = Some(dma);
+    }
+
+    /// Set SPU reference for memory-mapped I/O
+    ///
+    /// Establishes the connection between the Bus and SPU for handling
+    /// SPU register accesses at memory-mapped addresses.
+    ///
+    /// # Arguments
+    ///
+    /// * `spu` - Shared reference to the SPU instance
+    pub fn set_spu(&mut self, spu: Rc<RefCell<SPU>>) {
+        self.spu = Some(spu);
     }
 
     /// Reset the bus to initial state
@@ -669,11 +689,7 @@ impl Bus {
                 let bytes = [self.bios[offset], self.bios[offset + 1]];
                 Ok(u16::from_le_bytes(bytes))
             }
-            MemoryRegion::IO => {
-                // I/O port stub for Phase 1 Week 1
-                log::trace!("I/O port read16 at 0x{:08X}", paddr);
-                Ok(0)
-            }
+            MemoryRegion::IO => self.read_io_port16(paddr),
             MemoryRegion::CacheControl => {
                 // Cache control is 32-bit only, stub 16-bit reads
                 log::debug!("Cache control read16 at 0x{:08X} (stubbed)", vaddr);
@@ -926,11 +942,7 @@ impl Bus {
                 log::trace!("Attempt to write to BIOS at 0x{:08X} (ignored)", paddr);
                 Ok(())
             }
-            MemoryRegion::IO => {
-                // I/O port stub for Phase 1 Week 1
-                log::trace!("I/O port write16 at 0x{:08X} = 0x{:04X}", paddr, value);
-                Ok(())
-            }
+            MemoryRegion::IO => self.write_io_port16(paddr, value),
             MemoryRegion::CacheControl => {
                 // Cache control is 32-bit only, ignore 16-bit writes
                 log::debug!(
