@@ -625,7 +625,7 @@ impl CDROM {
 
         // Prepare response based on type
         match response_type {
-            SecondResponseType::None => return,
+            SecondResponseType::None => (),
             SecondResponseType::GetID => {
                 self.do_getid_read();
                 let int_level = if self.disc.is_some() { 2 } else { 5 };

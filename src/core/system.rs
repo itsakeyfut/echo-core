@@ -763,7 +763,7 @@ impl System {
         self.cdrom
             .borrow_mut()
             .load_disc(cue_path)
-            .map_err(|e| EmulatorError::CdRom(e))?;
+            .map_err(EmulatorError::CdRom)?;
 
         log::info!("Disc loaded successfully");
 
@@ -772,7 +772,7 @@ impl System {
             .cdrom
             .borrow_mut()
             .read_file("SYSTEM.CNF;1")
-            .map_err(|e| EmulatorError::CdRom(e))?;
+            .map_err(EmulatorError::CdRom)?;
 
         let system_cnf_text = String::from_utf8_lossy(&system_cnf_data);
         log::debug!("SYSTEM.CNF contents:\n{}", system_cnf_text);

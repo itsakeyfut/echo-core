@@ -307,7 +307,7 @@ mod tests {
 
         let config = SystemConfig::parse(data).unwrap();
         assert_eq!(config.boot_file, "cdrom:\\SLUS_000.01;1");
-        assert_eq!(config.tce, true);
+        assert!(config.tce);
         assert_eq!(config.event, "10");
         assert_eq!(config.stack, 0x801FFF00);
     }
@@ -332,7 +332,7 @@ mod tests {
 
         let config = SystemConfig::parse(data).unwrap();
         assert_eq!(config.boot_file, "cdrom:\\BOOT.EXE;1");
-        assert_eq!(config.tce, false);
+        assert!(!config.tce);
         assert_eq!(config.event, "");
         assert_eq!(config.stack, 0x801FFF00); // Default value
     }

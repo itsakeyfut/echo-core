@@ -524,8 +524,8 @@ impl Timers {
     pub fn register_events(&mut self, timing: &mut super::timing::TimingEventManager) {
         const EVENT_NAMES: [&str; 3] = ["Timer0 Overflow", "Timer1 Overflow", "Timer2 Overflow"];
 
-        for i in 0..3 {
-            self.channels[i].overflow_event = Some(timing.register_event(EVENT_NAMES[i]));
+        for (i, event_name) in EVENT_NAMES.iter().enumerate() {
+            self.channels[i].overflow_event = Some(timing.register_event(event_name));
             log::debug!("Timer {}: Registered overflow event", i);
         }
 
@@ -704,8 +704,8 @@ impl Timers {
     pub fn poll_interrupts(&mut self) -> [bool; 3] {
         let mut irqs = [false; 3];
 
-        for i in 0..3 {
-            irqs[i] = self.channels[i].interrupt_pending;
+        for (i, irq) in irqs.iter_mut().enumerate() {
+            *irq = self.channels[i].interrupt_pending;
             self.channels[i].interrupt_pending = false;
         }
 
