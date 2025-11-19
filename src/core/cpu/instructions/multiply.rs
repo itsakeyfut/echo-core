@@ -45,7 +45,7 @@ impl CPU {
     /// cpu.set_reg(2, 200);
     /// cpu.op_mult(1, 2);
     /// ```
-    pub(in crate::core::cpu) fn op_mult(&mut self, rs: u8, rt: u8) -> Result<()> {
+    pub(crate) fn op_mult(&mut self, rs: u8, rt: u8) -> Result<()> {
         let a = self.reg(rs) as i32 as i64;
         let b = self.reg(rt) as i32 as i64;
         let result = a * b;
@@ -82,7 +82,7 @@ impl CPU {
     /// cpu.set_reg(2, 2);
     /// cpu.op_multu(1, 2);
     /// ```
-    pub(in crate::core::cpu) fn op_multu(&mut self, rs: u8, rt: u8) -> Result<()> {
+    pub(crate) fn op_multu(&mut self, rs: u8, rt: u8) -> Result<()> {
         let a = self.reg(rs) as u64;
         let b = self.reg(rt) as u64;
         let result = a * b;
@@ -123,7 +123,7 @@ impl CPU {
     /// cpu.op_div(1, 2);
     /// // LO = 14, HI = 2
     /// ```
-    pub(in crate::core::cpu) fn op_div(&mut self, rs: u8, rt: u8) -> Result<()> {
+    pub(crate) fn op_div(&mut self, rs: u8, rt: u8) -> Result<()> {
         let numerator = self.reg(rs) as i32;
         let denominator = self.reg(rt) as i32;
 
@@ -173,7 +173,7 @@ impl CPU {
     /// cpu.op_divu(1, 2);
     /// // LO = 14, HI = 2
     /// ```
-    pub(in crate::core::cpu) fn op_divu(&mut self, rs: u8, rt: u8) -> Result<()> {
+    pub(crate) fn op_divu(&mut self, rs: u8, rt: u8) -> Result<()> {
         let numerator = self.reg(rs);
         let denominator = self.reg(rt);
 
@@ -210,7 +210,7 @@ impl CPU {
     /// cpu.op_mfhi(3);
     /// assert_eq!(cpu.reg(3), 0x12345678);
     /// ```
-    pub(in crate::core::cpu) fn op_mfhi(&mut self, rd: u8) -> Result<()> {
+    pub(crate) fn op_mfhi(&mut self, rd: u8) -> Result<()> {
         self.set_reg(rd, self.hi);
         Ok(())
     }
@@ -237,7 +237,7 @@ impl CPU {
     /// cpu.op_mflo(4);
     /// assert_eq!(cpu.reg(4), 0xABCDEF00);
     /// ```
-    pub(in crate::core::cpu) fn op_mflo(&mut self, rd: u8) -> Result<()> {
+    pub(crate) fn op_mflo(&mut self, rd: u8) -> Result<()> {
         self.set_reg(rd, self.lo);
         Ok(())
     }
@@ -264,7 +264,7 @@ impl CPU {
     /// cpu.op_mthi(5);
     /// assert_eq!(cpu.hi, 0x12345678);
     /// ```
-    pub(in crate::core::cpu) fn op_mthi(&mut self, rs: u8) -> Result<()> {
+    pub(crate) fn op_mthi(&mut self, rs: u8) -> Result<()> {
         self.hi = self.reg(rs);
         Ok(())
     }
@@ -291,7 +291,7 @@ impl CPU {
     /// cpu.op_mtlo(6);
     /// assert_eq!(cpu.lo, 0xABCDEF00);
     /// ```
-    pub(in crate::core::cpu) fn op_mtlo(&mut self, rs: u8) -> Result<()> {
+    pub(crate) fn op_mtlo(&mut self, rs: u8) -> Result<()> {
         self.lo = self.reg(rs);
         Ok(())
     }

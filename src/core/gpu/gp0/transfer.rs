@@ -29,7 +29,7 @@ impl GPU {
     /// - Word 2: Size (Width in bits 0-15, Height in bits 16-31)
     ///
     /// After this command, subsequent GP0 writes are treated as VRAM data.
-    pub(in crate::core::gpu) fn gp0_cpu_to_vram_transfer(&mut self) {
+    pub(crate) fn gp0_cpu_to_vram_transfer(&mut self) {
         if self.command_fifo.len() < 3 {
             return; // Need more words
         }
@@ -78,7 +78,7 @@ impl GPU {
     /// # Arguments
     ///
     /// * `value` - 32-bit word containing two 16-bit pixels
-    pub(in crate::core::gpu) fn process_vram_write(&mut self, value: u32) {
+    pub(crate) fn process_vram_write(&mut self, value: u32) {
         // Extract transfer state to avoid borrowing issues
         let mut transfer = match self.vram_transfer.take() {
             Some(t) => t,
@@ -131,7 +131,7 @@ impl GPU {
     /// - Word 2: Size (Width in bits 0-15, Height in bits 16-31)
     ///
     /// After this command, the CPU can read pixel data via GPUREAD register.
-    pub(in crate::core::gpu) fn gp0_vram_to_cpu_transfer(&mut self) {
+    pub(crate) fn gp0_vram_to_cpu_transfer(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }
@@ -177,7 +177,7 @@ impl GPU {
     /// - Word 3: Size (Width in bits 0-15, Height in bits 16-31)
     ///
     /// The copy handles overlapping regions correctly by using a temporary buffer.
-    pub(in crate::core::gpu) fn gp0_vram_to_vram_transfer(&mut self) {
+    pub(crate) fn gp0_vram_to_vram_transfer(&mut self) {
         if self.command_fifo.len() < 4 {
             return;
         }

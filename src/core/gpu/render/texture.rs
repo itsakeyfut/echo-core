@@ -50,7 +50,7 @@ impl GPU {
     ///
     /// Semi-transparency is currently ignored (will be implemented in issue #36).
     /// The drawing offset is applied to all vertices before rasterization.
-    pub(in crate::core::gpu) fn render_textured_triangle(
+    pub(crate) fn render_textured_triangle(
         &mut self,
         vertices: &[Vertex; 3],
         texcoords: &[TexCoord; 3],
@@ -126,7 +126,7 @@ impl GPU {
     /// # Notes
     ///
     /// Semi-transparency is currently ignored (will be implemented in issue #36).
-    pub(in crate::core::gpu) fn render_textured_quad(
+    pub(crate) fn render_textured_quad(
         &mut self,
         vertices: &[Vertex; 4],
         texcoords: &[TexCoord; 4],

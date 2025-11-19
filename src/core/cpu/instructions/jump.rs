@@ -36,7 +36,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_j(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_j(&mut self, instruction: u32) -> Result<()> {
         let (_, target) = decode_j_type(instruction);
         // Upper 4 bits of PC + target << 2
         let pc_high = self.pc & 0xF0000000;
@@ -60,7 +60,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_jal(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_jal(&mut self, instruction: u32) -> Result<()> {
         let (_, target) = decode_j_type(instruction);
         // Save return address to r31 (next_pc already points to delay slot + 4)
         self.set_reg(31, self.next_pc);
@@ -86,7 +86,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_jr(&mut self, rs: u8) -> Result<()> {
+    pub(crate) fn op_jr(&mut self, rs: u8) -> Result<()> {
         self.next_pc = self.reg(rs);
         self.in_branch_delay = true;
         Ok(())
@@ -108,7 +108,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_jalr(&mut self, rs: u8, rd: u8) -> Result<()> {
+    pub(crate) fn op_jalr(&mut self, rs: u8, rd: u8) -> Result<()> {
         // Save return address (next_pc already points to delay slot + 4)
         self.set_reg(rd, self.next_pc);
         // Jump to address in rs

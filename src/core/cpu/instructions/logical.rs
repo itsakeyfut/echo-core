@@ -35,7 +35,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_lui(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_lui(&mut self, instruction: u32) -> Result<()> {
         let (_, _, rt, imm) = decode_i_type(instruction);
         let value = (imm as u32) << 16;
         self.set_reg(rt, value);
@@ -58,7 +58,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_and(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+    pub(crate) fn op_and(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
         let result = self.reg(rs) & self.reg(rt);
         self.set_reg(rd, result);
         Ok(())
@@ -79,7 +79,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_andi(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_andi(&mut self, instruction: u32) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let result = self.reg(rs) & (imm as u32); // Zero extend
         self.set_reg(rt, result);
@@ -102,7 +102,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_or(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+    pub(crate) fn op_or(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
         let result = self.reg(rs) | self.reg(rt);
         self.set_reg(rd, result);
         Ok(())
@@ -122,7 +122,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_ori(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_ori(&mut self, instruction: u32) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let result = self.reg(rs) | (imm as u32);
         self.set_reg(rt, result);
@@ -145,7 +145,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_xor(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+    pub(crate) fn op_xor(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
         let result = self.reg(rs) ^ self.reg(rt);
         self.set_reg(rd, result);
         Ok(())
@@ -165,7 +165,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_xori(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_xori(&mut self, instruction: u32) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let result = self.reg(rs) ^ (imm as u32);
         self.set_reg(rt, result);
@@ -189,7 +189,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_nor(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+    pub(crate) fn op_nor(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
         let result = !(self.reg(rs) | self.reg(rt));
         self.set_reg(rd, result);
         Ok(())

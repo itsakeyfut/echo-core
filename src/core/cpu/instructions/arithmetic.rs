@@ -37,7 +37,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success (exception is triggered internally on overflow)
-    pub(in crate::core::cpu) fn op_add(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+    pub(crate) fn op_add(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
         let a = self.reg(rs) as i32;
         let b = self.reg(rt) as i32;
 
@@ -70,7 +70,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_addu(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+    pub(crate) fn op_addu(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
         let result = self.reg(rs).wrapping_add(self.reg(rt));
         self.set_reg(rd, result);
         Ok(())
@@ -90,7 +90,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_addi(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_addi(&mut self, instruction: u32) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let imm = (imm as i16) as i32; // Sign extend
         let a = self.reg(rs) as i32;
@@ -122,7 +122,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_addiu(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_addiu(&mut self, instruction: u32) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let imm = (imm as i16) as u32; // Sign extend
         let result = self.reg(rs).wrapping_add(imm);
@@ -146,7 +146,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_sub(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+    pub(crate) fn op_sub(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
         let a = self.reg(rs) as i32;
         let b = self.reg(rt) as i32;
 
@@ -178,7 +178,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_subu(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+    pub(crate) fn op_subu(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
         let result = self.reg(rs).wrapping_sub(self.reg(rt));
         self.set_reg(rd, result);
         Ok(())
@@ -201,7 +201,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_slt(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+    pub(crate) fn op_slt(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
         let a = self.reg(rs) as i32;
         let b = self.reg(rt) as i32;
         let result = if a < b { 1 } else { 0 };
@@ -226,7 +226,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_sltu(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+    pub(crate) fn op_sltu(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
         let a = self.reg(rs);
         let b = self.reg(rt);
         let result = if a < b { 1 } else { 0 };
@@ -249,7 +249,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_slti(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_slti(&mut self, instruction: u32) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let imm = (imm as i16) as i32;
         let a = self.reg(rs) as i32;
@@ -274,7 +274,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_sltiu(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_sltiu(&mut self, instruction: u32) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let imm = (imm as i16) as u32; // Sign extend then treat as unsigned
         let a = self.reg(rs);

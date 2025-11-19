@@ -67,7 +67,7 @@ impl GPU {
     /// let color2 = Color { r: 0, g: 0, b: 0 };
     /// gpu.render_monochrome_triangle(&vertices, &color2, true);
     /// ```
-    pub(in crate::core::gpu) fn render_monochrome_triangle(
+    pub(crate) fn render_monochrome_triangle(
         &mut self,
         vertices: &[Vertex; 3],
         color: &Color,

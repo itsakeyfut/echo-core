@@ -37,7 +37,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success, triggers AddressErrorStore exception on misalignment
-    pub(in crate::core::cpu) fn op_sw(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+    pub(crate) fn op_sw(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let offset = (imm as i16) as i32; // Sign extend
         let addr = self.reg(rs).wrapping_add(offset as u32);
@@ -68,7 +68,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success, triggers AddressErrorStore exception on misalignment
-    pub(in crate::core::cpu) fn op_sh(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+    pub(crate) fn op_sh(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let offset = (imm as i16) as i32; // Sign extend
         let addr = self.reg(rs).wrapping_add(offset as u32);
@@ -99,7 +99,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_sb(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+    pub(crate) fn op_sb(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let offset = (imm as i16) as i32; // Sign extend
         let addr = self.reg(rs).wrapping_add(offset as u32);
@@ -123,7 +123,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) - stub implementation
-    pub(in crate::core::cpu) fn op_swl(&mut self, _instruction: u32, _bus: &mut Bus) -> Result<()> {
+    pub(crate) fn op_swl(&mut self, _instruction: u32, _bus: &mut Bus) -> Result<()> {
         // TODO: Implement SWL (Week 3)
         log::warn!(
             "SWL instruction not yet implemented at PC=0x{:08X}",
@@ -147,7 +147,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) - stub implementation
-    pub(in crate::core::cpu) fn op_swr(&mut self, _instruction: u32, _bus: &mut Bus) -> Result<()> {
+    pub(crate) fn op_swr(&mut self, _instruction: u32, _bus: &mut Bus) -> Result<()> {
         // TODO: Implement SWR (Week 3)
         log::warn!(
             "SWR instruction not yet implemented at PC=0x{:08X}",

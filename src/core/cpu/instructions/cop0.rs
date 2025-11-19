@@ -37,7 +37,7 @@ impl CPU {
     /// ```text
     /// MFC0 $t0, $12  # Move Status Register to $t0
     /// ```
-    pub(in crate::core::cpu) fn op_mfc0(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_mfc0(&mut self, instruction: u32) -> Result<()> {
         let rt = ((instruction >> 16) & 0x1F) as u8;
         let rd = ((instruction >> 11) & 0x1F) as u8;
 
@@ -63,7 +63,7 @@ impl CPU {
     /// ```text
     /// MTC0 $t0, $12  # Move $t0 to Status Register
     /// ```
-    pub(in crate::core::cpu) fn op_mtc0(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_mtc0(&mut self, instruction: u32) -> Result<()> {
         let rt = ((instruction >> 16) & 0x1F) as u8;
         let rd = ((instruction >> 11) & 0x1F) as u8;
 
@@ -95,7 +95,7 @@ impl CPU {
     /// ```text
     /// RFE  # Return from exception handler
     /// ```
-    pub(in crate::core::cpu) fn op_rfe(&mut self, _instruction: u32) -> Result<()> {
+    pub(crate) fn op_rfe(&mut self, _instruction: u32) -> Result<()> {
         let sr = self.cop0.regs[COP0::SR];
         // Shift mode bits right by 2 (restore previous mode)
         let mode = sr & 0x3F;

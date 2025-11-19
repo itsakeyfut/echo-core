@@ -42,7 +42,7 @@ impl GPU {
     ///
     /// Semi-transparency is currently ignored (will be implemented in #36).
     /// The drawing offset is applied to all vertices before rasterization.
-    pub(in crate::core::gpu) fn render_gradient_triangle(
+    pub(crate) fn render_gradient_triangle(
         &mut self,
         vertices: &[Vertex; 3],
         colors: &[Color; 3],
@@ -114,7 +114,7 @@ impl GPU {
     /// The quad is rendered as two gradient triangles. Colors are interpolated
     /// independently for each triangle, which may create a visible seam if the
     /// quad is not coplanar in 3D space.
-    pub(in crate::core::gpu) fn render_gradient_quad(
+    pub(crate) fn render_gradient_quad(
         &mut self,
         vertices: &[Vertex; 4],
         colors: &[Color; 4],

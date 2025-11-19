@@ -37,7 +37,7 @@ impl GPU {
     ///
     /// Semi-transparency is currently ignored (will be implemented in #36).
     /// The drawing offset is applied to both endpoints before rasterization.
-    pub(in crate::core::gpu) fn render_line(
+    pub(crate) fn render_line(
         &mut self,
         v0: Vertex,
         v1: Vertex,
@@ -92,7 +92,7 @@ impl GPU {
     ///
     /// Requires at least 2 vertices. If fewer than 2 vertices are provided,
     /// no drawing occurs.
-    pub(in crate::core::gpu) fn render_polyline(
+    pub(crate) fn render_polyline(
         &mut self,
         vertices: &[Vertex],
         color: Color,
@@ -154,7 +154,7 @@ impl GPU {
     ///
     /// Semi-transparency is currently ignored (will be implemented in #36).
     /// The drawing offset is applied to both endpoints before rasterization.
-    pub(in crate::core::gpu) fn render_shaded_line(
+    pub(crate) fn render_shaded_line(
         &mut self,
         v0: Vertex,
         c0: Color,
@@ -217,7 +217,7 @@ impl GPU {
     ///
     /// Requires at least 2 vertices and 2 colors. If fewer than 2 are provided,
     /// no drawing occurs. The number of colors should match the number of vertices.
-    pub(in crate::core::gpu) fn render_shaded_polyline(
+    pub(crate) fn render_shaded_polyline(
         &mut self,
         vertices: &[Vertex],
         colors: &[Color],

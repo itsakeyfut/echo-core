@@ -37,7 +37,7 @@ impl GPU {
     /// # References
     ///
     /// - [PSX-SPX: GPU Line Commands](http://problemkaputt.de/psx-spx.htm#gpurenderlinecommands)
-    pub(in crate::core::gpu) fn parse_line_opaque(&mut self) {
+    pub(crate) fn parse_line_opaque(&mut self) {
         if self.command_fifo.len() < 3 {
             return; // Need more words
         }
@@ -57,7 +57,7 @@ impl GPU {
     ///
     /// Renders a single line segment with semi-transparency enabled.
     /// Requires 3 words: command+color, vertex1, vertex2
-    pub(in crate::core::gpu) fn parse_line_semi_transparent(&mut self) {
+    pub(crate) fn parse_line_semi_transparent(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }
@@ -93,7 +93,7 @@ impl GPU {
     ///
     /// The terminator value signals the end of the polyline.
     /// We wait for the terminator before processing the polyline.
-    pub(in crate::core::gpu) fn parse_polyline_opaque(&mut self) {
+    pub(crate) fn parse_polyline_opaque(&mut self) {
         if self.command_fifo.len() < 4 {
             return; // Need at least 4 words (command + 2 vertices + terminator)
         }
@@ -147,7 +147,7 @@ impl GPU {
     ///
     /// Renders connected line segments with semi-transparency enabled.
     /// Format is identical to 0x48 but with semi-transparency.
-    pub(in crate::core::gpu) fn parse_polyline_semi_transparent(&mut self) {
+    pub(crate) fn parse_polyline_semi_transparent(&mut self) {
         if self.command_fifo.len() < 4 {
             return; // Need at least 4 words (command + 2 vertices + terminator)
         }
@@ -213,7 +213,7 @@ impl GPU {
     /// # References
     ///
     /// - [PSX-SPX: GPU Line Commands](http://problemkaputt.de/psx-spx.htm#gpurenderlinecommands)
-    pub(in crate::core::gpu) fn parse_shaded_line_opaque(&mut self) {
+    pub(crate) fn parse_shaded_line_opaque(&mut self) {
         if self.command_fifo.len() < 4 {
             return; // Need more words
         }
@@ -235,7 +235,7 @@ impl GPU {
     ///
     /// Renders a single line segment with Gouraud shading and semi-transparency enabled.
     /// Requires 4 words: command+color1, vertex1, color2, vertex2
-    pub(in crate::core::gpu) fn parse_shaded_line_semi_transparent(&mut self) {
+    pub(crate) fn parse_shaded_line_semi_transparent(&mut self) {
         if self.command_fifo.len() < 4 {
             return;
         }
@@ -273,7 +273,7 @@ impl GPU {
     ///
     /// The terminator value signals the end of the polyline.
     /// We wait for the terminator before processing the polyline.
-    pub(in crate::core::gpu) fn parse_shaded_polyline_opaque(&mut self) {
+    pub(crate) fn parse_shaded_polyline_opaque(&mut self) {
         if self.command_fifo.len() < 5 {
             return; // Need at least 5 words (command+color1 + vertex1 + color2 + vertex2 + terminator)
         }
@@ -350,7 +350,7 @@ impl GPU {
     ///
     /// Renders connected line segments with Gouraud shading and semi-transparency enabled.
     /// Format is identical to 0x58 but with semi-transparency.
-    pub(in crate::core::gpu) fn parse_shaded_polyline_semi_transparent(&mut self) {
+    pub(crate) fn parse_shaded_polyline_semi_transparent(&mut self) {
         if self.command_fifo.len() < 5 {
             return; // Need at least 5 words (command+color1 + vertex1 + color2 + vertex2 + terminator)
         }

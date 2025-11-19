@@ -39,7 +39,7 @@ impl CPU {
     /// ```text
     /// SYSCALL  # Trigger system call exception
     /// ```
-    pub(in crate::core::cpu) fn op_syscall(&mut self, _instruction: u32) -> Result<()> {
+    pub(crate) fn op_syscall(&mut self, _instruction: u32) -> Result<()> {
         self.exception(ExceptionCause::Syscall);
         Ok(())
     }
@@ -63,7 +63,7 @@ impl CPU {
     /// ```text
     /// BREAK  # Trigger breakpoint exception
     /// ```
-    pub(in crate::core::cpu) fn op_break(&mut self, _instruction: u32) -> Result<()> {
+    pub(crate) fn op_break(&mut self, _instruction: u32) -> Result<()> {
         self.exception(ExceptionCause::Breakpoint);
         Ok(())
     }

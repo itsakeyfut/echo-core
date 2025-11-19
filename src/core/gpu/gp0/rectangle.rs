@@ -32,7 +32,7 @@ impl GPU {
     ///
     /// Renders a solid-color rectangle of variable dimensions.
     /// Requires 3 words: command+color, vertex, width+height
-    pub(in crate::core::gpu) fn parse_monochrome_rect_variable_opaque(&mut self) {
+    pub(crate) fn parse_monochrome_rect_variable_opaque(&mut self) {
         if self.command_fifo.len() < 3 {
             return; // Need more words
         }
@@ -53,7 +53,7 @@ impl GPU {
     ///
     /// Renders a solid-color rectangle with semi-transparency enabled.
     /// Requires 3 words: command+color, vertex, width+height
-    pub(in crate::core::gpu) fn parse_monochrome_rect_variable_semi_transparent(&mut self) {
+    pub(crate) fn parse_monochrome_rect_variable_semi_transparent(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }
@@ -74,7 +74,7 @@ impl GPU {
     ///
     /// Renders a single pixel in solid color.
     /// Requires 2 words: command+color, vertex
-    pub(in crate::core::gpu) fn parse_monochrome_rect_1x1_opaque(&mut self) {
+    pub(crate) fn parse_monochrome_rect_1x1_opaque(&mut self) {
         if self.command_fifo.len() < 2 {
             return;
         }
@@ -92,7 +92,7 @@ impl GPU {
     ///
     /// Renders a single pixel with semi-transparency.
     /// Requires 2 words: command+color, vertex
-    pub(in crate::core::gpu) fn parse_monochrome_rect_1x1_semi_transparent(&mut self) {
+    pub(crate) fn parse_monochrome_rect_1x1_semi_transparent(&mut self) {
         if self.command_fifo.len() < 2 {
             return;
         }
@@ -110,7 +110,7 @@ impl GPU {
     ///
     /// Renders an 8×8 pixel rectangle in solid color.
     /// Requires 2 words: command+color, vertex
-    pub(in crate::core::gpu) fn parse_monochrome_rect_8x8_opaque(&mut self) {
+    pub(crate) fn parse_monochrome_rect_8x8_opaque(&mut self) {
         if self.command_fifo.len() < 2 {
             return;
         }
@@ -128,7 +128,7 @@ impl GPU {
     ///
     /// Renders an 8×8 pixel rectangle with semi-transparency.
     /// Requires 2 words: command+color, vertex
-    pub(in crate::core::gpu) fn parse_monochrome_rect_8x8_semi_transparent(&mut self) {
+    pub(crate) fn parse_monochrome_rect_8x8_semi_transparent(&mut self) {
         if self.command_fifo.len() < 2 {
             return;
         }
@@ -146,7 +146,7 @@ impl GPU {
     ///
     /// Renders a 16×16 pixel rectangle in solid color.
     /// Requires 2 words: command+color, vertex
-    pub(in crate::core::gpu) fn parse_monochrome_rect_16x16_opaque(&mut self) {
+    pub(crate) fn parse_monochrome_rect_16x16_opaque(&mut self) {
         if self.command_fifo.len() < 2 {
             return;
         }
@@ -164,7 +164,7 @@ impl GPU {
     ///
     /// Renders a 16×16 pixel rectangle with semi-transparency.
     /// Requires 2 words: command+color, vertex
-    pub(in crate::core::gpu) fn parse_monochrome_rect_16x16_semi_transparent(&mut self) {
+    pub(crate) fn parse_monochrome_rect_16x16_semi_transparent(&mut self) {
         if self.command_fifo.len() < 2 {
             return;
         }
@@ -186,7 +186,7 @@ impl GPU {
     ///
     /// Renders a textured rectangle with raw texture colors (no modulation).
     /// Requires 4 words: command+color, vertex, texcoord+clut, width+height
-    pub(in crate::core::gpu) fn parse_textured_rect_variable_opaque(&mut self) {
+    pub(crate) fn parse_textured_rect_variable_opaque(&mut self) {
         if self.command_fifo.len() < 4 {
             return;
         }
@@ -242,7 +242,7 @@ impl GPU {
     ///
     /// Renders a textured rectangle with color modulation.
     /// Requires 4 words: command+color, vertex, texcoord+clut, width+height
-    pub(in crate::core::gpu) fn parse_textured_rect_variable_opaque_modulated(&mut self) {
+    pub(crate) fn parse_textured_rect_variable_opaque_modulated(&mut self) {
         if self.command_fifo.len() < 4 {
             return;
         }
@@ -286,7 +286,7 @@ impl GPU {
     ///
     /// Renders a textured rectangle with semi-transparency, no modulation.
     /// Requires 4 words: command+color, vertex, texcoord+clut, width+height
-    pub(in crate::core::gpu) fn parse_textured_rect_variable_semi_transparent(&mut self) {
+    pub(crate) fn parse_textured_rect_variable_semi_transparent(&mut self) {
         if self.command_fifo.len() < 4 {
             return;
         }
@@ -330,7 +330,7 @@ impl GPU {
     ///
     /// Renders a textured rectangle with semi-transparency and color modulation.
     /// Requires 4 words: command+color, vertex, texcoord+clut, width+height
-    pub(in crate::core::gpu) fn parse_textured_rect_variable_semi_transparent_modulated(&mut self) {
+    pub(crate) fn parse_textured_rect_variable_semi_transparent_modulated(&mut self) {
         if self.command_fifo.len() < 4 {
             return;
         }
@@ -374,7 +374,7 @@ impl GPU {
     ///
     /// Renders a 1×1 textured rectangle (single texel).
     /// Requires 3 words: command+color, vertex, texcoord+clut
-    pub(in crate::core::gpu) fn parse_textured_rect_1x1_opaque(&mut self) {
+    pub(crate) fn parse_textured_rect_1x1_opaque(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }
@@ -412,7 +412,7 @@ impl GPU {
     }
 
     /// GP0(0x6D): Textured Rectangle (1×1, Opaque, Modulated)
-    pub(in crate::core::gpu) fn parse_textured_rect_1x1_opaque_modulated(&mut self) {
+    pub(crate) fn parse_textured_rect_1x1_opaque_modulated(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }
@@ -450,7 +450,7 @@ impl GPU {
     }
 
     /// GP0(0x6E): Textured Rectangle (1×1, Semi-Transparent, Raw Texture)
-    pub(in crate::core::gpu) fn parse_textured_rect_1x1_semi_transparent(&mut self) {
+    pub(crate) fn parse_textured_rect_1x1_semi_transparent(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }
@@ -488,7 +488,7 @@ impl GPU {
     }
 
     /// GP0(0x6F): Textured Rectangle (1×1, Semi-Transparent, Modulated)
-    pub(in crate::core::gpu) fn parse_textured_rect_1x1_semi_transparent_modulated(&mut self) {
+    pub(crate) fn parse_textured_rect_1x1_semi_transparent_modulated(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }
@@ -526,7 +526,7 @@ impl GPU {
     }
 
     /// GP0(0x74): Textured Rectangle (8×8, Opaque, Raw Texture)
-    pub(in crate::core::gpu) fn parse_textured_rect_8x8_opaque(&mut self) {
+    pub(crate) fn parse_textured_rect_8x8_opaque(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }
@@ -564,7 +564,7 @@ impl GPU {
     }
 
     /// GP0(0x75): Textured Rectangle (8×8, Opaque, Modulated)
-    pub(in crate::core::gpu) fn parse_textured_rect_8x8_opaque_modulated(&mut self) {
+    pub(crate) fn parse_textured_rect_8x8_opaque_modulated(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }
@@ -602,7 +602,7 @@ impl GPU {
     }
 
     /// GP0(0x76): Textured Rectangle (8×8, Semi-Transparent, Raw Texture)
-    pub(in crate::core::gpu) fn parse_textured_rect_8x8_semi_transparent(&mut self) {
+    pub(crate) fn parse_textured_rect_8x8_semi_transparent(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }
@@ -640,7 +640,7 @@ impl GPU {
     }
 
     /// GP0(0x77): Textured Rectangle (8×8, Semi-Transparent, Modulated)
-    pub(in crate::core::gpu) fn parse_textured_rect_8x8_semi_transparent_modulated(&mut self) {
+    pub(crate) fn parse_textured_rect_8x8_semi_transparent_modulated(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }
@@ -678,7 +678,7 @@ impl GPU {
     }
 
     /// GP0(0x7C): Textured Rectangle (16×16, Opaque, Raw Texture)
-    pub(in crate::core::gpu) fn parse_textured_rect_16x16_opaque(&mut self) {
+    pub(crate) fn parse_textured_rect_16x16_opaque(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }
@@ -716,7 +716,7 @@ impl GPU {
     }
 
     /// GP0(0x7D): Textured Rectangle (16×16, Opaque, Modulated)
-    pub(in crate::core::gpu) fn parse_textured_rect_16x16_opaque_modulated(&mut self) {
+    pub(crate) fn parse_textured_rect_16x16_opaque_modulated(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }
@@ -754,7 +754,7 @@ impl GPU {
     }
 
     /// GP0(0x7E): Textured Rectangle (16×16, Semi-Transparent, Raw Texture)
-    pub(in crate::core::gpu) fn parse_textured_rect_16x16_semi_transparent(&mut self) {
+    pub(crate) fn parse_textured_rect_16x16_semi_transparent(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }
@@ -792,7 +792,7 @@ impl GPU {
     }
 
     /// GP0(0x7F): Textured Rectangle (16×16, Semi-Transparent, Modulated)
-    pub(in crate::core::gpu) fn parse_textured_rect_16x16_semi_transparent_modulated(&mut self) {
+    pub(crate) fn parse_textured_rect_16x16_semi_transparent_modulated(&mut self) {
         if self.command_fifo.len() < 3 {
             return;
         }

@@ -32,7 +32,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn execute_bcondz(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn execute_bcondz(&mut self, instruction: u32) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let offset = ((imm as i16) as i32) << 2;
 
@@ -72,7 +72,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_beq(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_beq(&mut self, instruction: u32) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let offset = ((imm as i16) as i32) << 2;
 
@@ -96,7 +96,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_bne(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_bne(&mut self, instruction: u32) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let offset = ((imm as i16) as i32) << 2;
 
@@ -120,7 +120,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_blez(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_blez(&mut self, instruction: u32) -> Result<()> {
         let (_, rs, _, imm) = decode_i_type(instruction);
         let offset = ((imm as i16) as i32) << 2;
 
@@ -144,7 +144,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_bgtz(&mut self, instruction: u32) -> Result<()> {
+    pub(crate) fn op_bgtz(&mut self, instruction: u32) -> Result<()> {
         let (_, rs, _, imm) = decode_i_type(instruction);
         let offset = ((imm as i16) as i32) << 2;
 
@@ -169,7 +169,7 @@ impl CPU {
     /// where B is the branch instruction address. At the time this function
     /// is called (during execute_instruction), self.pc contains the delay slot
     /// address (B + 4), so we use self.pc as the base for the calculation.
-    pub(in crate::core::cpu) fn branch(&mut self, offset: i32) {
+    pub(crate) fn branch(&mut self, offset: i32) {
         // self.pc points to the delay-slot address (B + 4) during execution.
         // Target = (B + 4) + offset
         let base = self.pc;

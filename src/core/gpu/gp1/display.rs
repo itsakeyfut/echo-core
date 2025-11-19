@@ -28,7 +28,7 @@ impl GPU {
     /// # Arguments
     ///
     /// * `value` - Bit 0: 0=Enable, 1=Disable (inverted logic)
-    pub(in crate::core::gpu) fn gp1_display_enable(&mut self, value: u32) {
+    pub(crate) fn gp1_display_enable(&mut self, value: u32) {
         let enabled = (value & 1) == 0;
         self.display_mode.display_disabled = !enabled;
         self.status.display_disabled = !enabled;
@@ -43,7 +43,7 @@ impl GPU {
     /// # Arguments
     ///
     /// * `value` - Bits 0-9: X coordinate, Bits 10-18: Y coordinate
-    pub(in crate::core::gpu) fn gp1_display_area_start(&mut self, value: u32) {
+    pub(crate) fn gp1_display_area_start(&mut self, value: u32) {
         let x = (value & 0x3FF) as u16;
         let y = ((value >> 10) & 0x1FF) as u16;
 
@@ -60,7 +60,7 @@ impl GPU {
     /// # Arguments
     ///
     /// * `value` - Bits 0-11: X1 start, Bits 12-23: X2 end
-    pub(in crate::core::gpu) fn gp1_horizontal_display_range(&mut self, value: u32) {
+    pub(crate) fn gp1_horizontal_display_range(&mut self, value: u32) {
         let x1 = (value & 0xFFF) as u16;
         let x2 = ((value >> 12) & 0xFFF) as u16;
 
@@ -82,7 +82,7 @@ impl GPU {
     /// # Arguments
     ///
     /// * `value` - Bits 0-9: Y1 start, Bits 10-19: Y2 end
-    pub(in crate::core::gpu) fn gp1_vertical_display_range(&mut self, value: u32) {
+    pub(crate) fn gp1_vertical_display_range(&mut self, value: u32) {
         let y1 = (value & 0x3FF) as u16;
         let y2 = ((value >> 10) & 0x3FF) as u16;
 
@@ -111,7 +111,7 @@ impl GPU {
     ///   - Bit 5: Interlace (0=Off, 1=On)
     ///   - Bit 6: Horizontal resolution 2
     ///   - Bit 7: Reverse flag
-    pub(in crate::core::gpu) fn gp1_display_mode(&mut self, value: u32) {
+    pub(crate) fn gp1_display_mode(&mut self, value: u32) {
         // Horizontal resolution
         let hr1 = (value & 3) as u8;
         let hr2 = ((value >> 6) & 1) as u8;

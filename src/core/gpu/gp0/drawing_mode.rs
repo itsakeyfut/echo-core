@@ -63,7 +63,7 @@ impl GPU {
     /// // Set texture page to (128, 256) with 4-bit color
     /// gpu.write_gp0(0xE1000012);  // X=2 (2*64=128), Y=1 (1*256=256)
     /// ```
-    pub(in crate::core::gpu) fn gp0_draw_mode(&mut self) {
+    pub(crate) fn gp0_draw_mode(&mut self) {
         if self.command_fifo.is_empty() {
             return;
         }
@@ -156,7 +156,7 @@ impl GPU {
     /// // Set texture window: mask=(8,8), offset=(16,16)
     /// gpu.write_gp0(0xE2000008 | (8 << 5) | (16 << 10) | (16 << 15));
     /// ```
-    pub(in crate::core::gpu) fn gp0_texture_window(&mut self) {
+    pub(crate) fn gp0_texture_window(&mut self) {
         if self.command_fifo.is_empty() {
             return;
         }
@@ -204,7 +204,7 @@ impl GPU {
     /// // Set top-left to (100, 100)
     /// gpu.write_gp0(0xE3000064 | (100 << 10));
     /// ```
-    pub(in crate::core::gpu) fn gp0_draw_area_top_left(&mut self) {
+    pub(crate) fn gp0_draw_area_top_left(&mut self) {
         if self.command_fifo.is_empty() {
             return;
         }
@@ -244,7 +244,7 @@ impl GPU {
     /// // Set bottom-right to (200, 200)
     /// gpu.write_gp0(0xE40000C8 | (200 << 10));
     /// ```
-    pub(in crate::core::gpu) fn gp0_draw_area_bottom_right(&mut self) {
+    pub(crate) fn gp0_draw_area_bottom_right(&mut self) {
         if self.command_fifo.is_empty() {
             return;
         }
@@ -294,7 +294,7 @@ impl GPU {
     /// let y = ((-20i16) as u16 as u32) & 0x7FF;
     /// gpu.write_gp0(0xE5000000 | x | (y << 11));
     /// ```
-    pub(in crate::core::gpu) fn gp0_draw_offset(&mut self) {
+    pub(crate) fn gp0_draw_offset(&mut self) {
         if self.command_fifo.is_empty() {
             return;
         }
@@ -340,7 +340,7 @@ impl GPU {
     /// // Enable both mask bit set and check
     /// gpu.write_gp0(0xE6000003);
     /// ```
-    pub(in crate::core::gpu) fn gp0_mask_settings(&mut self) {
+    pub(crate) fn gp0_mask_settings(&mut self) {
         if self.command_fifo.is_empty() {
             return;
         }

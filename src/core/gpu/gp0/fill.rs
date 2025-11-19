@@ -70,7 +70,7 @@ impl GPU {
     /// // Verify the fill - note width is aligned to 16 pixels (100 → 112)
     /// assert_eq!(gpu.read_vram(50, 50), 0x001F); // Red in 15-bit format
     /// ```
-    pub(in crate::core::gpu) fn gp0_fill_rectangle(&mut self) {
+    pub(crate) fn gp0_fill_rectangle(&mut self) {
         // Need 3 words for fill command
         if self.command_fifo.len() < 3 {
             return;

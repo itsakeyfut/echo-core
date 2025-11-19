@@ -31,7 +31,7 @@ impl GPU {
     /// * `vertices` - Array of 4 vertices defining the quad (in order)
     /// * `color` - Flat color for the entire quad
     /// * `semi_transparent` - Whether semi-transparency is enabled
-    pub(in crate::core::gpu) fn render_monochrome_quad(
+    pub(crate) fn render_monochrome_quad(
         &mut self,
         vertices: &[Vertex; 4],
         color: &Color,

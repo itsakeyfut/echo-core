@@ -88,51 +88,51 @@ pub struct GPU {
     ///
     /// Stored as a flat Vec for cache efficiency. Pixels are stored in row-major order
     /// (left-to-right, top-to-bottom). Each pixel is a 16-bit value in 5-5-5 RGB format.
-    pub(in crate::core::gpu) vram: Vec<u16>,
+    pub(crate) vram: Vec<u16>,
 
     /// Software rasterizer for drawing primitives
     ///
     /// Handles the actual pixel-level rasterization of triangles and other primitives.
-    pub(in crate::core::gpu) rasterizer: Rasterizer,
+    pub(crate) rasterizer: Rasterizer,
 
     /// Drawing mode state
-    pub(in crate::core::gpu) draw_mode: DrawMode,
+    pub(crate) draw_mode: DrawMode,
 
     /// Drawing area (clipping rectangle)
     ///
     /// All drawing operations are clipped to this rectangle.
-    pub(in crate::core::gpu) draw_area: DrawingArea,
+    pub(crate) draw_area: DrawingArea,
 
     /// Drawing offset (added to all vertex coordinates)
     ///
     /// This offset is applied to all vertex positions before rendering.
-    pub(in crate::core::gpu) draw_offset: (i16, i16),
+    pub(crate) draw_offset: (i16, i16),
 
     /// Texture window settings
     ///
     /// Defines texture coordinate wrapping and masking behavior.
-    pub(in crate::core::gpu) texture_window: TextureWindow,
+    pub(crate) texture_window: TextureWindow,
 
     /// Display area settings
     ///
     /// Defines the region of VRAM that is output to the display.
-    pub(in crate::core::gpu) display_area: DisplayArea,
+    pub(crate) display_area: DisplayArea,
 
     /// Display mode (resolution, color depth, etc.)
-    pub(in crate::core::gpu) display_mode: DisplayMode,
+    pub(crate) display_mode: DisplayMode,
 
     /// Command FIFO buffer
     ///
     /// Stores GP0 commands that are being processed.
-    pub(in crate::core::gpu) command_fifo: VecDeque<u32>,
+    pub(crate) command_fifo: VecDeque<u32>,
 
     /// GPU status flags
-    pub(in crate::core::gpu) status: GPUStatus,
+    pub(crate) status: GPUStatus,
 
     /// VRAM transfer state
     ///
     /// Tracks the state of ongoing VRAM-to-CPU or CPU-to-VRAM transfers.
-    pub(in crate::core::gpu) vram_transfer: Option<VRAMTransfer>,
+    pub(crate) vram_transfer: Option<VRAMTransfer>,
 
     /// Scanline counter (0-262 for NTSC)
     ///
@@ -281,7 +281,7 @@ impl GPU {
     /// Resets all GPU registers, drawing modes, display settings, command buffer,
     /// and status flags to their default values, but preserves VRAM contents.
     /// This is used by GP1(0x00) command which must not clear VRAM per PSX-SPX spec.
-    pub(in crate::core::gpu) fn reset_state_preserving_vram(&mut self) {
+    pub(crate) fn reset_state_preserving_vram(&mut self) {
         self.draw_mode = DrawMode::default();
         self.draw_area = DrawingArea::default();
         self.draw_offset = (0, 0);
@@ -369,7 +369,7 @@ impl GPU {
     ///
     /// Linear index into the VRAM array
     #[inline(always)]
-    pub(in crate::core::gpu) fn vram_index(&self, x: u16, y: u16) -> usize {
+    pub(crate) fn vram_index(&self, x: u16, y: u16) -> usize {
         // Wrap coordinates to valid VRAM bounds
         let x = (x & 0x3FF) as usize; // 0-1023
         let y = (y & 0x1FF) as usize; // 0-511
@@ -380,7 +380,7 @@ impl GPU {
     ///
     /// This should be called whenever the drawing area is modified
     /// to keep the rasterizer's clip rect in sync.
-    pub(in crate::core::gpu) fn update_rasterizer_clip_rect(&mut self) {
+    pub(crate) fn update_rasterizer_clip_rect(&mut self) {
         self.rasterizer.set_clip_rect(
             self.draw_area.left as i16,
             self.draw_area.top as i16,

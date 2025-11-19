@@ -37,7 +37,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success, triggers AddressErrorLoad exception on misalignment
-    pub(in crate::core::cpu) fn op_lw(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+    pub(crate) fn op_lw(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let offset = (imm as i16) as i32; // Sign extend
         let addr = self.reg(rs).wrapping_add(offset as u32);
@@ -69,7 +69,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success, triggers AddressErrorLoad exception on misalignment
-    pub(in crate::core::cpu) fn op_lh(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+    pub(crate) fn op_lh(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let offset = (imm as i16) as i32; // Sign extend
         let addr = self.reg(rs).wrapping_add(offset as u32);
@@ -101,7 +101,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success, triggers AddressErrorLoad exception on misalignment
-    pub(in crate::core::cpu) fn op_lhu(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+    pub(crate) fn op_lhu(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let offset = (imm as i16) as i32; // Sign extend
         let addr = self.reg(rs).wrapping_add(offset as u32);
@@ -133,7 +133,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_lb(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+    pub(crate) fn op_lb(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let offset = (imm as i16) as i32; // Sign extend
         let addr = self.reg(rs).wrapping_add(offset as u32);
@@ -159,7 +159,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_lbu(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
+    pub(crate) fn op_lbu(&mut self, instruction: u32, bus: &mut Bus) -> Result<()> {
         let (_, rs, rt, imm) = decode_i_type(instruction);
         let offset = (imm as i16) as i32; // Sign extend
         let addr = self.reg(rs).wrapping_add(offset as u32);
@@ -184,7 +184,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) - stub implementation
-    pub(in crate::core::cpu) fn op_lwl(&mut self, _instruction: u32, _bus: &mut Bus) -> Result<()> {
+    pub(crate) fn op_lwl(&mut self, _instruction: u32, _bus: &mut Bus) -> Result<()> {
         // TODO: Implement LWL based on PSX-SPX documentation (Week 3)
         log::warn!(
             "LWL instruction not yet implemented at PC=0x{:08X}",
@@ -208,7 +208,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) - stub implementation
-    pub(in crate::core::cpu) fn op_lwr(&mut self, _instruction: u32, _bus: &mut Bus) -> Result<()> {
+    pub(crate) fn op_lwr(&mut self, _instruction: u32, _bus: &mut Bus) -> Result<()> {
         // TODO: Implement LWR based on PSX-SPX documentation (Week 3)
         log::warn!(
             "LWR instruction not yet implemented at PC=0x{:08X}",

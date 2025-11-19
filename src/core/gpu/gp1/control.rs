@@ -24,7 +24,7 @@ impl GPU {
     ///
     /// Resets the GPU to its initial state without clearing VRAM.
     /// Per PSX-SPX specification, VRAM contents are preserved.
-    pub(in crate::core::gpu) fn gp1_reset_gpu(&mut self) {
+    pub(crate) fn gp1_reset_gpu(&mut self) {
         // Reset GPU state without clearing VRAM (per PSX-SPX spec)
         self.reset_state_preserving_vram();
         self.display_mode.display_disabled = true;
@@ -37,7 +37,7 @@ impl GPU {
     ///
     /// Clears the GP0 command FIFO and cancels any ongoing commands.
     /// This is useful for recovering from command processing errors.
-    pub(in crate::core::gpu) fn gp1_reset_command_buffer(&mut self) {
+    pub(crate) fn gp1_reset_command_buffer(&mut self) {
         // Clear pending commands
         self.command_fifo.clear();
 
@@ -51,7 +51,7 @@ impl GPU {
     ///
     /// Clears the GPU interrupt request flag. The GPU can generate
     /// interrupts for certain operations, though this is rarely used.
-    pub(in crate::core::gpu) fn gp1_acknowledge_interrupt(&mut self) {
+    pub(crate) fn gp1_acknowledge_interrupt(&mut self) {
         self.status.interrupt_request = false;
         log::debug!("GPU interrupt acknowledged");
     }
@@ -63,7 +63,7 @@ impl GPU {
     /// # Arguments
     ///
     /// * `value` - Bits 0-1: Direction (0=Off, 1=FIFO, 2=CPUtoGP0, 3=GPUREADtoCPU)
-    pub(in crate::core::gpu) fn gp1_dma_direction(&mut self, value: u32) {
+    pub(crate) fn gp1_dma_direction(&mut self, value: u32) {
         let direction = (value & 3) as u8;
         self.status.dma_direction = direction;
 
@@ -89,7 +89,7 @@ impl GPU {
     ///   - 0x04: Draw area bottom right
     ///   - 0x05: Draw offset
     ///   - 0x07: GPU version (returns 2 for PSX)
-    pub(in crate::core::gpu) fn gp1_get_gpu_info(&mut self, value: u32) {
+    pub(crate) fn gp1_get_gpu_info(&mut self, value: u32) {
         let info_type = value & 0xFF;
 
         log::debug!("GPU info request: type {}", info_type);

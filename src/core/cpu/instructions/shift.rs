@@ -36,7 +36,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_sll(&mut self, rt: u8, rd: u8, shamt: u8) -> Result<()> {
+    pub(crate) fn op_sll(&mut self, rt: u8, rd: u8, shamt: u8) -> Result<()> {
         let value = self.reg(rt) << shamt;
         self.set_reg(rd, value);
         Ok(())
@@ -58,7 +58,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_srl(&mut self, rt: u8, rd: u8, shamt: u8) -> Result<()> {
+    pub(crate) fn op_srl(&mut self, rt: u8, rd: u8, shamt: u8) -> Result<()> {
         let result = self.reg(rt) >> shamt;
         self.set_reg(rd, result);
         Ok(())
@@ -80,7 +80,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_sra(&mut self, rt: u8, rd: u8, shamt: u8) -> Result<()> {
+    pub(crate) fn op_sra(&mut self, rt: u8, rd: u8, shamt: u8) -> Result<()> {
         let result = ((self.reg(rt) as i32) >> shamt) as u32;
         self.set_reg(rd, result);
         Ok(())
@@ -102,7 +102,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_sllv(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+    pub(crate) fn op_sllv(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
         let shamt = self.reg(rs) & 0x1F; // Only lower 5 bits
         let result = self.reg(rt) << shamt;
         self.set_reg(rd, result);
@@ -126,7 +126,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_srlv(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+    pub(crate) fn op_srlv(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
         let shamt = self.reg(rs) & 0x1F;
         let result = self.reg(rt) >> shamt;
         self.set_reg(rd, result);
@@ -150,7 +150,7 @@ impl CPU {
     /// # Returns
     ///
     /// Ok(()) on success
-    pub(in crate::core::cpu) fn op_srav(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
+    pub(crate) fn op_srav(&mut self, rs: u8, rt: u8, rd: u8) -> Result<()> {
         let shamt = self.reg(rs) & 0x1F;
         let result = ((self.reg(rt) as i32) >> shamt) as u32;
         self.set_reg(rd, result);

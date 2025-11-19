@@ -150,6 +150,25 @@ System.run_frame() → loop CPU.step() until frame complete
 - **Constants**: `UPPER_SNAKE_CASE` (e.g., `VRAM_WIDTH`, `CYCLES_PER_FRAME`)
 - **Hardware terms**: Use official names (e.g., `GPU`, `SPU`, `COP0`)
 
+### Visibility Guidelines
+
+Use appropriate visibility modifiers to balance encapsulation with testability:
+
+- **`pub`**: Use for public API that should be accessible to external users
+  - Example: `pub fn new()`, `pub fn reset()`, public struct fields
+
+- **`pub(crate)`**: Use for functions/fields shared across multiple core modules (default choice)
+  - Example: CPU instruction implementations, GPU command handlers, rendering functions
+  - Benefits: Allows testing from anywhere in the crate, reduces coupling between submodules
+
+- **`pub(super)`**: Use for items that should only be visible to the parent module
+  - Example: Helper functions used only within a specific module hierarchy
+
+- **Private (no modifier)**: Use for true implementation details
+  - Example: Internal helper functions, private struct fields
+
+**Avoid `pub(in crate::core::*)` patterns** - they create tight coupling and testing friction. Prefer `pub(crate)` for better flexibility and testability.
+
 ### Documentation Requirements
 
 - **All public APIs must have rustdoc comments** with examples

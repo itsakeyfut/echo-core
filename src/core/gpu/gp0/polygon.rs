@@ -26,7 +26,7 @@ impl GPU {
     ///
     /// Renders a flat-shaded triangle with a single color.
     /// Requires 4 words: command+color, vertex1, vertex2, vertex3
-    pub(in crate::core::gpu) fn parse_monochrome_triangle_opaque(&mut self) {
+    pub(crate) fn parse_monochrome_triangle_opaque(&mut self) {
         if self.command_fifo.len() < 4 {
             return; // Need more words
         }
@@ -50,7 +50,7 @@ impl GPU {
     ///
     /// Renders a flat-shaded triangle with semi-transparency enabled.
     /// Requires 4 words: command+color, vertex1, vertex2, vertex3
-    pub(in crate::core::gpu) fn parse_monochrome_triangle_semi_transparent(&mut self) {
+    pub(crate) fn parse_monochrome_triangle_semi_transparent(&mut self) {
         if self.command_fifo.len() < 4 {
             return;
         }
@@ -74,7 +74,7 @@ impl GPU {
     ///
     /// Renders a flat-shaded quadrilateral with a single color.
     /// Requires 5 words: command+color, vertex1, vertex2, vertex3, vertex4
-    pub(in crate::core::gpu) fn parse_monochrome_quad_opaque(&mut self) {
+    pub(crate) fn parse_monochrome_quad_opaque(&mut self) {
         if self.command_fifo.len() < 5 {
             return;
         }
@@ -100,7 +100,7 @@ impl GPU {
     ///
     /// Renders a flat-shaded quadrilateral with semi-transparency enabled.
     /// Requires 5 words: command+color, vertex1, vertex2, vertex3, vertex4
-    pub(in crate::core::gpu) fn parse_monochrome_quad_semi_transparent(&mut self) {
+    pub(crate) fn parse_monochrome_quad_semi_transparent(&mut self) {
         if self.command_fifo.len() < 5 {
             return;
         }
@@ -141,7 +141,7 @@ impl GPU {
     /// # References
     ///
     /// - [PSX-SPX: GPU Polygon Commands](http://problemkaputt.de/psx-spx.htm#gpurenderpolygoncommands)
-    pub(in crate::core::gpu) fn parse_shaded_triangle_opaque(&mut self) {
+    pub(crate) fn parse_shaded_triangle_opaque(&mut self) {
         if self.command_fifo.len() < 6 {
             return;
         }
@@ -171,7 +171,7 @@ impl GPU {
     ///
     /// Renders a triangle with per-vertex colors and semi-transparency enabled.
     /// Requires 6 words: (color1, vertex1, color2, vertex2, color3, vertex3)
-    pub(in crate::core::gpu) fn parse_shaded_triangle_semi_transparent(&mut self) {
+    pub(crate) fn parse_shaded_triangle_semi_transparent(&mut self) {
         if self.command_fifo.len() < 6 {
             return;
         }
@@ -214,7 +214,7 @@ impl GPU {
     /// Word 6: 0x00RRGGBB - Color4 (RGB)
     /// Word 7: YYYYXXXX - Vertex4 (X, Y)
     /// ```
-    pub(in crate::core::gpu) fn parse_shaded_quad_opaque(&mut self) {
+    pub(crate) fn parse_shaded_quad_opaque(&mut self) {
         if self.command_fifo.len() < 8 {
             return;
         }
@@ -248,7 +248,7 @@ impl GPU {
     ///
     /// Renders a quadrilateral with per-vertex colors and semi-transparency enabled.
     /// Requires 8 words: (color1, vertex1, color2, vertex2, color3, vertex3, color4, vertex4)
-    pub(in crate::core::gpu) fn parse_shaded_quad_semi_transparent(&mut self) {
+    pub(crate) fn parse_shaded_quad_semi_transparent(&mut self) {
         if self.command_fifo.len() < 8 {
             return;
         }
@@ -310,7 +310,7 @@ impl GPU {
     /// # References
     ///
     /// - [PSX-SPX: GPU Texture Commands](http://problemkaputt.de/psx-spx.htm#gputextureattributes)
-    pub(in crate::core::gpu) fn parse_textured_triangle_opaque(&mut self) {
+    pub(crate) fn parse_textured_triangle_opaque(&mut self) {
         if self.command_fifo.len() < 7 {
             return; // Need more words
         }
@@ -359,7 +359,7 @@ impl GPU {
     ///
     /// Renders a textured triangle with semi-transparency enabled.
     /// Same format as 0x24, but with semi-transparency blending applied.
-    pub(in crate::core::gpu) fn parse_textured_triangle_semi_transparent(&mut self) {
+    pub(crate) fn parse_textured_triangle_semi_transparent(&mut self) {
         if self.command_fifo.len() < 7 {
             return;
         }
@@ -419,7 +419,7 @@ impl GPU {
     /// Word 7: YYYYXXXX - Vertex4 (X, Y)
     /// Word 8: ----VVUU - TexCoord4 (U, V)
     /// ```
-    pub(in crate::core::gpu) fn parse_textured_quad_opaque(&mut self) {
+    pub(crate) fn parse_textured_quad_opaque(&mut self) {
         if self.command_fifo.len() < 9 {
             return;
         }
@@ -469,7 +469,7 @@ impl GPU {
     ///
     /// Renders a textured quadrilateral with semi-transparency enabled.
     /// Same format as 0x2C, but with semi-transparency blending applied.
-    pub(in crate::core::gpu) fn parse_textured_quad_semi_transparent(&mut self) {
+    pub(crate) fn parse_textured_quad_semi_transparent(&mut self) {
         if self.command_fifo.len() < 9 {
             return;
         }
