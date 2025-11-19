@@ -17,92 +17,6 @@ use crate::core::error::Result;
 use crate::core::gte::GTE;
 use crate::core::memory::Bus;
 use crate::core::timing::TimingEventManager;
-use std::collections::HashMap;
-
-/// Instruction cache for MIPS R3000A
-///
-/// Simplified implementation that caches instructions when the IsoC bit
-/// (bit 16 of COP0 SR register) is set. This is essential for BIOS operation
-/// which enables cache isolation before zeroing RAM.
-struct InstructionCache {
-    /// Cached instructions: address -> instruction word
-    entries: HashMap<u32, u32>,
-    /// Maximum number of cached entries (prevent unbounded growth)
-    max_entries: usize,
-}
-
-impl InstructionCache {
-    /// Create a new instruction cache
-    fn new() -> Self {
-        Self {
-            entries: HashMap::new(),
-            max_entries: 4096, // ~4KB worth of instructions
-        }
-    }
-
-    /// Fetch instruction from cache
-    ///
-    /// Returns Some(instruction) if cached, None otherwise
-    fn fetch(&self, pc: u32) -> Option<u32> {
-        self.entries.get(&pc).copied()
-    }
-
-    /// Store instruction in cache
-    ///
-    /// If cache is full, oldest entries may be evicted (HashMap doesn't guarantee order,
-    /// but this is acceptable for our simplified implementation)
-    fn store(&mut self, pc: u32, instruction: u32) {
-        if self.entries.len() >= self.max_entries {
-            // Simple eviction: clear cache when full
-            // A proper implementation would use LRU or direct-mapped eviction
-            log::debug!("Instruction cache full, clearing cache");
-            self.entries.clear();
-        }
-        self.entries.insert(pc, instruction);
-    }
-
-    /// Clear all cached instructions
-    fn clear(&mut self) {
-        self.entries.clear();
-    }
-
-    /// Check if cache is empty
-    #[allow(dead_code)]
-    fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    /// Get number of cached entries
-    #[allow(dead_code)]
-    fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// Prefill cache with instruction at given address
-    ///
-    /// This is used when memory writes occur to known code regions,
-    /// allowing us to cache instructions before execution (mimicking
-    /// how real hardware caches instructions during BIOS copy operations)
-    fn prefill(&mut self, pc: u32, instruction: u32) {
-        self.store(pc, instruction);
-    }
-
-    /// Invalidate cached instruction at given address
-    ///
-    /// This ensures cache coherency when memory is modified after caching,
-    /// such as self-modifying code, runtime patching, or DMA writes.
-    fn invalidate(&mut self, pc: u32) {
-        self.entries.remove(&pc);
-    }
-
-    /// Invalidate cached instructions in given address range
-    ///
-    /// This is more efficient than individual invalidations when
-    /// a large memory region is modified.
-    fn invalidate_range(&mut self, start: u32, end: u32) {
-        self.entries.retain(|&pc, _| pc < start || pc > end);
-    }
-}
 
 /// CPU (MIPS R3000A) emulation implementation
 ///
@@ -178,6 +92,7 @@ pub struct LoadDelay {
 mod cop0;
 mod decode;
 mod disassembler;
+pub mod icache;
 mod instructions;
 #[cfg(test)]
 mod tests;
@@ -187,6 +102,7 @@ mod tracer;
 pub use cop0::ExceptionCause;
 use cop0::COP0;
 pub use disassembler::Disassembler;
+pub use icache::InstructionCache;
 pub use tracer::CpuTracer;
 
 impl CPU {
