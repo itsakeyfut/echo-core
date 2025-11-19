@@ -126,7 +126,7 @@ impl ADSREnvelope {
     /// Process decay phase
     fn tick_decay(&mut self) {
         let rate = self.decay_rate_to_step();
-        let sustain_level = ((self.sustain_level as i32 + 1) << 11) as i16;
+        let sustain_level = ((self.sustain_level as i32 + 1) << 11).min(32767) as i16;
 
         // Decay is always exponential in hardware
         let step = ((rate as i32 * self.level as i32) >> 15) as i16;

@@ -106,6 +106,10 @@ impl Voice {
         self.enabled = true;
         self.key_on = true;
         self.current_address = (self.start_address as u32) * 8;
+        self.adpcm_state = ADPCMState::default();
+        self.decoded_samples.clear();
+        self.loop_flag = false;
+        self.key_off = false;
         self.adsr.phase = ADSRPhase::Attack;
         self.adsr.level = 0;
 
