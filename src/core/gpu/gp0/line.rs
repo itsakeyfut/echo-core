@@ -17,7 +17,7 @@
 //!
 //! Implements parsing for line and polyline rendering commands.
 
-use super::super::types::{Color, Vertex};
+use super::super::primitives::{Color, Vertex};
 use super::super::GPU;
 
 impl GPU {

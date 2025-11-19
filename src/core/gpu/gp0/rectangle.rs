@@ -20,7 +20,7 @@
 //! - Textured rectangles (sprite rendering)
 //! - Variable size and fixed size (1×1, 8×8, 16×16)
 
-use super::super::types::{Color, TexCoord, TextureInfo, Vertex};
+use super::super::primitives::{Color, TexCoord, TextureInfo, Vertex};
 use super::super::GPU;
 
 impl GPU {

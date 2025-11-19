@@ -54,14 +54,16 @@ use super::timing::EventHandle;
 // Module declarations
 mod gp0;
 mod gp1;
+mod primitives;
+mod registers;
 mod render;
 #[cfg(test)]
 mod tests;
-mod types;
 
 // Public re-exports
+pub use primitives::*;
+pub use registers::*;
 pub use render::Rasterizer;
-pub use types::*;
 
 /// GPU state representing the CXD8561 graphics processor
 ///

@@ -18,7 +18,7 @@
 //! Implements texture-mapped triangle and quadrilateral rasterization with support
 //! for 4-bit, 8-bit, and 15-bit texture formats.
 
-use super::super::types::{Color, TexCoord, TextureInfo, Vertex};
+use super::super::primitives::{Color, TexCoord, TextureInfo, Vertex};
 use super::super::GPU;
 
 impl GPU {

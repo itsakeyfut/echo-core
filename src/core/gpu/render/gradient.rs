@@ -17,7 +17,7 @@
 //!
 //! Implements gradient triangle and quad rasterization with per-vertex colors.
 
-use super::super::types::{Color, Vertex};
+use super::super::primitives::{Color, Vertex};
 use super::super::GPU;
 
 impl GPU {
