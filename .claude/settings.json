@@ -1,0 +1,10 @@
+{
+  "alwaysThinkingEnabled": true,
+  "permissions": {
+    "deny": [
+      "Read(./target/**)",
+      "Read(./.env)",
+      "Read(./.env.*)"
+    ]
+  }
+}
