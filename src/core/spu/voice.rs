@@ -166,7 +166,8 @@ impl Voice {
     ///
     /// # Returns
     ///
-    /// True if the decoded samples buffer is empty or position is at start
+    /// True if the decoded samples buffer is empty or the read position has
+    /// advanced past the current 28-sample ADPCM block
     fn needs_decode(&self) -> bool {
         self.decoded_samples.is_empty() || self.adpcm_state.position >= 28.0
     }
@@ -198,15 +199,21 @@ impl Voice {
 
         // Handle loop flags
         if loop_end {
+            // Remember that this block had a loop-end flag
             self.loop_flag = true;
             if loop_repeat {
-                // Next block will start from repeat address
+                // Next block will start from repeat address; we must not
+                // auto-increment current_address again when we finish this
+                // block, or we'd skip the first loop block
                 self.current_address = (self.repeat_address as u32) * 8;
             } else {
-                // Stop playback
+                // Mark playback as finished; render_sample will return silence
+                // once this block has been consumed
                 self.enabled = false;
                 self.adsr.phase = ADSRPhase::Off;
             }
+        } else {
+            self.loop_flag = false;
         }
 
         // Reset position to start of new block
@@ -215,7 +222,7 @@ impl Voice {
 
     /// Get interpolated sample at current position
     ///
-    /// Uses Gaussian interpolation for smooth pitch shifting.
+    /// Uses simple linear interpolation for smooth pitch shifting.
     ///
     /// # Returns
     ///
@@ -273,11 +280,14 @@ impl Voice {
 
         // Check if we've advanced past the current block
         if self.adpcm_state.position >= 28.0 {
-            // Move to next block (16 bytes per block)
-            self.current_address += 16;
+            // Move to next block (16 bytes per block) unless we've just
+            // processed a loop-end block that already updated current_address
+            if !self.loop_flag {
+                self.current_address += 16;
+            }
 
-            // Position will be reset when decode_block is called
-            // The loop handling is done in decode_block
+            // Position will be reset when decode_block is called.
+            // Loop end/repeat behavior is handled via loop_flag above.
         }
     }
 }
