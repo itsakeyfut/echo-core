@@ -312,14 +312,19 @@ impl InstructionCache {
     /// assert_eq!(cache.fetch(0x80000008), Some(0x00000000)); // Still valid
     /// ```
     pub fn invalidate_range(&mut self, start: u32, end: u32) {
-        // For each address in the range, invalidate the corresponding cache line
-        // We need to iterate through all cache lines and check if they match
-        // any address in the range. Since we can't reconstruct the full address
-        // from just the tag (we lose the index bits), we need a different approach.
+        if start > end {
+            return;
+        }
 
-        // Instead, we iterate through addresses in the range and invalidate each one
-        let mut addr = start & !0x3; // Align to 4-byte boundary
-        while addr <= end {
+        // Align both bounds to 4-byte word addresses
+        let mut addr = start & !0x3;
+        let end_aligned = end & !0x3;
+
+        loop {
+            if addr > end_aligned {
+                break;
+            }
+
             let index = self.index(addr);
             let tag = self.tag(addr);
 
@@ -328,11 +333,10 @@ impl InstructionCache {
                 line.valid = false;
             }
 
-            addr = addr.wrapping_add(4);
-            if addr < start {
-                // Handle wrap-around
+            if addr == end_aligned {
                 break;
             }
+            addr = addr.wrapping_add(4);
         }
     }
 
