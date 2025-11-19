@@ -106,9 +106,15 @@ impl ADSREnvelope {
                 self.level = self.level.saturating_add(rate);
             }
             AttackMode::Exponential => {
-                // Exponential: increase rate scales with distance from max
+                // Exponential: increase rate scales with distance from max.
+                // When we're very close to max, the computed step can round to 0,
+                // which would otherwise leave us stuck in the attack phase.
                 let step = ((rate as i32 * (32767 - self.level as i32)) >> 15) as i16;
-                self.level = self.level.saturating_add(step);
+                if step > 0 {
+                    self.level = self.level.saturating_add(step);
+                } else {
+                    self.level = 32767;
+                }
             }
         }
 
