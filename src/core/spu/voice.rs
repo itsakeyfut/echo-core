@@ -189,7 +189,12 @@ impl Voice {
 
         // Ensure we have a full block available
         if block_addr + 16 > spu_ram.len() {
+            // Treat out-of-bounds access as terminal to avoid spinning on bad block
             self.decoded_samples.clear();
+            self.enabled = false;
+            self.adsr.phase = ADSRPhase::Off;
+            self.final_block = true;
+            self.adpcm_state.position = 28.0;
             return;
         }
 
