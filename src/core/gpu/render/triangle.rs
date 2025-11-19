@@ -17,7 +17,7 @@
 //!
 //! Implements monochrome (flat-shaded) triangle rasterization with optional semi-transparency.
 
-use super::super::types::{BlendMode, Color, Vertex};
+use super::super::primitives::{BlendMode, Color, Vertex};
 use super::super::GPU;
 
 impl GPU {

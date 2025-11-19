@@ -17,7 +17,7 @@
 //!
 //! Implements line and polyline rasterization using Bresenham's algorithm.
 
-use super::super::types::{Color, Vertex};
+use super::super::primitives::{Color, Vertex};
 use super::super::GPU;
 
 impl GPU {

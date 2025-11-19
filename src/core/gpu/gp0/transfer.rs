@@ -17,7 +17,7 @@
 //!
 //! Implements CPU↔VRAM and VRAM↔VRAM transfer operations.
 
-use super::super::types::{VRAMTransfer, VRAMTransferDirection};
+use super::super::registers::{VRAMTransfer, VRAMTransferDirection};
 use super::super::GPU;
 
 impl GPU {

@@ -17,7 +17,7 @@
 //!
 //! Implements monochrome (flat-shaded) quad rasterization by decomposing into triangles.
 
-use super::super::types::{Color, Vertex};
+use super::super::primitives::{Color, Vertex};
 use super::super::GPU;
 
 impl GPU {

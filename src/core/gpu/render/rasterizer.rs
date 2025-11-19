@@ -41,7 +41,8 @@
 //! - [Triangle Rasterization Tutorial](https://www.sunshine2k.de/coding/java/TriangleRasterization/TriangleRasterization.html)
 //! - [Scratchapixel: Rasterization](https://www.scratchapixel.com/lessons/3d-basic-rendering/rasterization-practical-implementation)
 
-use super::super::types::{Color, DrawMode, DrawingArea, TextureDepth, TextureInfo};
+use super::super::primitives::{Color, TextureDepth, TextureInfo};
+use super::super::registers::{DrawMode, DrawingArea};
 
 /// Triangle rasterizer using scanline algorithm
 ///
@@ -2467,7 +2468,8 @@ mod tests {
 
     #[test]
     fn test_monochrome_rectangle() {
-        use super::super::super::types::{Color, DrawMode, DrawingArea};
+        use super::super::super::primitives::Color;
+        use super::super::super::registers::{DrawMode, DrawingArea};
 
         let mut vram = vec![0u16; 1024 * 512];
         let mut rasterizer = Rasterizer::new();

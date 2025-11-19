@@ -18,7 +18,7 @@
 //! Implements parsing for triangle and quadrilateral rendering commands,
 //! including both flat-shaded, Gouraud-shaded, and textured primitives.
 
-use super::super::types::{Color, TexCoord, TextureInfo, Vertex};
+use super::super::primitives::{Color, TexCoord, TextureInfo, Vertex};
 use super::super::GPU;
 
 impl GPU {

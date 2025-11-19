@@ -17,7 +17,7 @@
 //!
 //! Implements display settings including resolution, area, and video mode.
 
-use super::super::types::{ColorDepth, HorizontalRes, VerticalRes, VideoMode};
+use super::super::registers::{ColorDepth, HorizontalRes, VerticalRes, VideoMode};
 use super::super::GPU;
 
 impl GPU {
