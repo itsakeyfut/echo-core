@@ -66,6 +66,10 @@ pub struct Voice {
 
     /// Loop flag (set when loop end flag is encountered)
     pub(crate) loop_flag: bool,
+
+    /// Final block flag (set when a non-repeating end block is encountered)
+    /// Playback will stop after this block is fully consumed
+    pub(crate) final_block: bool,
 }
 
 #[allow(dead_code)]
@@ -95,6 +99,7 @@ impl Voice {
             key_on: false,
             key_off: false,
             loop_flag: false,
+            final_block: false,
         }
     }
 
@@ -109,6 +114,7 @@ impl Voice {
         self.adpcm_state = ADPCMState::default();
         self.decoded_samples.clear();
         self.loop_flag = false;
+        self.final_block = false;
         self.key_off = false;
         self.adsr.phase = ADSRPhase::Attack;
         self.adsr.level = 0;
@@ -207,10 +213,11 @@ impl Voice {
                 // block, or we'd skip the first loop block
                 self.current_address = (self.repeat_address as u32) * 8;
             } else {
-                // Mark playback as finished; render_sample will return silence
-                // once this block has been consumed
-                self.enabled = false;
-                self.adsr.phase = ADSRPhase::Off;
+                // Mark that this is the final block; playback will stop after
+                // this block is fully consumed.
+                // (Actual disabling is deferred until advance_position detects
+                // position >= 28.0 on a final_block)
+                self.final_block = true;
             }
         } else {
             self.loop_flag = false;
@@ -280,6 +287,14 @@ impl Voice {
 
         // Check if we've advanced past the current block
         if self.adpcm_state.position >= 28.0 {
+            // If this was a non-repeating end block, stop playback now
+            // that all samples have been consumed
+            if self.final_block {
+                self.enabled = false;
+                self.adsr.phase = ADSRPhase::Off;
+                self.final_block = false;
+            }
+
             // Move to next block (16 bytes per block) unless we've just
             // processed a loop-end block that already updated current_address
             if !self.loop_flag {

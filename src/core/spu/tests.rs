@@ -509,7 +509,17 @@ fn test_voice_decode_block_end_without_loop() {
 
     voice.decode_block(&spu_ram);
 
-    // Voice should be disabled
+    // Voice should still be enabled (final block is not consumed yet)
+    assert!(voice.enabled);
+    assert_eq!(voice.adsr.phase, ADSRPhase::Sustain);
+    // Final block flag should be set
+    assert!(voice.final_block);
+
+    // Simulate consuming all 28 samples by advancing position past the block
+    voice.adpcm_state.position = 28.0;
+    voice.advance_position();
+
+    // Now voice should be disabled
     assert!(!voice.enabled);
     assert_eq!(voice.adsr.phase, ADSRPhase::Off);
 }
