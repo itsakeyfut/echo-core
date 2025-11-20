@@ -184,7 +184,14 @@ impl Voice {
     ///
     /// * `spu_ram` - Reference to SPU RAM for ADPCM data access
     pub(crate) fn decode_block(&mut self, spu_ram: &[u8]) {
+        // Ensure SPU RAM size is power of 2 for bitwise masking
+        debug_assert!(
+            spu_ram.len().is_power_of_two(),
+            "SPU RAM size must be power of 2 for efficient address masking"
+        );
+
         // Calculate block address (each block is 16 bytes)
+        // Using bitwise AND for performance (valid when len is power of 2)
         let block_addr = (self.current_address as usize) & (spu_ram.len() - 1);
 
         // Ensure we have a full block available
