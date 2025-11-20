@@ -143,12 +143,12 @@ fn run_ci(verbose: bool) -> Result<()> {
     let start = Instant::now();
 
     run_task("Format Check", || run_fmt(true), verbose)?;
-    run_task("Clippy", || run_clippy(false), verbose)?;
-    run_task("Build", || run_build(false), verbose)?;
+    run_task("Clippy", || run_clippy_ci(), verbose)?;
+    run_task("Build", || run_build_ci(), verbose)?;
     run_task(
         "Test",
         || {
-            run_test(
+            run_test_ci(
                 false, false, false, false, false, false, false, false, false, false, false, false,
                 false,
             )
@@ -208,6 +208,19 @@ fn run_clippy(fix: bool) -> Result<()> {
     execute_command(&mut cmd)
 }
 
+fn run_clippy_ci() -> Result<()> {
+    // CI environment: disable default features (audio) to avoid ALSA dependency
+    let mut cmd = Command::new("cargo");
+    cmd.arg("clippy")
+        .arg("--all-targets")
+        .arg("--no-default-features")
+        .arg("--")
+        .arg("-D")
+        .arg("warnings");
+
+    execute_command(&mut cmd)
+}
+
 fn run_build(release: bool) -> Result<()> {
     let mut cmd = Command::new("cargo");
     cmd.arg("build");
@@ -215,6 +228,14 @@ fn run_build(release: bool) -> Result<()> {
     if release {
         cmd.arg("--release");
     }
+
+    execute_command(&mut cmd)
+}
+
+fn run_build_ci() -> Result<()> {
+    // CI environment: disable default features (audio) to avoid ALSA dependency
+    let mut cmd = Command::new("cargo");
+    cmd.arg("build").arg("--no-default-features");
 
     execute_command(&mut cmd)
 }
@@ -291,6 +312,108 @@ fn run_test(
         let mut cmd = Command::new("cargo");
         cmd.arg("test")
             .arg("--all-features")
+            .arg("--lib")
+            .arg(module_path);
+
+        if ignored {
+            cmd.arg("--").arg("--ignored");
+        }
+
+        match execute_command(&mut cmd) {
+            Ok(_) => {
+                println!("{} {} tests passed\n", "✓".green(), module_name);
+            }
+            Err(e) => {
+                println!("{} {} tests failed\n", "✗".red(), module_name);
+                all_success = false;
+                if module_count == 1 {
+                    // If only one module was requested, return the error immediately
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    if all_success {
+        Ok(())
+    } else {
+        anyhow::bail!("Some module tests failed")
+    }
+}
+
+fn run_test_ci(
+    doc: bool,
+    ignored: bool,
+    cdrom: bool,
+    controller: bool,
+    cpu: bool,
+    dma: bool,
+    gpu: bool,
+    gte: bool,
+    interrupt: bool,
+    memory: bool,
+    spu: bool,
+    system: bool,
+    timer: bool,
+) -> Result<()> {
+    // CI environment: disable default features (audio) to avoid ALSA dependency
+    if doc {
+        // Run doc tests
+        let mut cmd = Command::new("cargo");
+        cmd.arg("test").arg("--no-default-features").arg("--doc");
+
+        if ignored {
+            cmd.arg("--").arg("--ignored");
+        }
+
+        return execute_command(&mut cmd);
+    }
+
+    // Determine which module tests to run
+    let module_flags = [
+        cdrom, controller, cpu, dma, gpu, gte, interrupt, memory, spu, system, timer,
+    ];
+    let module_count = module_flags.iter().filter(|&&f| f).count();
+
+    if module_count == 0 {
+        // Run all tests
+        let mut cmd = Command::new("cargo");
+        cmd.arg("test").arg("--no-default-features");
+
+        if ignored {
+            cmd.arg("--").arg("--ignored");
+        }
+
+        return execute_command(&mut cmd);
+    }
+
+    // Run each module's tests sequentially
+    let modules = [
+        (cdrom, "core::cdrom", "CD-ROM"),
+        (controller, "core::controller", "Controller"),
+        (cpu, "core::cpu", "CPU"),
+        (dma, "core::dma", "DMA"),
+        (gpu, "core::gpu", "GPU"),
+        (gte, "core::gte", "GTE"),
+        (interrupt, "core::interrupt", "Interrupt"),
+        (memory, "core::memory", "Memory"),
+        (spu, "core::spu", "SPU"),
+        (system, "core::system", "System"),
+        (timer, "core::timer", "Timer"),
+    ];
+
+    let mut all_success = true;
+
+    for (enabled, module_path, module_name) in modules {
+        if !enabled {
+            continue;
+        }
+
+        println!("{} Running {} tests...", "→".blue(), module_name.bold());
+
+        let mut cmd = Command::new("cargo");
+        cmd.arg("test")
+            .arg("--no-default-features")
             .arg("--lib")
             .arg(module_path);
 

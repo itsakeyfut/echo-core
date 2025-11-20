@@ -12,6 +12,10 @@ description = "A PlayStation (PSX) emulator written in Rust"
 license = "Apache-2.0"
 repository = "https://github.com/itsakeyfut/psrx"
 
+[features]
+default = ["audio"]
+audio = ["dep:cpal"]
+
 [dependencies]
 # Error handling
 thiserror = "2.0.17"
@@ -36,6 +40,9 @@ bitflags = "2.10"
 
 # UI framework
 slint = "1.14.1"
+
+# Audio output (optional, not available in all environments)
+cpal = { version = "0.16", optional = true }
 
 [build-dependencies]
 slint-build = "1.14.1"

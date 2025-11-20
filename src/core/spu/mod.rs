@@ -422,6 +422,83 @@ impl SPU {
         let addr = (addr as usize) & (Self::RAM_SIZE - 1);
         self.ram[addr] = value;
     }
+
+    /// Tick SPU to generate audio samples
+    ///
+    /// Generates audio samples based on the number of CPU cycles elapsed.
+    /// The SPU runs at 44.1 kHz while the CPU runs at ~33.8688 MHz.
+    ///
+    /// # Arguments
+    ///
+    /// * `cycles` - Number of CPU cycles elapsed
+    ///
+    /// # Returns
+    ///
+    /// Vector of stereo samples (left, right) generated during this tick
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use psrx::core::SPU;
+    ///
+    /// let mut spu = SPU::new();
+    /// let samples = spu.tick(100); // Generate samples for 100 CPU cycles
+    /// ```
+    pub fn tick(&mut self, cycles: u32) -> Vec<(i16, i16)> {
+        // Check if SPU is enabled
+        if !self.control.enabled {
+            return Vec::new();
+        }
+
+        // Calculate number of samples to generate
+        // CPU frequency: 33.8688 MHz (33_868_800 Hz)
+        // SPU frequency: 44.1 kHz (44_100 Hz)
+        // Ratio: 44100 / 33868800 ≈ 0.001302
+        const CPU_FREQ: f32 = 33_868_800.0;
+        const SPU_FREQ: f32 = 44_100.0;
+
+        let samples_to_generate = (cycles as f32 * SPU_FREQ / CPU_FREQ) as usize;
+
+        let mut output = Vec::with_capacity(samples_to_generate);
+
+        for _ in 0..samples_to_generate {
+            let sample = self.generate_sample();
+            output.push(sample);
+        }
+
+        output
+    }
+
+    /// Generate a single stereo sample
+    ///
+    /// Mixes all 24 voices and applies main volume.
+    ///
+    /// # Returns
+    ///
+    /// Stereo sample (left, right)
+    #[inline(always)]
+    fn generate_sample(&mut self) -> (i16, i16) {
+        // Use i64 to avoid overflow when mixing 24 voices at high volume
+        let mut left: i64 = 0;
+        let mut right: i64 = 0;
+
+        // Mix all 24 voices
+        for voice in &mut self.voices {
+            let (v_left, v_right) = voice.render_sample(&self.ram);
+            left += v_left as i64;
+            right += v_right as i64;
+        }
+
+        // Apply main volume (fixed-point multiply with 15-bit fraction)
+        left = (left * self.main_volume_left as i64) >> 15;
+        right = (right * self.main_volume_right as i64) >> 15;
+
+        // Clamp to i16 range
+        left = left.clamp(i16::MIN as i64, i16::MAX as i64);
+        right = right.clamp(i16::MIN as i64, i16::MAX as i64);
+
+        (left as i16, right as i16)
+    }
 }
 
 impl Default for SPU {
