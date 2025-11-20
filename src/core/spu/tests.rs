@@ -659,9 +659,17 @@ fn test_spu_tick_accurate_sample_count() {
 #[test]
 fn test_noise_generator_creation() {
     let mut noise = NoiseGenerator::new();
-    // Verify initial state (implementation details checked in noise module tests)
+    // Verify initial state (step=0 means disabled, outputs 0)
     let sample = noise.generate();
-    assert!(sample == 0x7FFF || sample == -0x8000);
+    assert_eq!(sample, 0, "Disabled noise generator should output 0");
+
+    // Enable noise and verify it outputs non-zero
+    noise.set_frequency(0, 1);
+    let sample = noise.generate();
+    assert!(
+        sample == 0x7FFF || sample == -0x8000,
+        "Enabled noise should output max or min"
+    );
 }
 
 #[test]

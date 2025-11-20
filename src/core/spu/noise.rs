@@ -56,7 +56,7 @@ impl NoiseGenerator {
     ///
     /// The frequency is determined by: freq = step_value >> shift
     /// where step_value depends on clock_step:
-    /// - 0: disabled (no noise)
+    /// - 0: disabled (outputs silence, no contribution to audio output)
     /// - 1: 0x8000
     /// - 2: 0x10000
     /// - 3: 0x20000
@@ -74,12 +74,16 @@ impl NoiseGenerator {
     ///
     /// # Returns
     ///
-    /// 16-bit noise sample (either 0x7FFF or -0x8000)
+    /// 16-bit noise sample (either 0x7FFF or -0x8000), or 0 when disabled
     #[inline(always)]
     pub fn generate(&mut self) -> i16 {
+        // When clock_step is 0, noise is disabled and outputs silence
+        if self.clock_step == 0 {
+            return 0;
+        }
+
         // Calculate clock divider
         let freq = match self.clock_step {
-            0 => 0,
             1 => 0x8000 >> self.clock_shift,
             2 => 0x10000 >> self.clock_shift,
             3 => 0x20000 >> self.clock_shift,

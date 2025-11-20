@@ -91,7 +91,8 @@ impl ReverbConfig {
     /// Apply reverb to a stereo sample
     ///
     /// Processes input samples through all-pass and comb filters
-    /// to create a reverb effect.
+    /// to create a reverb effect. The signal flow is:
+    /// input → APF1 → APF2 → comb filters → circular buffer → output
     ///
     /// # Arguments
     ///
@@ -108,32 +109,45 @@ impl ReverbConfig {
             return (left, right);
         }
 
+        // If reverb work area is not configured, pass through
+        if self.reverb_start_addr == 0 || self.reverb_end_addr == 0 {
+            return (left, right);
+        }
+
         // Input with volume
         let input_left = ((left as i32) * (self.input_volume_left as i32)) >> 15;
         let input_right = ((right as i32) * (self.input_volume_right as i32)) >> 15;
 
-        // Read from reverb buffer
-        let reverb_left = self.read_reverb_buffer(spu_ram, 0);
-        let reverb_right = self.read_reverb_buffer(spu_ram, 2);
+        // Read feedback samples from reverb buffer at APF offsets
+        let apf1_fb_left = self.read_reverb_buffer(spu_ram, self.apf_offset1 as u32 * 2);
+        let apf1_fb_right = self.read_reverb_buffer(spu_ram, self.apf_offset1 as u32 * 2 + 2);
 
-        // Apply all-pass filters
-        let apf1_left = self.apply_apf(input_left, reverb_left, self.apf_volume1);
-        let apf1_right = self.apply_apf(input_right, reverb_right, self.apf_volume1);
+        // Apply first all-pass filter
+        let apf1_left = self.apply_apf(input_left, apf1_fb_left, self.apf_volume1);
+        let apf1_right = self.apply_apf(input_right, apf1_fb_right, self.apf_volume1);
 
-        let apf2_left = self.apply_apf(apf1_left, reverb_left, self.apf_volume2);
-        let apf2_right = self.apply_apf(apf1_right, reverb_right, self.apf_volume2);
+        // Read feedback for second APF
+        let apf2_fb_left = self.read_reverb_buffer(spu_ram, self.apf_offset2 as u32 * 2);
+        let apf2_fb_right = self.read_reverb_buffer(spu_ram, self.apf_offset2 as u32 * 2 + 2);
 
-        // Apply comb filters
+        // Apply second all-pass filter
+        let apf2_left = self.apply_apf(apf1_left, apf2_fb_left, self.apf_volume2);
+        let apf2_right = self.apply_apf(apf1_right, apf2_fb_right, self.apf_volume2);
+
+        // Apply comb filters (which incorporate the input signal)
         let comb_left = self.apply_comb_filters(apf2_left, spu_ram, 0);
         let comb_right = self.apply_comb_filters(apf2_right, spu_ram, 1);
 
-        // Mix with original
-        let out_left = ((left as i32) + comb_left).clamp(i16::MIN as i32, i16::MAX as i32);
-        let out_right = ((right as i32) + comb_right).clamp(i16::MIN as i32, i16::MAX as i32);
-
-        // Write to reverb buffer
+        // Write comb outputs to circular buffer at current position
         self.write_reverb_buffer(spu_ram, 0, comb_left as i16);
         self.write_reverb_buffer(spu_ram, 2, comb_right as i16);
+
+        // Advance circular buffer pointer
+        self.advance_reverb_address();
+
+        // Mix with original (dry signal + wet signal)
+        let out_left = ((left as i32) + comb_left).clamp(i16::MIN as i32, i16::MAX as i32);
+        let out_right = ((right as i32) + comb_right).clamp(i16::MIN as i32, i16::MAX as i32);
 
         (out_left as i16, out_right as i16)
     }
@@ -157,20 +171,25 @@ impl ReverbConfig {
 
     /// Apply comb filters
     ///
+    /// Combines the input signal with delayed samples from the reverb buffer,
+    /// weighted by the comb filter volumes. This creates the characteristic
+    /// reverb effect with multiple delayed reflections.
+    ///
     /// # Arguments
     ///
-    /// * `input` - Input sample
+    /// * `input` - Input sample (from APF chain)
     /// * `spu_ram` - Reference to SPU RAM
     /// * `channel` - Channel index (0=left, 1=right)
     ///
     /// # Returns
     ///
-    /// Filtered sample
+    /// Filtered sample with input incorporated
     #[inline(always)]
-    fn apply_comb_filters(&self, _input: i32, spu_ram: &[u8], channel: usize) -> i32 {
-        let mut output = 0i32;
+    fn apply_comb_filters(&self, input: i32, spu_ram: &[u8], channel: usize) -> i32 {
+        // Start with the input signal
+        let mut output = input;
 
-        // Apply 4 comb filters
+        // Apply 4 comb filters by reading delayed samples from buffer
         let volumes = [
             self.comb_volume1,
             self.comb_volume2,
@@ -178,10 +197,29 @@ impl ReverbConfig {
             self.comb_volume4,
         ];
 
-        for (i, &volume) in volumes.iter().enumerate() {
-            let offset = (channel * 4 + i) * 2;
+        // Read reflection volumes (same for both channels)
+        let reflection_volumes = [
+            self.reflect_volume1,
+            self.reflect_volume2,
+            self.reflect_volume3,
+            self.reflect_volume4,
+        ];
+
+        for (i, (&volume, &reflect_vol)) in
+            volumes.iter().zip(reflection_volumes.iter()).enumerate()
+        {
+            // Calculate offset for this comb filter tap
+            // Each channel has its own set of delay taps
+            let offset = ((channel * 8 + i * 2) * 2) as u32;
             let sample = self.read_reverb_buffer(spu_ram, offset);
-            output += (sample as i32 * volume as i32) >> 15;
+
+            // Apply comb volume to delayed sample
+            let comb_contribution = (sample as i32 * volume as i32) >> 15;
+
+            // Apply reflection volume to input
+            let reflect_contribution = (input * reflect_vol as i32) >> 15;
+
+            output += comb_contribution + reflect_contribution;
         }
 
         output
@@ -189,17 +227,29 @@ impl ReverbConfig {
 
     /// Read from reverb buffer in SPU RAM
     ///
+    /// Reads a sample from the circular reverb buffer, wrapping within the
+    /// configured work area defined by reverb_start_addr and reverb_end_addr.
+    ///
     /// # Arguments
     ///
     /// * `spu_ram` - Reference to SPU RAM
-    /// * `offset` - Offset from current reverb address
+    /// * `offset` - Byte offset from current reverb address
     ///
     /// # Returns
     ///
-    /// 16-bit sample from reverb buffer
+    /// 16-bit sample from reverb buffer (little-endian)
     #[inline(always)]
-    fn read_reverb_buffer(&self, spu_ram: &[u8], offset: usize) -> i16 {
-        let addr = ((self.reverb_current_addr + offset as u32) & 0x7FFFE) as usize;
+    fn read_reverb_buffer(&self, spu_ram: &[u8], offset: u32) -> i16 {
+        let work_area_size = self.reverb_end_addr.saturating_sub(self.reverb_start_addr);
+        if work_area_size == 0 {
+            return 0;
+        }
+
+        // Calculate address within the circular buffer
+        let relative_addr = (self.reverb_current_addr + offset) % work_area_size;
+        let addr = (self.reverb_start_addr + relative_addr) as usize;
+
+        // Ensure we stay within SPU RAM bounds
         if addr + 1 < spu_ram.len() {
             let lo = spu_ram[addr] as u16;
             let hi = spu_ram[addr + 1] as u16;
@@ -211,18 +261,45 @@ impl ReverbConfig {
 
     /// Write to reverb buffer in SPU RAM
     ///
+    /// Writes a sample to the circular reverb buffer, wrapping within the
+    /// configured work area defined by reverb_start_addr and reverb_end_addr.
+    ///
     /// # Arguments
     ///
     /// * `spu_ram` - Mutable reference to SPU RAM
-    /// * `offset` - Offset from current reverb address
-    /// * `value` - 16-bit sample to write
+    /// * `offset` - Byte offset from current reverb address
+    /// * `value` - 16-bit sample to write (little-endian)
     #[inline(always)]
-    fn write_reverb_buffer(&mut self, spu_ram: &mut [u8], offset: usize, value: i16) {
-        let addr = ((self.reverb_current_addr + offset as u32) & 0x7FFFE) as usize;
+    fn write_reverb_buffer(&mut self, spu_ram: &mut [u8], offset: u32, value: i16) {
+        let work_area_size = self.reverb_end_addr.saturating_sub(self.reverb_start_addr);
+        if work_area_size == 0 {
+            return;
+        }
+
+        // Calculate address within the circular buffer
+        let relative_addr = (self.reverb_current_addr + offset) % work_area_size;
+        let addr = (self.reverb_start_addr + relative_addr) as usize;
+
+        // Ensure we stay within SPU RAM bounds
         if addr + 1 < spu_ram.len() {
             spu_ram[addr] = value as u8;
             spu_ram[addr + 1] = (value >> 8) as u8;
         }
+    }
+
+    /// Advance reverb circular buffer address
+    ///
+    /// Moves the current address forward by one stereo sample (4 bytes: 2 for left, 2 for right),
+    /// wrapping within the configured work area.
+    #[inline(always)]
+    fn advance_reverb_address(&mut self) {
+        let work_area_size = self.reverb_end_addr.saturating_sub(self.reverb_start_addr);
+        if work_area_size == 0 {
+            return;
+        }
+
+        // Advance by 4 bytes (one stereo sample)
+        self.reverb_current_addr = (self.reverb_current_addr + 4) % work_area_size;
     }
 }
 
@@ -289,7 +366,10 @@ mod tests {
         let mut reverb = ReverbConfig::new();
         let mut spu_ram = vec![0u8; 512 * 1024];
 
-        reverb.reverb_current_addr = 0x1000;
+        // Configure reverb work area
+        reverb.reverb_start_addr = 0x1000;
+        reverb.reverb_end_addr = 0x2000; // 4KB work area
+        reverb.reverb_current_addr = 0; // Offset within work area
 
         // Write a value
         reverb.write_reverb_buffer(&mut spu_ram, 0, 0x1234);

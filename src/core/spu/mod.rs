@@ -333,6 +333,7 @@ impl SPU {
             value |= 1 << 14;
         }
         value |= (self.control.noise_clock as u16) << 10;
+        value |= (self.control.noise_step as u16) << 8;
         if self.control.reverb_enabled {
             value |= 1 << 7;
         }
@@ -366,6 +367,8 @@ impl SPU {
         self.control.unmute = (value & (1 << 14)) != 0;
         // Bits 10-13: noise clock (shift)
         self.control.noise_clock = ((value >> 10) & 0xF) as u8;
+        // Bits 8-9: noise frequency step
+        self.control.noise_step = ((value >> 8) & 0x3) as u8;
         self.control.reverb_enabled = (value & (1 << 7)) != 0;
         self.control.irq_enabled = (value & (1 << 6)) != 0;
         // Bits 5-4: transfer mode
@@ -382,10 +385,8 @@ impl SPU {
         self.control.cd_audio_enabled = (value & (1 << 0)) != 0;
 
         // Update noise generator frequency
-        // Bits 8-9: noise frequency step
-        let noise_step = ((value >> 8) & 0x3) as u8;
         self.noise
-            .set_frequency(self.control.noise_clock, noise_step);
+            .set_frequency(self.control.noise_clock, self.control.noise_step);
 
         // Update reverb enabled state
         self.reverb.enabled = self.control.reverb_enabled;
