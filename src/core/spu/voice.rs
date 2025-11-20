@@ -70,6 +70,9 @@ pub struct Voice {
     /// Final block flag (set when a non-repeating end block is encountered)
     /// Playback will stop after this block is fully consumed
     pub(crate) final_block: bool,
+
+    /// Noise mode enabled
+    pub(crate) noise_enabled: bool,
 }
 
 #[allow(dead_code)]
@@ -100,6 +103,7 @@ impl Voice {
             key_off: false,
             loop_flag: false,
             final_block: false,
+            noise_enabled: false,
         }
     }
 
@@ -137,23 +141,33 @@ impl Voice {
     /// # Arguments
     ///
     /// * `spu_ram` - Reference to SPU RAM for ADPCM data access
+    /// * `noise` - Mutable reference to noise generator
     ///
     /// # Returns
     ///
     /// Tuple of (left, right) 16-bit audio samples
     #[inline(always)]
-    pub fn render_sample(&mut self, spu_ram: &[u8]) -> (i16, i16) {
+    pub fn render_sample(
+        &mut self,
+        spu_ram: &[u8],
+        noise: &mut super::noise::NoiseGenerator,
+    ) -> (i16, i16) {
         if !self.enabled || self.adsr.phase == ADSRPhase::Off {
             return (0, 0);
         }
 
-        // Check if we need to decode a new ADPCM block
-        if self.needs_decode() {
-            self.decode_block(spu_ram);
-        }
+        // Get sample (ADPCM or noise)
+        let sample = if self.noise_enabled {
+            noise.generate()
+        } else {
+            // Check if we need to decode a new ADPCM block
+            if self.needs_decode() {
+                self.decode_block(spu_ram);
+            }
 
-        // Get interpolated sample at current position
-        let sample = self.interpolate_sample();
+            // Get interpolated sample at current position
+            self.interpolate_sample()
+        };
 
         // Apply ADSR envelope
         let enveloped = self.apply_envelope(sample);
@@ -162,8 +176,10 @@ impl Voice {
         let left = ((enveloped as i32 * self.volume_left as i32) >> 15) as i16;
         let right = ((enveloped as i32 * self.volume_right as i32) >> 15) as i16;
 
-        // Advance playback position
-        self.advance_position();
+        // Advance playback position (only for non-noise samples)
+        if !self.noise_enabled {
+            self.advance_position();
+        }
 
         (left, right)
     }
