@@ -1374,3 +1374,53 @@ fn test_bios_boot_sequence() {
 
     // Files automatically cleaned up when tempfile goes out of scope
 }
+
+// CD-DA (CD Audio) Tests
+
+#[test]
+fn test_cd_audio_initialization() {
+    let cdrom = CDROM::new();
+    assert!(!cdrom.cd_audio.is_playing());
+    assert_eq!(cdrom.cd_audio.volume_left, 0x80);
+    assert_eq!(cdrom.cd_audio.volume_right, 0x80);
+}
+
+#[test]
+fn test_cd_audio_playback() {
+    let mut cdrom = CDROM::new();
+
+    // Start CD audio playback
+    cdrom.cd_audio.play(100, 200, false);
+    assert!(cdrom.cd_audio.is_playing());
+
+    // Stop playback
+    cdrom.cd_audio.stop();
+    assert!(!cdrom.cd_audio.is_playing());
+}
+
+#[test]
+fn test_cd_audio_volume() {
+    let mut cdrom = CDROM::new();
+
+    // Set volume
+    cdrom.cd_audio.set_volume(0x40, 0x60);
+    assert_eq!(cdrom.cd_audio.volume_left, 0x40);
+    assert_eq!(cdrom.cd_audio.volume_right, 0x60);
+}
+
+#[test]
+fn test_cd_audio_looping() {
+    let mut cdrom = CDROM::new();
+
+    // Start looping playback
+    cdrom.cd_audio.play(100, 105, true);
+    assert!(cdrom.cd_audio.is_playing());
+}
+
+#[test]
+fn test_cd_audio_samples_when_not_playing() {
+    let mut cdrom = CDROM::new();
+    let (left, right) = cdrom.cd_audio.get_sample();
+    assert_eq!(left, 0);
+    assert_eq!(right, 0);
+}
