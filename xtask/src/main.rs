@@ -360,9 +360,7 @@ fn run_test_ci(
     if doc {
         // Run doc tests
         let mut cmd = Command::new("cargo");
-        cmd.arg("test")
-            .arg("--no-default-features")
-            .arg("--doc");
+        cmd.arg("test").arg("--no-default-features").arg("--doc");
 
         if ignored {
             cmd.arg("--").arg("--ignored");
