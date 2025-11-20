@@ -22,6 +22,7 @@ mod controller_ports;
 
 pub use controller_ports::ControllerPorts;
 
+use super::audio::AudioBackend;
 use super::cdrom::CDROM;
 use super::cpu::{CpuTracer, CPU};
 use super::dma::DMA;
@@ -44,6 +45,7 @@ use std::rc::Rc;
 /// - Bus: Memory bus for RAM, BIOS, and I/O
 /// - GPU: Graphics processing unit
 /// - SPU: Sound processing unit
+/// - Audio: Audio output backend
 /// - DMA: Direct Memory Access controller
 /// - Controller Ports: Input device interface
 /// - Timers: 3 timer/counter channels
@@ -77,6 +79,8 @@ pub struct System {
     timers: Rc<RefCell<Timers>>,
     /// Interrupt controller (shared via Rc<RefCell> for memory-mapped access)
     interrupt_controller: Rc<RefCell<InterruptController>>,
+    /// Audio output backend (optional, may not be available on all systems)
+    audio: Option<AudioBackend>,
     /// Total cycles executed
     cycles: u64,
     /// Running state
@@ -146,6 +150,19 @@ impl System {
 
         log::info!("System: All components initialized and timing events registered");
 
+        // Initialize audio backend (optional)
+        let audio = match AudioBackend::new() {
+            Ok(backend) => {
+                log::info!("Audio backend initialized successfully");
+                Some(backend)
+            }
+            Err(e) => {
+                log::warn!("Failed to initialize audio backend: {}", e);
+                log::warn!("Audio output will be disabled");
+                None
+            }
+        };
+
         Self {
             cpu: CPU::new(),
             bus,
@@ -157,6 +174,7 @@ impl System {
             controller_ports,
             timers,
             interrupt_controller,
+            audio,
             cycles: 0,
             running: false,
             tracer: None,
@@ -378,8 +396,21 @@ impl System {
                 .request(interrupts::CDROM);
         }
 
-        // TODO: Step SPU in future phases
-        // self.spu.step()?;
+        // Tick SPU to generate audio samples
+        let audio_samples = self.spu.borrow_mut().tick(cpu_cycles);
+
+        // Queue samples to audio backend if available
+        if let Some(ref mut audio) = self.audio {
+            if !audio_samples.is_empty() {
+                audio.queue_samples(&audio_samples);
+
+                // Check buffer level and warn on underruns
+                let buffer_level = audio.buffer_level();
+                if buffer_level < 512 {
+                    log::warn!("Audio buffer underrun: {} samples queued", buffer_level);
+                }
+            }
+        }
 
         self.cycles += cpu_cycles as u64;
 
@@ -1533,6 +1564,45 @@ mod tests {
             "DICR should have channel 6 interrupt flag set"
         );
         assert_ne!(dicr & (1 << 31), 0, "DICR master flag should be set");
+    }
+
+    // Audio Integration Tests
+
+    #[test]
+    fn test_audio_backend_optional() {
+        let system = System::new();
+        // Audio backend may or may not be initialized depending on system capabilities
+        // This test just ensures the system can be created regardless
+        assert_eq!(system.cycles(), 0);
+    }
+
+    #[test]
+    fn test_spu_audio_integration() {
+        let mut system = System::new();
+
+        // Create an infinite loop in BIOS
+        let jump_bytes = 0x0BF00000u32.to_le_bytes();
+        system.bus_mut().write_bios_for_test(0, &jump_bytes);
+        system
+            .bus_mut()
+            .write_bios_for_test(4, &[0x00, 0x00, 0x00, 0x00]);
+
+        system.reset();
+
+        // Enable SPU via control register write
+        system.bus.write16(0x1F801DAA, 0x8000).unwrap(); // Enable bit
+
+        // Run for a few cycles to generate samples
+        for _ in 0..100 {
+            system.step().unwrap();
+        }
+
+        // If audio backend is available, buffer should have some samples
+        if let Some(ref audio) = system.audio {
+            // Buffer level depends on how many cycles were executed
+            // Just verify it doesn't crash
+            let _level = audio.buffer_level();
+        }
     }
 
     #[test]

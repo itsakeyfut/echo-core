@@ -28,6 +28,7 @@
 //! - Timing Event System (Global timing and event scheduling)
 //! - System integration
 
+pub mod audio;
 pub mod cdrom;
 pub mod controller;
 pub mod cpu;
@@ -44,6 +45,7 @@ pub mod timer;
 pub mod timing;
 
 // Re-export commonly used types
+pub use audio::AudioBackend;
 pub use cdrom::CDROM;
 pub use controller::Controller;
 pub use cpu::CPU;

@@ -37,6 +37,9 @@ bitflags = "2.10"
 # UI framework
 slint = "1.14.1"
 
+# Audio output
+cpal = "0.16"
+
 [build-dependencies]
 slint-build = "1.14.1"
 

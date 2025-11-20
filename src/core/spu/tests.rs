@@ -523,3 +523,129 @@ fn test_voice_decode_block_end_without_loop() {
     assert!(!voice.enabled);
     assert_eq!(voice.adsr.phase, ADSRPhase::Off);
 }
+
+// Audio Output Integration Tests
+
+#[test]
+fn test_spu_tick_disabled() {
+    let mut spu = SPU::new();
+    // SPU is disabled by default
+    assert!(!spu.control.enabled);
+
+    let samples = spu.tick(100);
+    assert_eq!(samples.len(), 0, "Disabled SPU should generate no samples");
+}
+
+#[test]
+fn test_spu_tick_enabled() {
+    let mut spu = SPU::new();
+
+    // Enable SPU
+    spu.control.enabled = true;
+    spu.control.unmute = true;
+
+    // Tick for 100 CPU cycles
+    let samples = spu.tick(100);
+
+    // Calculate expected number of samples
+    // CPU: 33.8688 MHz, SPU: 44.1 kHz
+    // samples = cycles * (44100 / 33868800) ≈ cycles * 0.001302
+    // For 100 cycles: ~0 samples (too few cycles)
+    assert!(samples.len() <= 1);
+}
+
+#[test]
+fn test_spu_tick_sample_generation() {
+    let mut spu = SPU::new();
+
+    // Enable SPU
+    spu.control.enabled = true;
+    spu.control.unmute = true;
+
+    // Set main volume
+    spu.main_volume_left = 0x3FFF;
+    spu.main_volume_right = 0x3FFF;
+
+    // Tick for one frame worth of cycles (564,480 cycles)
+    let samples = spu.tick(564_480);
+
+    // At 44.1 kHz, one frame (1/60 second) should generate:
+    // 44100 / 60 = 735 samples
+    assert!(
+        samples.len() >= 730 && samples.len() <= 740,
+        "Expected ~735 samples, got {}",
+        samples.len()
+    );
+
+    // All samples should be (0, 0) since no voices are playing
+    for (left, right) in &samples {
+        assert_eq!(*left, 0);
+        assert_eq!(*right, 0);
+    }
+}
+
+#[test]
+fn test_spu_tick_with_volume() {
+    let mut spu = SPU::new();
+
+    // Enable SPU
+    spu.control.enabled = true;
+    spu.control.unmute = true;
+
+    // Set main volume to 50%
+    spu.main_volume_left = 0x4000; // 0x4000 / 0x8000 = 0.5
+    spu.main_volume_right = 0x4000;
+
+    // Generate samples (no voices active, so output should still be silence)
+    let samples = spu.tick(10000);
+
+    assert!(!samples.is_empty());
+
+    // All samples should be (0, 0) since no voices are playing
+    for (left, right) in &samples {
+        assert_eq!(*left, 0);
+        assert_eq!(*right, 0);
+    }
+}
+
+#[test]
+fn test_spu_generate_sample_mixing() {
+    let mut spu = SPU::new();
+
+    // Enable SPU
+    spu.control.enabled = true;
+    spu.control.unmute = true;
+
+    // Set main volume to max
+    spu.main_volume_left = 0x7FFF;
+    spu.main_volume_right = 0x7FFF;
+
+    // Generate a single sample (no voices, should be silence)
+    let sample = spu.generate_sample();
+    assert_eq!(sample, (0, 0));
+}
+
+#[test]
+fn test_spu_tick_accurate_sample_count() {
+    let mut spu = SPU::new();
+    spu.control.enabled = true;
+
+    // Test various cycle counts
+    let test_cases = vec![
+        (1000, 0),      // Very small, might round to 0
+        (10000, 0),     // Still small
+        (100000, 2),    // Should generate ~2-3 samples
+        (564_480, 735), // One frame: ~735 samples
+    ];
+
+    for (cycles, expected_min) in test_cases {
+        let samples = spu.tick(cycles);
+        assert!(
+            samples.len() >= expected_min,
+            "For {} cycles, expected at least {} samples, got {}",
+            cycles,
+            expected_min,
+            samples.len()
+        );
+    }
+}
