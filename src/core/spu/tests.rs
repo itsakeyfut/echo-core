@@ -17,7 +17,9 @@
 
 use super::adpcm::ADPCMState;
 use super::adsr::{ADSREnvelope, ADSRPhase, AttackMode, ReleaseMode};
+use super::noise::NoiseGenerator;
 use super::registers::TransferMode;
+use super::reverb::ReverbConfig;
 use super::voice::Voice;
 use super::SPU;
 
@@ -396,9 +398,10 @@ fn test_adsr_release_to_off() {
 fn test_voice_render_sample_disabled() {
     let mut voice = Voice::new(0);
     let spu_ram = vec![0u8; 512 * 1024];
+    let mut noise = NoiseGenerator::new();
 
     voice.enabled = false;
-    let (left, right) = voice.render_sample(&spu_ram);
+    let (left, right) = voice.render_sample(&spu_ram, &mut noise);
 
     assert_eq!(left, 0);
     assert_eq!(right, 0);
@@ -408,6 +411,7 @@ fn test_voice_render_sample_disabled() {
 fn test_voice_render_sample_with_volume() {
     let mut voice = Voice::new(0);
     let mut spu_ram = vec![0u8; 512 * 1024];
+    let mut noise = NoiseGenerator::new();
 
     // Create a simple ADPCM block with known output
     spu_ram[0] = 0x00; // Shift=0, Filter=0
@@ -423,7 +427,7 @@ fn test_voice_render_sample_with_volume() {
     voice.start_address = 0;
     voice.current_address = 0;
 
-    let (left, right) = voice.render_sample(&spu_ram);
+    let (left, right) = voice.render_sample(&spu_ram, &mut noise);
 
     // Should have some output
     // Exact value depends on ADPCM decoding and interpolation
@@ -648,4 +652,141 @@ fn test_spu_tick_accurate_sample_count() {
             samples.len()
         );
     }
+}
+
+// Noise Generator Tests
+
+#[test]
+fn test_noise_generator_creation() {
+    let mut noise = NoiseGenerator::new();
+    // Verify initial state (step=0 means disabled, outputs 0)
+    let sample = noise.generate();
+    assert_eq!(sample, 0, "Disabled noise generator should output 0");
+
+    // Enable noise and verify it outputs non-zero
+    noise.set_frequency(0, 1);
+    let sample = noise.generate();
+    assert!(
+        sample == 0x7FFF || sample == -0x8000,
+        "Enabled noise should output max or min"
+    );
+}
+
+#[test]
+fn test_noise_generator_frequency_setting() {
+    let mut noise = NoiseGenerator::new();
+    noise.set_frequency(0, 1); // shift=0, step=1, freq=0x8000
+
+    // Generate enough samples to trigger at least one LFSR step
+    // With shift=0 and step=1, we need 0x8000 (32768) calls
+    let samples: Vec<i16> = (0..40000).map(|_| noise.generate()).collect();
+
+    // Verify noise is not constant
+    let all_same = samples.windows(2).all(|w| w[0] == w[1]);
+    assert!(!all_same, "Noise should not be constant");
+}
+
+#[test]
+fn test_voice_noise_mode() {
+    let mut voice = Voice::new(0);
+    let spu_ram = vec![0u8; 512 * 1024];
+    let mut noise = NoiseGenerator::new();
+
+    voice.enabled = true;
+    voice.noise_enabled = true;
+    voice.adsr.phase = ADSRPhase::Attack;
+    voice.adsr.level = 32767;
+    voice.volume_left = 16384;
+    voice.volume_right = 16384;
+
+    noise.set_frequency(0, 1); // Low frequency for testing
+
+    let (left, right) = voice.render_sample(&spu_ram, &mut noise);
+
+    // Should produce noise output (either max positive or max negative)
+    // The noise generator outputs 0x7FFF or -0x8000
+    assert!(left != 0 || right != 0);
+}
+
+// Reverb Tests
+
+#[test]
+fn test_reverb_creation() {
+    let reverb = ReverbConfig::new();
+    assert!(!reverb.enabled);
+    assert_eq!(reverb.reverb_current_addr, 0);
+}
+
+#[test]
+fn test_reverb_disabled_passthrough() {
+    let mut reverb = ReverbConfig::new();
+    reverb.enabled = false;
+
+    let mut spu_ram = vec![0u8; 512 * 1024];
+    let (left, right) = reverb.process(1000, 1000, &mut spu_ram);
+
+    // When disabled, reverb should pass through unchanged
+    assert_eq!(left, 1000);
+    assert_eq!(right, 1000);
+}
+
+#[test]
+fn test_reverb_enabled_processing() {
+    let mut reverb = ReverbConfig::new();
+    reverb.enabled = true;
+    reverb.input_volume_left = 0x4000;
+    reverb.input_volume_right = 0x4000;
+
+    let mut spu_ram = vec![0u8; 512 * 1024];
+
+    let (_left, _right) = reverb.process(1000, 1000, &mut spu_ram);
+
+    // Reverb should process without crashing
+    // Output values are i16, so they're always in valid range
+}
+
+#[test]
+fn test_reverb_register_writes() {
+    let mut spu = SPU::new();
+
+    // Write reverb configuration
+    spu.write_register(0x1F801DC0, 0x1234); // APF offset 1
+    spu.write_register(0x1F801DC2, 0x5678); // APF offset 2
+    spu.write_register(0x1F801DD2, 0x4000); // Input volume left
+    spu.write_register(0x1F801DD4, 0x3000); // Input volume right
+
+    assert_eq!(spu.reverb.apf_offset1, 0x1234);
+    assert_eq!(spu.reverb.apf_offset2, 0x5678);
+    assert_eq!(spu.reverb.input_volume_left, 0x4000);
+    assert_eq!(spu.reverb.input_volume_right, 0x3000);
+}
+
+#[test]
+fn test_spu_with_reverb_enabled() {
+    let mut spu = SPU::new();
+
+    // Enable SPU and reverb
+    spu.control.enabled = true;
+    spu.control.unmute = true;
+    spu.write_register(0x1F801DAA, 0xC080); // Enable + unmute + reverb
+
+    assert!(spu.control.reverb_enabled);
+    assert!(spu.reverb.enabled);
+
+    // Generate a sample
+    let _sample = spu.generate_sample();
+
+    // Should generate without crashing
+    // Output values are i16, so they're always in valid range
+}
+
+#[test]
+fn test_noise_clock_configuration() {
+    let mut spu = SPU::new();
+
+    // Write control with noise clock settings (bits 8-13)
+    // Bits 10-13: shift=5, Bits 8-9: step=2
+    spu.write_register(0x1F801DAA, 0x1600);
+
+    assert_eq!(spu.control.noise_clock, 5);
 }

@@ -48,6 +48,7 @@
 
 mod adpcm;
 mod adsr;
+mod noise;
 mod registers;
 mod reverb;
 mod voice;
@@ -55,6 +56,7 @@ mod voice;
 #[cfg(test)]
 mod tests;
 
+use noise::NoiseGenerator;
 use registers::{SPUControl, SPUStatus, TransferMode};
 use reverb::ReverbConfig;
 use voice::Voice;
@@ -91,8 +93,10 @@ pub struct SPU {
     ext_volume_right: i16,
 
     /// Reverb configuration
-    #[allow(dead_code)]
     reverb: ReverbConfig,
+
+    /// Noise generator
+    noise: NoiseGenerator,
 
     /// Control register
     pub(crate) control: SPUControl,
@@ -131,6 +135,7 @@ impl SPU {
             ext_volume_left: 0,
             ext_volume_right: 0,
             reverb: ReverbConfig::default(),
+            noise: NoiseGenerator::new(),
             control: SPUControl::default(),
             status: SPUStatus::default(),
             sample_counter: 0,
@@ -217,6 +222,9 @@ impl SPU {
 
             // Control
             0x1F801DAA => self.write_control(value),
+
+            // Reverb registers (0x1F801DC0-0x1F801DFF)
+            0x1F801DC0..=0x1F801DFF => self.write_reverb_register(addr, value),
 
             _ => {
                 log::warn!(
@@ -325,6 +333,7 @@ impl SPU {
             value |= 1 << 14;
         }
         value |= (self.control.noise_clock as u16) << 10;
+        value |= (self.control.noise_step as u16) << 8;
         if self.control.reverb_enabled {
             value |= 1 << 7;
         }
@@ -358,6 +367,8 @@ impl SPU {
         self.control.unmute = (value & (1 << 14)) != 0;
         // Bits 10-13: noise clock (shift)
         self.control.noise_clock = ((value >> 10) & 0xF) as u8;
+        // Bits 8-9: noise frequency step
+        self.control.noise_step = ((value >> 8) & 0x3) as u8;
         self.control.reverb_enabled = (value & (1 << 7)) != 0;
         self.control.irq_enabled = (value & (1 << 6)) != 0;
         // Bits 5-4: transfer mode
@@ -373,11 +384,53 @@ impl SPU {
         self.control.external_audio_enabled = (value & (1 << 1)) != 0;
         self.control.cd_audio_enabled = (value & (1 << 0)) != 0;
 
+        // Update noise generator frequency
+        self.noise
+            .set_frequency(self.control.noise_clock, self.control.noise_step);
+
+        // Update reverb enabled state
+        self.reverb.enabled = self.control.reverb_enabled;
+
         log::debug!(
             "SPU control: enabled={} unmute={}",
             self.control.enabled,
             self.control.unmute
         );
+    }
+
+    /// Write reverb configuration register
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - Register address
+    /// * `value` - 16-bit value to write
+    fn write_reverb_register(&mut self, addr: u32, value: u16) {
+        match addr {
+            0x1F801DC0 => self.reverb.apf_offset1 = value,
+            0x1F801DC2 => self.reverb.apf_offset2 = value,
+            0x1F801DC4 => self.reverb.reflect_volume1 = value as i16,
+            0x1F801DC6 => self.reverb.comb_volume1 = value as i16,
+            0x1F801DC8 => self.reverb.comb_volume2 = value as i16,
+            0x1F801DCA => self.reverb.comb_volume3 = value as i16,
+            0x1F801DCC => self.reverb.comb_volume4 = value as i16,
+            0x1F801DCE => self.reverb.apf_volume1 = value as i16,
+            0x1F801DD0 => self.reverb.apf_volume2 = value as i16,
+            0x1F801DD2 => self.reverb.input_volume_left = value as i16,
+            0x1F801DD4 => self.reverb.input_volume_right = value as i16,
+            0x1F801DD6 => self.reverb.reflect_volume2 = value as i16,
+            0x1F801DD8 => self.reverb.reflect_volume3 = value as i16,
+            0x1F801DDA => self.reverb.reflect_volume4 = value as i16,
+            // Reverb work area address
+            0x1F801DDC => self.reverb.reverb_start_addr = (value as u32) * 8,
+            0x1F801DDE => self.reverb.reverb_end_addr = (value as u32) * 8,
+            _ => {
+                log::debug!(
+                    "Unknown reverb register write: 0x{:08X} = 0x{:04X}",
+                    addr,
+                    value
+                );
+            }
+        }
     }
 
     /// Read SPU status register
@@ -471,7 +524,7 @@ impl SPU {
 
     /// Generate a single stereo sample
     ///
-    /// Mixes all 24 voices and applies main volume.
+    /// Mixes all 24 voices, applies main volume, and processes reverb.
     ///
     /// # Returns
     ///
@@ -484,7 +537,7 @@ impl SPU {
 
         // Mix all 24 voices
         for voice in &mut self.voices {
-            let (v_left, v_right) = voice.render_sample(&self.ram);
+            let (v_left, v_right) = voice.render_sample(&self.ram, &mut self.noise);
             left += v_left as i64;
             right += v_right as i64;
         }
@@ -497,7 +550,9 @@ impl SPU {
         left = left.clamp(i16::MIN as i64, i16::MAX as i64);
         right = right.clamp(i16::MIN as i64, i16::MAX as i64);
 
-        (left as i16, right as i16)
+        // Apply reverb
+        self.reverb
+            .process(left as i16, right as i16, &mut self.ram)
     }
 }
 
