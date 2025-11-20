@@ -22,6 +22,7 @@ mod controller_ports;
 
 pub use controller_ports::ControllerPorts;
 
+#[cfg(feature = "audio")]
 use super::audio::AudioBackend;
 use super::cdrom::CDROM;
 use super::cpu::{CpuTracer, CPU};
@@ -80,6 +81,7 @@ pub struct System {
     /// Interrupt controller (shared via Rc<RefCell> for memory-mapped access)
     interrupt_controller: Rc<RefCell<InterruptController>>,
     /// Audio output backend (optional, may not be available on all systems)
+    #[cfg(feature = "audio")]
     audio: Option<AudioBackend>,
     /// Total cycles executed
     cycles: u64,
@@ -150,7 +152,8 @@ impl System {
 
         log::info!("System: All components initialized and timing events registered");
 
-        // Initialize audio backend (optional)
+        // Initialize audio backend (optional, only if feature is enabled)
+        #[cfg(feature = "audio")]
         let audio = match AudioBackend::new() {
             Ok(backend) => {
                 log::info!("Audio backend initialized successfully");
@@ -174,6 +177,7 @@ impl System {
             controller_ports,
             timers,
             interrupt_controller,
+            #[cfg(feature = "audio")]
             audio,
             cycles: 0,
             running: false,
@@ -396,18 +400,21 @@ impl System {
                 .request(interrupts::CDROM);
         }
 
-        // Tick SPU to generate audio samples
-        let audio_samples = self.spu.borrow_mut().tick(cpu_cycles);
+        // Tick SPU to generate audio samples (only if audio feature is enabled)
+        #[cfg(feature = "audio")]
+        {
+            let audio_samples = self.spu.borrow_mut().tick(cpu_cycles);
 
-        // Queue samples to audio backend if available
-        if let Some(ref mut audio) = self.audio {
-            if !audio_samples.is_empty() {
-                audio.queue_samples(&audio_samples);
+            // Queue samples to audio backend if available
+            if let Some(ref mut audio) = self.audio {
+                if !audio_samples.is_empty() {
+                    audio.queue_samples(&audio_samples);
 
-                // Check buffer level and warn on underruns
-                let buffer_level = audio.buffer_level();
-                if buffer_level < 512 {
-                    log::warn!("Audio buffer underrun: {} samples queued", buffer_level);
+                    // Check buffer level and warn on underruns
+                    let buffer_level = audio.buffer_level();
+                    if buffer_level < 512 {
+                        log::warn!("Audio buffer underrun: {} samples queued", buffer_level);
+                    }
                 }
             }
         }
@@ -1569,6 +1576,7 @@ mod tests {
     // Audio Integration Tests
 
     #[test]
+    #[cfg(feature = "audio")]
     fn test_audio_backend_optional() {
         let system = System::new();
         // Audio backend may or may not be initialized depending on system capabilities
@@ -1577,6 +1585,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "audio")]
     fn test_spu_audio_integration() {
         let mut system = System::new();
 

@@ -28,6 +28,7 @@
 //! - Timing Event System (Global timing and event scheduling)
 //! - System integration
 
+#[cfg(feature = "audio")]
 pub mod audio;
 pub mod cdrom;
 pub mod controller;
@@ -45,6 +46,7 @@ pub mod timer;
 pub mod timing;
 
 // Re-export commonly used types
+#[cfg(feature = "audio")]
 pub use audio::AudioBackend;
 pub use cdrom::CDROM;
 pub use controller::Controller;
