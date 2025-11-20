@@ -183,11 +183,12 @@ impl ReverbConfig {
     ///
     /// # Returns
     ///
-    /// Filtered sample with input incorporated
+    /// Filtered sample with input incorporated, clamped to i32 range
     #[inline(always)]
     fn apply_comb_filters(&self, input: i32, spu_ram: &[u8], channel: usize) -> i32 {
-        // Start with the input signal
-        let mut output = input;
+        // Start with the input signal, accumulate in i64 to prevent overflow
+        // With 8 contributions (4 comb + 4 reflection) plus input, i32 could overflow
+        let mut output: i64 = input as i64;
 
         // Apply 4 comb filters by reading delayed samples from buffer
         let volumes = [
@@ -211,18 +212,19 @@ impl ReverbConfig {
             // Calculate offset for this comb filter tap
             // Each channel has its own set of delay taps
             let offset = ((channel * 8 + i * 2) * 2) as u32;
-            let sample = self.read_reverb_buffer(spu_ram, offset);
+            let sample = self.read_reverb_buffer(spu_ram, offset) as i64;
 
             // Apply comb volume to delayed sample
-            let comb_contribution = (sample as i32 * volume as i32) >> 15;
+            let comb_contribution = (sample * volume as i64) >> 15;
 
             // Apply reflection volume to input
-            let reflect_contribution = (input * reflect_vol as i32) >> 15;
+            let reflect_contribution = ((input as i64) * reflect_vol as i64) >> 15;
 
             output += comb_contribution + reflect_contribution;
         }
 
-        output
+        // Clamp to i32 range before returning to prevent truncation issues
+        output.clamp(i32::MIN as i64, i32::MAX as i64) as i32
     }
 
     /// Read from reverb buffer in SPU RAM
