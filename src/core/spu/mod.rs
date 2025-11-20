@@ -478,23 +478,24 @@ impl SPU {
     /// Stereo sample (left, right)
     #[inline(always)]
     fn generate_sample(&mut self) -> (i16, i16) {
-        let mut left = 0i32;
-        let mut right = 0i32;
+        // Use i64 to avoid overflow when mixing 24 voices at high volume
+        let mut left: i64 = 0;
+        let mut right: i64 = 0;
 
         // Mix all 24 voices
         for voice in &mut self.voices {
             let (v_left, v_right) = voice.render_sample(&self.ram);
-            left += v_left as i32;
-            right += v_right as i32;
+            left += v_left as i64;
+            right += v_right as i64;
         }
 
         // Apply main volume (fixed-point multiply with 15-bit fraction)
-        left = (left * self.main_volume_left as i32) >> 15;
-        right = (right * self.main_volume_right as i32) >> 15;
+        left = (left * self.main_volume_left as i64) >> 15;
+        right = (right * self.main_volume_right as i64) >> 15;
 
         // Clamp to i16 range
-        left = left.clamp(i16::MIN as i32, i16::MAX as i32);
-        right = right.clamp(i16::MIN as i32, i16::MAX as i32);
+        left = left.clamp(i16::MIN as i64, i16::MAX as i64);
+        right = right.clamp(i16::MIN as i64, i16::MAX as i64);
 
         (left as i16, right as i16)
     }

@@ -485,6 +485,24 @@ impl System {
         // Execute CPU until timing system signals frame complete
         self.cpu.execute(&mut self.bus, &mut self.timing)?;
 
+        // Tick SPU for one frame worth of cycles and queue audio if available
+        #[cfg(feature = "audio")]
+        {
+            let audio_samples = self.spu.borrow_mut().tick(CYCLES_PER_FRAME as u32);
+
+            if let Some(ref mut audio) = self.audio {
+                if !audio_samples.is_empty() {
+                    audio.queue_samples(&audio_samples);
+
+                    // Check buffer level and warn on underruns
+                    let buffer_level = audio.buffer_level();
+                    if buffer_level < 512 {
+                        log::warn!("Audio buffer underrun: {} samples queued", buffer_level);
+                    }
+                }
+            }
+        }
+
         // Update total cycles from timing system
         self.cycles = self.timing.global_tick_counter;
 
@@ -1586,8 +1604,13 @@ mod tests {
 
     #[test]
     #[cfg(feature = "audio")]
-    fn test_spu_audio_integration() {
+    fn test_spu_audio_integration_via_step() {
         let mut system = System::new();
+
+        // Skip test if no audio backend available
+        if system.audio.is_none() {
+            return;
+        }
 
         // Create an infinite loop in BIOS
         let jump_bytes = 0x0BF00000u32.to_le_bytes();
@@ -1601,16 +1624,53 @@ mod tests {
         // Enable SPU via control register write
         system.bus.write16(0x1F801DAA, 0x8000).unwrap(); // Enable bit
 
-        // Run for a few cycles to generate samples
+        // Note: Individual step() calls with 1 cycle each won't generate samples
+        // because SPU::tick(1) returns 0 samples (truncates to 0).
+        // This test verifies the integration doesn't crash.
+        // For actual sample generation, see test_run_frame_generates_audio.
         for _ in 0..100 {
             system.step().unwrap();
         }
 
-        // If audio backend is available, buffer should have some samples
+        // Verify system continues to work with audio enabled
+        // (actual sample generation requires larger cycle batches)
+        assert!(system.cycles() >= 100);
+    }
+
+    #[test]
+    #[cfg(feature = "audio")]
+    fn test_run_frame_generates_audio() {
+        let mut system = System::new();
+
+        // Skip test if no audio backend available
+        if system.audio.is_none() {
+            return;
+        }
+
+        // Create an infinite loop in BIOS
+        let jump_bytes = 0x0BF00000u32.to_le_bytes();
+        system.bus_mut().write_bios_for_test(0, &jump_bytes);
+        system
+            .bus_mut()
+            .write_bios_for_test(4, &[0x00, 0x00, 0x00, 0x00]);
+
+        system.reset();
+
+        // Enable SPU
+        system.bus.write16(0x1F801DAA, 0x8000).unwrap();
+
+        // Run one frame - should generate ~735 samples at 44.1 kHz
+        system.run_frame().unwrap();
+
+        // Verify audio samples were generated and queued
         if let Some(ref audio) = system.audio {
-            // Buffer level depends on how many cycles were executed
-            // Just verify it doesn't crash
-            let _level = audio.buffer_level();
+            let buffer_level = audio.buffer_level();
+            // One frame should generate approximately 735 samples
+            assert!(
+                (730..=740).contains(&buffer_level),
+                "Expected ~735 samples per frame, got {}",
+                buffer_level
+            );
         }
     }
 

@@ -70,11 +70,32 @@ impl AudioBackend {
 
         let config = device.default_output_config()?;
         let sample_rate = config.sample_rate().0;
+        let channels = config.channels();
+
+        // Validate stereo output
+        if channels != 2 {
+            return Err(format!(
+                "Audio backend requires stereo output (2 channels), but device '{}' default config has {} channels",
+                device.name().unwrap_or_else(|_| "Unknown".to_string()),
+                channels
+            )
+            .into());
+        }
+
+        // Warn if sample rate is not 44.1 kHz
+        if sample_rate != 44_100 {
+            log::warn!(
+                "Audio: Device sample rate is {} Hz (expected 44100 Hz). Audio timing may drift.",
+                sample_rate
+            );
+            log::warn!("Audio: Consider implementing resampling for accurate playback.");
+        }
 
         log::info!(
-            "Audio: Using device '{}' at {} Hz",
+            "Audio: Using device '{}' at {} Hz, {} channels",
             device.name().unwrap_or_else(|_| "Unknown".to_string()),
-            sample_rate
+            sample_rate,
+            channels
         );
 
         let sample_queue = Arc::new(Mutex::new(VecDeque::new()));
