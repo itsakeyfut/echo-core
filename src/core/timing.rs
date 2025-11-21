@@ -479,6 +479,188 @@ impl Default for TimingEventManager {
     }
 }
 
+/// Timing Controller for Audio/Video Synchronization
+///
+/// Manages frame timing and audio buffer levels to maintain smooth 60 FPS
+/// playback with synchronized audio.
+///
+/// # Example
+///
+/// ```
+/// use psrx::core::timing::TimingController;
+///
+/// let mut timing = TimingController::new();
+///
+/// // Update audio buffer level
+/// timing.update_audio_level(1024);
+///
+/// // Check if frame should be skipped
+/// if !timing.should_skip_frame() {
+///     // Render frame...
+/// }
+///
+/// // Sync to 60 FPS
+/// timing.sync_frame();
+/// ```
+pub struct TimingController {
+    /// Target frame time (16.67ms for 60Hz)
+    frame_time: std::time::Duration,
+
+    /// Last frame start time
+    last_frame: std::time::Instant,
+
+    /// Audio samples per frame (44100 / 60 = 735)
+    samples_per_frame: usize,
+
+    /// Current audio buffer level
+    audio_buffer_level: usize,
+
+    /// Target audio buffer level (avoid underruns)
+    target_buffer_level: usize,
+}
+
+impl TimingController {
+    /// Create a new TimingController
+    ///
+    /// Initializes timing for 60 FPS (16.67ms per frame) and 44.1 kHz audio.
+    ///
+    /// # Returns
+    ///
+    /// A new TimingController instance
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use psrx::core::timing::TimingController;
+    ///
+    /// let timing = TimingController::new();
+    /// ```
+    pub fn new() -> Self {
+        Self {
+            frame_time: std::time::Duration::from_micros(16667), // ~60 FPS
+            last_frame: std::time::Instant::now(),
+            samples_per_frame: 735, // 44100 Hz / 60 FPS
+            audio_buffer_level: 0,
+            target_buffer_level: 1024,
+        }
+    }
+
+    /// Check if we should skip frame to maintain sync
+    ///
+    /// Returns true if the audio buffer is too full (more than 2x target),
+    /// indicating that we're running behind and should skip rendering.
+    ///
+    /// # Returns
+    ///
+    /// `true` if frame should be skipped, `false` otherwise
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use psrx::core::timing::TimingController;
+    ///
+    /// let mut timing = TimingController::new();
+    /// timing.update_audio_level(3000); // Very full buffer
+    /// assert!(timing.should_skip_frame());
+    /// ```
+    pub fn should_skip_frame(&self) -> bool {
+        // Skip if audio buffer is too full (we're running behind)
+        self.audio_buffer_level > self.target_buffer_level * 2
+    }
+
+    /// Wait for frame timing
+    ///
+    /// Sleeps for the remaining time in the current frame to maintain 60 FPS.
+    /// Updates the last frame timestamp.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use psrx::core::timing::TimingController;
+    ///
+    /// let mut timing = TimingController::new();
+    /// // ... render frame ...
+    /// timing.sync_frame(); // Sleep until next frame
+    /// ```
+    pub fn sync_frame(&mut self) {
+        let elapsed = self.last_frame.elapsed();
+
+        if elapsed < self.frame_time {
+            // Sleep for remaining time
+            let sleep_time = self.frame_time - elapsed;
+            std::thread::sleep(sleep_time);
+        }
+
+        self.last_frame = std::time::Instant::now();
+    }
+
+    /// Update audio buffer level
+    ///
+    /// Sets the current audio buffer level for synchronization checks.
+    ///
+    /// # Arguments
+    ///
+    /// * `level` - Current number of samples in the audio buffer
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use psrx::core::timing::TimingController;
+    ///
+    /// let mut timing = TimingController::new();
+    /// timing.update_audio_level(1024);
+    /// ```
+    pub fn update_audio_level(&mut self, level: usize) {
+        self.audio_buffer_level = level;
+    }
+
+    /// Check if audio needs more samples
+    ///
+    /// Returns true if the audio buffer level is below the target,
+    /// indicating that more samples should be generated.
+    ///
+    /// # Returns
+    ///
+    /// `true` if audio buffer needs more samples, `false` otherwise
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use psrx::core::timing::TimingController;
+    ///
+    /// let mut timing = TimingController::new();
+    /// timing.update_audio_level(512);
+    /// assert!(timing.needs_audio_samples());
+    /// ```
+    pub fn needs_audio_samples(&self) -> bool {
+        self.audio_buffer_level < self.target_buffer_level
+    }
+
+    /// Get the samples per frame
+    ///
+    /// # Returns
+    ///
+    /// Number of audio samples per frame (735 for 44.1 kHz at 60 FPS)
+    pub fn samples_per_frame(&self) -> usize {
+        self.samples_per_frame
+    }
+
+    /// Get the target buffer level
+    ///
+    /// # Returns
+    ///
+    /// Target audio buffer level in samples
+    pub fn target_buffer_level(&self) -> usize {
+        self.target_buffer_level
+    }
+}
+
+impl Default for TimingController {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -635,5 +817,104 @@ mod tests {
         assert_eq!(timing.global_tick_counter, 0);
         assert_eq!(timing.pending_ticks, 0);
         assert!(!timing.events[0].active);
+    }
+
+    // TimingController Tests
+
+    #[test]
+    fn test_timing_controller_initialization() {
+        let timing = TimingController::new();
+        assert_eq!(timing.samples_per_frame(), 735);
+        assert_eq!(timing.target_buffer_level(), 1024);
+        assert_eq!(timing.audio_buffer_level, 0);
+    }
+
+    #[test]
+    fn test_timing_sync() {
+        let mut timing = TimingController::new();
+
+        // Simulate normal buffer level
+        timing.update_audio_level(1024);
+        assert!(!timing.should_skip_frame());
+
+        // Simulate buffer overflow
+        timing.update_audio_level(3000);
+        assert!(timing.should_skip_frame());
+    }
+
+    #[test]
+    fn test_timing_controller_update_audio_level() {
+        let mut timing = TimingController::new();
+
+        timing.update_audio_level(512);
+        assert_eq!(timing.audio_buffer_level, 512);
+
+        timing.update_audio_level(2048);
+        assert_eq!(timing.audio_buffer_level, 2048);
+    }
+
+    #[test]
+    fn test_timing_controller_needs_audio_samples() {
+        let mut timing = TimingController::new();
+
+        // Below target - needs samples
+        timing.update_audio_level(512);
+        assert!(timing.needs_audio_samples());
+
+        // At target - doesn't need samples
+        timing.update_audio_level(1024);
+        assert!(!timing.needs_audio_samples());
+
+        // Above target - doesn't need samples
+        timing.update_audio_level(2000);
+        assert!(!timing.needs_audio_samples());
+    }
+
+    #[test]
+    fn test_timing_controller_should_skip_frame() {
+        let mut timing = TimingController::new();
+
+        // Normal level - don't skip
+        timing.update_audio_level(1024);
+        assert!(!timing.should_skip_frame());
+
+        // 2x target - don't skip
+        timing.update_audio_level(2048);
+        assert!(!timing.should_skip_frame());
+
+        // > 2x target - skip frame
+        timing.update_audio_level(2049);
+        assert!(timing.should_skip_frame());
+
+        // Very full - skip frame
+        timing.update_audio_level(5000);
+        assert!(timing.should_skip_frame());
+    }
+
+    #[test]
+    fn test_timing_controller_sync_frame() {
+        let mut timing = TimingController::new();
+
+        // Reset last_frame to a time in the past
+        timing.last_frame = std::time::Instant::now() - std::time::Duration::from_millis(20);
+
+        let start = std::time::Instant::now();
+
+        // This should return immediately since more than frame time has elapsed
+        timing.sync_frame();
+
+        let elapsed = start.elapsed();
+
+        // Should have taken minimal time (less than 1ms for immediate return)
+        // Use a generous threshold to avoid flakiness on slow systems
+        assert!(elapsed < std::time::Duration::from_millis(5));
+    }
+
+    #[test]
+    fn test_timing_controller_frame_time() {
+        let timing = TimingController::new();
+
+        // 60 FPS = 16.67ms per frame
+        assert_eq!(timing.frame_time, std::time::Duration::from_micros(16667));
     }
 }

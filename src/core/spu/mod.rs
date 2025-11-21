@@ -59,6 +59,7 @@ mod tests;
 use noise::NoiseGenerator;
 use registers::{SPUControl, SPUStatus, TransferMode};
 use reverb::ReverbConfig;
+use std::collections::VecDeque;
 use voice::Voice;
 
 /// SPU (Sound Processing Unit)
@@ -109,6 +110,12 @@ pub struct SPU {
     /// Capture buffers
     #[allow(dead_code)]
     capture_buffer: [i16; 2],
+
+    /// DMA transfer address (in 8-byte units)
+    transfer_addr: u32,
+
+    /// DMA FIFO for buffered writes
+    dma_fifo: VecDeque<u16>,
 }
 
 impl SPU {
@@ -138,6 +145,8 @@ impl SPU {
             status: SPUStatus::default(),
             sample_counter: 0,
             capture_buffer: [0; 2],
+            transfer_addr: 0,
+            dma_fifo: VecDeque::new(),
         }
     }
 
@@ -177,6 +186,13 @@ impl SPU {
             // Control/Status
             0x1F801DAA => self.read_control(),
             0x1F801DAE => self.read_status(),
+
+            // DMA Transfer Address (0x1F801DA6)
+            // Returns address in 8-byte units
+            0x1F801DA6 => (self.transfer_addr / 8) as u16,
+
+            // DMA Data Register (0x1F801DA8) - write-only, reads return 0
+            0x1F801DA8 => 0,
 
             _ => {
                 log::warn!("SPU read from unknown register: 0x{:08X}", addr);
@@ -220,6 +236,17 @@ impl SPU {
 
             // Control
             0x1F801DAA => self.write_control(value),
+
+            // DMA Transfer Address (0x1F801DA6)
+            // Address is in 8-byte units
+            0x1F801DA6 => self.set_transfer_address(value as u32),
+
+            // DMA Data Register (0x1F801DA8)
+            // Manual write to SPU RAM, auto-increment address
+            0x1F801DA8 => {
+                self.write_ram_word(self.transfer_addr, value);
+                self.transfer_addr = (self.transfer_addr + 2) & 0x7FFFE;
+            }
 
             // Reverb registers (0x1F801DC0-0x1F801DFF)
             0x1F801DC0..=0x1F801DFF => self.write_reverb_register(addr, value),
@@ -653,6 +680,157 @@ impl SPU {
         // Apply reverb
         self.reverb
             .process(left as i16, right as i16, &mut self.ram)
+    }
+
+    // DMA Interface Methods
+
+    /// Set DMA transfer address
+    ///
+    /// The address is specified in 8-byte units and is automatically
+    /// multiplied by 8 to get the actual byte address in SPU RAM.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - Transfer address in 8-byte units
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use psrx::core::SPU;
+    ///
+    /// let mut spu = SPU::new();
+    /// spu.set_transfer_address(0x1000); // Sets address to 0x8000 bytes
+    /// ```
+    pub fn set_transfer_address(&mut self, addr: u32) {
+        // Address is in 8-byte units, mask to 19 bits (0-0x7FFFF)
+        self.transfer_addr = (addr & 0x3FFFF) * 8;
+        log::debug!("SPU DMA address: 0x{:08X}", self.transfer_addr);
+    }
+
+    /// Write to DMA FIFO
+    ///
+    /// Writes a 32-bit value to the DMA FIFO as two 16-bit words.
+    /// When the FIFO reaches 16 entries, it is automatically flushed to SPU RAM.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - 32-bit value to write (split into two 16-bit words)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use psrx::core::SPU;
+    ///
+    /// let mut spu = SPU::new();
+    /// spu.set_transfer_address(0x1000);
+    /// spu.dma_write(0x12345678); // Writes 0x5678, then 0x1234
+    /// ```
+    pub fn dma_write(&mut self, value: u32) {
+        let lo = (value & 0xFFFF) as u16;
+        let hi = (value >> 16) as u16;
+
+        self.dma_fifo.push_back(lo);
+        self.dma_fifo.push_back(hi);
+
+        // Flush to RAM if FIFO is full
+        if self.dma_fifo.len() >= 16 {
+            self.flush_dma_fifo();
+        }
+    }
+
+    /// Read from DMA
+    ///
+    /// Reads two consecutive 16-bit words from SPU RAM starting at the
+    /// current transfer address and returns them as a 32-bit value.
+    /// The transfer address is automatically incremented after each read.
+    ///
+    /// # Returns
+    ///
+    /// 32-bit value composed of two 16-bit words from SPU RAM
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use psrx::core::SPU;
+    ///
+    /// let mut spu = SPU::new();
+    /// spu.set_transfer_address(0x1000);
+    /// let value = spu.dma_read();
+    /// ```
+    pub fn dma_read(&mut self) -> u32 {
+        let lo = self.read_ram_word(self.transfer_addr);
+        self.transfer_addr = (self.transfer_addr + 2) & 0x7FFFE;
+
+        let hi = self.read_ram_word(self.transfer_addr);
+        self.transfer_addr = (self.transfer_addr + 2) & 0x7FFFE;
+
+        ((hi as u32) << 16) | (lo as u32)
+    }
+
+    /// Flush DMA FIFO to SPU RAM
+    ///
+    /// Writes all pending data in the DMA FIFO to SPU RAM,
+    /// starting at the current transfer address.
+    fn flush_dma_fifo(&mut self) {
+        while let Some(value) = self.dma_fifo.pop_front() {
+            self.write_ram_word(self.transfer_addr, value);
+            self.transfer_addr = (self.transfer_addr + 2) & 0x7FFFE;
+        }
+    }
+
+    /// Read 16-bit word from SPU RAM
+    ///
+    /// Reads a 16-bit word from SPU RAM in little-endian format.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - Address in SPU RAM (masked to 19 bits)
+    ///
+    /// # Returns
+    ///
+    /// 16-bit value from SPU RAM
+    #[inline(always)]
+    fn read_ram_word(&self, addr: u32) -> u16 {
+        let addr = (addr as usize) & 0x7FFFE;
+        let lo = self.ram[addr] as u16;
+        let hi = self.ram[addr + 1] as u16;
+        (hi << 8) | lo
+    }
+
+    /// Write 16-bit word to SPU RAM
+    ///
+    /// Writes a 16-bit word to SPU RAM in little-endian format.
+    ///
+    /// # Arguments
+    ///
+    /// * `addr` - Address in SPU RAM (masked to 19 bits)
+    /// * `value` - 16-bit value to write
+    #[inline(always)]
+    pub(crate) fn write_ram_word(&mut self, addr: u32, value: u16) {
+        let addr = (addr as usize) & 0x7FFFE;
+        self.ram[addr] = value as u8;
+        self.ram[addr + 1] = (value >> 8) as u8;
+    }
+
+    /// Check if DMA is ready
+    ///
+    /// The SPU is always ready for DMA transfers.
+    ///
+    /// # Returns
+    ///
+    /// Always returns `true`
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use psrx::core::SPU;
+    ///
+    /// let spu = SPU::new();
+    /// assert!(spu.dma_ready());
+    /// ```
+    pub fn dma_ready(&self) -> bool {
+        // SPU is always ready for DMA
+        true
     }
 }
 
