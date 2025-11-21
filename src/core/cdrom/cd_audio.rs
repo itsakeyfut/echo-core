@@ -214,7 +214,11 @@ impl CDAudio {
         let left = (left as i32 * self.volume_left as i32) >> 7;
         let right = (right as i32 * self.volume_right as i32) >> 7;
 
-        (left as i16, right as i16)
+        // Clamp to i16 range to avoid wrap-around
+        let left = left.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+        let right = right.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+
+        (left, right)
     }
 
     /// Read a sector from disc and convert to PCM samples

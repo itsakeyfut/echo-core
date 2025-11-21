@@ -494,7 +494,12 @@ impl System {
         // Tick SPU for one frame worth of cycles and queue audio if available
         #[cfg(feature = "audio")]
         {
-            let audio_samples = self.spu.borrow_mut().tick(CYCLES_PER_FRAME as u32);
+            // Generate audio samples with CD audio mixed in
+            let audio_samples = {
+                let mut cdrom = self.cdrom.borrow_mut();
+                let mut spu = self.spu.borrow_mut();
+                spu.tick_with_cd(CYCLES_PER_FRAME as u32, &mut cdrom.cd_audio)
+            };
 
             if let Some(ref mut audio) = self.audio {
                 if !audio_samples.is_empty() {
