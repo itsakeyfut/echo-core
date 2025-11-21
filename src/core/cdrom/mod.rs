@@ -77,11 +77,13 @@ use std::collections::VecDeque;
 
 use super::timing::{EventHandle, TickCount};
 
+pub mod cd_audio;
 mod commands;
 mod disc;
 #[cfg(test)]
 mod tests;
 
+pub use cd_audio::CDAudio;
 pub use disc::{DiscImage, Track, TrackType};
 
 /// Second response types for command completion
@@ -150,6 +152,9 @@ pub struct CDROM {
 
     /// Loaded disc image (if any)
     pub(super) disc: Option<DiscImage>,
+
+    /// CD audio player
+    pub(crate) cd_audio: CDAudio,
 
     /// Drive mode settings (speed, sector size, etc)
     pub(super) mode: CDMode,
@@ -367,6 +372,7 @@ impl CDROM {
             interrupt_enable: 0,
             status: CDStatus::default(),
             disc: None,
+            cd_audio: CDAudio::new(),
             mode: CDMode::default(),
             index: 0,
             command_event: None,
@@ -656,8 +662,51 @@ impl CDROM {
         let disc = DiscImage::load(cue_path)?;
         self.disc = Some(disc);
         self.status.shell_open = false;
+
+        // Also load disc for CD audio playback
+        // Extract .bin path from .cue path
+        let cue_data = std::fs::read_to_string(cue_path)?;
+        let bin_path = self.get_bin_path_from_cue(cue_path, &cue_data)?;
+        if let Err(e) = self.cd_audio.load_disc(&bin_path) {
+            log::warn!("Failed to load CD audio: {}", e);
+        }
+
         log::info!("Disc loaded successfully");
         Ok(())
+    }
+
+    /// Helper function to extract .bin file path from .cue file
+    fn get_bin_path_from_cue(
+        &self,
+        cue_path: &str,
+        cue_data: &str,
+    ) -> Result<String, crate::core::error::CdRomError> {
+        // Find FILE directive
+        for line in cue_data.lines() {
+            let line = line.trim();
+            if line.starts_with("FILE") {
+                // Extract filename from quotes
+                if let Some(start) = line.find('"') {
+                    if let Some(end) = line[start + 1..].find('"') {
+                        let bin_filename = &line[start + 1..start + 1 + end];
+
+                        // Construct full path
+                        let cue_path_obj = std::path::Path::new(cue_path);
+                        let bin_path = if let Some(parent) = cue_path_obj.parent() {
+                            parent.join(bin_filename)
+                        } else {
+                            std::path::PathBuf::from(bin_filename)
+                        };
+
+                        return Ok(bin_path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+
+        Err(crate::core::error::CdRomError::DiscLoadError(
+            "No FILE directive found in .cue file".to_string(),
+        ))
     }
 
     /// Read the current sector from the loaded disc
