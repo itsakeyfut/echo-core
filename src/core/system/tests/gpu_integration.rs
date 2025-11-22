@@ -73,9 +73,9 @@ fn test_gpuread() {
 fn test_system_gpu_integration() {
     let mut system = System::new();
 
-    // Run for a few cycles
+    // Run for a few cycles, asserting that stepping succeeds
     for _ in 0..100 {
-        let _ = system.step();
+        system.step().unwrap();
     }
 
     // System should not crash
