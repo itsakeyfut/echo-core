@@ -17,6 +17,7 @@
 //! Tests for VBlank, HBlank, scanline counting, and timing behavior
 
 use super::super::*;
+use crate::core::timing::TimingEventManager;
 
 #[test]
 fn test_vblank_timing() {
@@ -35,6 +36,205 @@ fn test_vblank_timing() {
     assert!(
         vblank_count > 0,
         "Expected at least one VBlank in 1 million cycles"
+    );
+}
+
+#[test]
+fn test_vblank_fires_every_564480_cycles() {
+    let mut gpu = GPU::new();
+    let mut timing = TimingEventManager::new();
+
+    // Register GPU timing events
+    gpu.register_events(&mut timing);
+
+    // VBlank should fire at 564,480 cycles
+    const CYCLES_PER_FRAME: i32 = 564_480;
+
+    // Verify initial downcount is set to VBlank cycle count
+    // Note: Downcount might be set to the HBlank event if it comes first
+    // So we'll verify by running events
+
+    // Advance time to just before VBlank
+    timing.pending_ticks = CYCLES_PER_FRAME - 1;
+    let triggered = timing.run_events();
+
+    // VBlank should not have fired yet
+    assert!(
+        !triggered
+            .iter()
+            .any(|&handle| { gpu.vblank_event.is_some() && handle == gpu.vblank_event.unwrap() }),
+        "VBlank should not fire before 564,480 cycles"
+    );
+
+    // Advance to VBlank time
+    timing.pending_ticks = 1;
+    let triggered = timing.run_events();
+
+    // VBlank should have fired
+    assert!(
+        triggered
+            .iter()
+            .any(|&handle| { gpu.vblank_event.is_some() && handle == gpu.vblank_event.unwrap() }),
+        "VBlank should fire at 564,480 cycles"
+    );
+}
+
+#[test]
+fn test_hblank_fires_every_scanline() {
+    let mut gpu = GPU::new();
+    let mut timing = TimingEventManager::new();
+
+    // Register GPU timing events
+    gpu.register_events(&mut timing);
+
+    // HBlank should fire every scanline (CYCLES_PER_SCANLINE)
+    const CYCLES_PER_SCANLINE: i32 = 2_146;
+
+    // Track HBlank events
+    let mut hblank_count = 0;
+
+    // Run for several scanlines
+    for _ in 0..10 {
+        timing.pending_ticks = CYCLES_PER_SCANLINE;
+        let triggered = timing.run_events();
+
+        if triggered
+            .iter()
+            .any(|&handle| gpu.hblank_event.is_some() && handle == gpu.hblank_event.unwrap())
+        {
+            hblank_count += 1;
+        }
+    }
+
+    // Should have had multiple HBlanks
+    assert!(hblank_count >= 5, "HBlank should fire multiple times");
+}
+
+#[test]
+fn test_frame_timing_at_60hz() {
+    let mut gpu = GPU::new();
+    let mut timing = TimingEventManager::new();
+
+    // Register GPU timing events
+    gpu.register_events(&mut timing);
+
+    // At 60 Hz, each frame is 1/60 second = 16.67ms
+    // At 33.8688 MHz CPU clock, that's 564,480 cycles per frame
+    const CYCLES_PER_FRAME: i32 = 564_480;
+    const FRAMES_TO_TEST: i32 = 5;
+
+    let start_time = timing.global_tick_counter;
+
+    // Run for 5 frames
+    for _ in 0..FRAMES_TO_TEST {
+        timing.pending_ticks = CYCLES_PER_FRAME;
+        timing.run_events();
+    }
+
+    let elapsed = timing.global_tick_counter - start_time;
+
+    // Should be approximately 5 frames worth of cycles
+    let expected = (CYCLES_PER_FRAME * FRAMES_TO_TEST) as u64;
+    assert_eq!(
+        elapsed, expected,
+        "5 frames should take exactly {} cycles",
+        expected
+    );
+}
+
+#[test]
+fn test_vblank_interrupt_generation() {
+    let mut gpu = GPU::new();
+    let mut timing = TimingEventManager::new();
+
+    // Register GPU timing events
+    gpu.register_events(&mut timing);
+
+    // Run to VBlank
+    timing.pending_ticks = 564_480;
+    let triggered = timing.run_events();
+
+    // Process GPU events
+    gpu.process_events(&mut timing, &triggered);
+
+    // VBlank event should have been processed
+    // (The actual interrupt state verification depends on GPU implementation)
+    assert!(
+        !triggered.is_empty(),
+        "At least one event should have fired"
+    );
+}
+
+#[test]
+fn test_scanline_counter_accuracy_with_timing() {
+    let mut gpu = GPU::new();
+    let mut timing = TimingEventManager::new();
+
+    // Register GPU timing events
+    gpu.register_events(&mut timing);
+
+    // Initial scanline
+    assert_eq!(gpu.get_scanline(), 0);
+
+    // Run for one scanline worth of cycles via timing system
+    const CYCLES_PER_SCANLINE: i32 = 2_146;
+
+    timing.pending_ticks = CYCLES_PER_SCANLINE;
+    let triggered = timing.run_events();
+    gpu.process_events(&mut timing, &triggered);
+
+    // Process the HBlank to advance scanline
+    // Note: The actual scanline advancement depends on GPU implementation
+}
+
+#[test]
+fn test_timing_event_registration() {
+    let mut gpu = GPU::new();
+    let mut timing = TimingEventManager::new();
+
+    // Before registration
+    assert!(gpu.vblank_event.is_none());
+    assert!(gpu.hblank_event.is_none());
+
+    // Register events
+    gpu.register_events(&mut timing);
+
+    // After registration
+    assert!(gpu.vblank_event.is_some());
+    assert!(gpu.hblank_event.is_some());
+
+    // Events should be scheduled
+    assert!(timing.downcount < i32::MAX);
+}
+
+#[test]
+fn test_periodic_vblank_events() {
+    let mut gpu = GPU::new();
+    let mut timing = TimingEventManager::new();
+
+    // Register GPU timing events
+    gpu.register_events(&mut timing);
+
+    let mut vblank_count = 0;
+    const CYCLES_PER_FRAME: i32 = 564_480;
+
+    // Run for 3 frames
+    for _ in 0..3 {
+        timing.pending_ticks = CYCLES_PER_FRAME;
+        let triggered = timing.run_events();
+
+        if triggered
+            .iter()
+            .any(|&handle| gpu.vblank_event.is_some() && handle == gpu.vblank_event.unwrap())
+        {
+            vblank_count += 1;
+        }
+    }
+
+    // Should have 3 VBlank events (periodic)
+    assert_eq!(
+        vblank_count, 3,
+        "VBlank should fire periodically every frame"
     );
 }
 

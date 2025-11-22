@@ -22,6 +22,7 @@
 //! - `cop0`: COP0 coprocessor operations (MFC0, MTC0, RFE)
 //! - `decode`: Instruction decoding
 //! - `instructions`: All instruction execution tests
+//! - `timing`: Timing event system integration tests
 
 #[cfg(test)]
 mod basic;
@@ -40,3 +41,6 @@ mod decode;
 
 #[cfg(test)]
 mod instructions;
+
+#[cfg(test)]
+mod timing;
