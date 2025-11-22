@@ -18,3 +18,4 @@
 mod basic;
 mod interrupts;
 mod modes;
+mod timing;
