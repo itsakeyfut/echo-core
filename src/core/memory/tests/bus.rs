@@ -1,36 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025 itsakeyfut
 
-//! Memory Bus Tests
+//! Memory bus access tests
 //!
-//! This module contains comprehensive tests for the PlayStation memory bus,
-//! including RAM, scratchpad, BIOS, I/O ports, and expansion regions.
-//!
-//! Tests cover:
-//! - Address translation and segment mirroring (KUSEG, KSEG0, KSEG1)
-//! - Memory region identification
-//! - Read/write operations with various data sizes (8-bit, 16-bit, 32-bit)
-//! - Alignment requirements
-//! - Boundary conditions
-//! - Endianness verification
-//! - Expansion region behavior (ROM header and open bus)
+//! Tests for memory read/write operations with various data sizes,
+//! alignment requirements, and endianness verification.
 
 use super::*;
-use crate::core::memory::MemoryRegion;
-
-#[test]
-fn test_address_translation() {
-    let bus = Bus::new();
-
-    // KUSEG
-    assert_eq!(bus.translate_address(0x00001234), 0x00001234);
-
-    // KSEG0
-    assert_eq!(bus.translate_address(0x80001234), 0x00001234);
-
-    // KSEG1
-    assert_eq!(bus.translate_address(0xA0001234), 0x00001234);
-}
 
 #[test]
 fn test_ram_read_write() {
@@ -75,17 +51,6 @@ fn test_scratchpad_access() {
 
     bus.write32(0x1F800000, 0xABCDEF00).unwrap();
     assert_eq!(bus.read32(0x1F800000).unwrap(), 0xABCDEF00);
-}
-
-#[test]
-fn test_memory_region_identification() {
-    let bus = Bus::new();
-
-    assert_eq!(bus.identify_region(0x00000000), MemoryRegion::RAM);
-    assert_eq!(bus.identify_region(0x1F800000), MemoryRegion::Scratchpad);
-    assert_eq!(bus.identify_region(0x1F801000), MemoryRegion::IO);
-    assert_eq!(bus.identify_region(0x1FC00000), MemoryRegion::BIOS);
-    assert_eq!(bus.identify_region(0x1FFFFFFF), MemoryRegion::Unmapped);
 }
 
 #[test]
@@ -176,14 +141,6 @@ fn test_io_port_stub() {
 }
 
 #[test]
-fn test_unmapped_access() {
-    let bus = Bus::new();
-
-    // Access to unmapped region should fail
-    assert!(bus.read32(0x1FFFFFFF).is_err());
-}
-
-#[test]
 fn test_mixed_size_access() {
     let mut bus = Bus::new();
 
@@ -199,23 +156,6 @@ fn test_mixed_size_access() {
     // Read 16-bit values
     assert_eq!(bus.read16(0x80000000).unwrap(), 0x5678);
     assert_eq!(bus.read16(0x80000002).unwrap(), 0x1234);
-}
-
-#[test]
-fn test_segment_mirroring() {
-    let mut bus = Bus::new();
-
-    // Write via KUSEG
-    bus.write32(0x00001000, 0xAAAAAAAA).unwrap();
-
-    // Read via KSEG0
-    assert_eq!(bus.read32(0x80001000).unwrap(), 0xAAAAAAAA);
-
-    // Write via KSEG1
-    bus.write32(0xA0001000, 0xBBBBBBBB).unwrap();
-
-    // Read via KUSEG
-    assert_eq!(bus.read32(0x00001000).unwrap(), 0xBBBBBBBB);
 }
 
 #[test]
@@ -307,24 +247,6 @@ fn test_expansion_region_writes_ignored() {
     // Test 8-bit writes
     assert!(bus.write8(0x1F000080, 0x42).is_ok());
     assert_eq!(bus.read8(0x1F000080).unwrap(), 0x00);
-}
-
-#[test]
-fn test_expansion_region_identification() {
-    let bus = Bus::new();
-
-    // Expansion region 1
-    assert_eq!(bus.identify_region(0x1F000000), MemoryRegion::Expansion);
-    assert_eq!(bus.identify_region(0x1F000084), MemoryRegion::Expansion);
-    assert_eq!(bus.identify_region(0x1F7FFFFF), MemoryRegion::Expansion);
-
-    // Expansion region 3
-    assert_eq!(bus.identify_region(0x1FA00000), MemoryRegion::Expansion);
-    assert_eq!(bus.identify_region(0x1FBFFFFF), MemoryRegion::Expansion);
-
-    // Not expansion (verify boundaries)
-    assert_ne!(bus.identify_region(0x1F800000), MemoryRegion::Expansion); // Scratchpad
-    assert_ne!(bus.identify_region(0x1F801000), MemoryRegion::Expansion); // I/O
 }
 
 #[test]
