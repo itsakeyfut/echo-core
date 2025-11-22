@@ -57,6 +57,7 @@
 
 use crate::core::cdrom::CDROM;
 use crate::core::gpu::GPU;
+use crate::core::spu::SPU;
 
 #[cfg(test)]
 mod tests;
@@ -196,8 +197,7 @@ impl DMA {
     pub const CH_CDROM: usize = 3;
 
     /// Channel 4: SPU (sound)
-    #[allow(dead_code)]
-    const CH_SPU: usize = 4;
+    pub const CH_SPU: usize = 4;
 
     /// Channel 5: PIO (expansion port)
     #[allow(dead_code)]
@@ -243,11 +243,18 @@ impl DMA {
     /// * `ram` - Main system RAM
     /// * `gpu` - GPU reference for GPU transfers
     /// * `cdrom` - CD-ROM reference for CD-ROM transfers
+    /// * `spu` - SPU reference for SPU transfers
     ///
     /// # Returns
     ///
     /// `true` if any transfer generated an interrupt
-    pub fn tick(&mut self, ram: &mut [u8], gpu: &mut GPU, cdrom: &mut CDROM) -> bool {
+    pub fn tick(
+        &mut self,
+        ram: &mut [u8],
+        gpu: &mut GPU,
+        cdrom: &mut CDROM,
+        spu: &mut SPU,
+    ) -> bool {
         let mut irq = false;
 
         // Build list of active channels with their priorities
@@ -268,7 +275,7 @@ impl DMA {
 
         // Execute transfers in priority order
         for (ch_id, _) in active_channels {
-            irq |= self.execute_transfer(ch_id, ram, gpu, cdrom);
+            irq |= self.execute_transfer(ch_id, ram, gpu, cdrom, spu);
         }
 
         irq
@@ -282,6 +289,7 @@ impl DMA {
     /// * `ram` - Main system RAM
     /// * `gpu` - GPU reference
     /// * `cdrom` - CD-ROM reference
+    /// * `spu` - SPU reference
     ///
     /// # Returns
     ///
@@ -292,6 +300,7 @@ impl DMA {
         ram: &mut [u8],
         gpu: &mut GPU,
         cdrom: &mut CDROM,
+        spu: &mut SPU,
     ) -> bool {
         log::debug!(
             "DMA{} transfer: addr=0x{:08X} bcr=0x{:08X} chcr=0x{:08X}",
@@ -304,6 +313,7 @@ impl DMA {
         let completed = match ch_id {
             Self::CH_GPU => self.transfer_gpu(ram, gpu),
             Self::CH_CDROM => self.transfer_cdrom(ram, cdrom),
+            Self::CH_SPU => self.transfer_spu(ram, spu),
             Self::CH_OTC => self.transfer_otc(ram),
             _ => {
                 log::warn!("DMA{} not implemented", ch_id);
@@ -442,6 +452,90 @@ impl DMA {
             total_words * 4
         );
         true
+    }
+
+    /// Execute SPU DMA transfer (channel 4)
+    ///
+    /// Transfers data between RAM and SPU RAM.
+    /// Supports sync mode 0 (manual/immediate) and sync mode 1 (block).
+    fn transfer_spu(&mut self, ram: &mut [u8], spu: &mut SPU) -> bool {
+        // Extract channel data first to avoid borrow issues
+        let sync_mode = self.channels[Self::CH_SPU].sync_mode();
+        let direction = self.channels[Self::CH_SPU].direction();
+        let base_address = self.channels[Self::CH_SPU].base_address;
+        let block_control = self.channels[Self::CH_SPU].block_control;
+
+        match sync_mode {
+            // Sync mode 0: Manual/Immediate
+            0 => {
+                let words = if block_control & 0xFFFF > 0 {
+                    block_control & 0xFFFF
+                } else {
+                    0x10000
+                };
+
+                let mut addr = base_address & 0x001F_FFFC;
+
+                for _ in 0..words {
+                    if direction == DMAChannel::TRANSFER_FROM_RAM {
+                        // RAM → SPU
+                        let value = self.read_ram_u32(ram, addr);
+                        spu.dma_write(value);
+                    } else {
+                        // SPU → RAM
+                        let value = spu.dma_read();
+                        self.write_ram_u32(ram, addr, value);
+                    }
+
+                    addr = (addr + 4) & 0x001F_FFFC;
+                }
+
+                spu.flush_dma_fifo();
+                self.channels[Self::CH_SPU].deactivate();
+                log::debug!("SPU DMA sync mode 0 transfer complete ({} words)", words);
+                true
+            }
+
+            // Sync mode 1: Block
+            1 => {
+                let block_size = (block_control & 0xFFFF) as usize;
+                let block_count = ((block_control >> 16) & 0xFFFF) as usize;
+
+                let mut addr = base_address & 0x001F_FFFC;
+
+                for _ in 0..block_count {
+                    for _ in 0..block_size {
+                        if direction == DMAChannel::TRANSFER_FROM_RAM {
+                            // RAM → SPU
+                            let value = self.read_ram_u32(ram, addr);
+                            spu.dma_write(value);
+                        } else {
+                            // SPU → RAM
+                            let value = spu.dma_read();
+                            self.write_ram_u32(ram, addr, value);
+                        }
+
+                        addr = (addr + 4) & 0x001F_FFFC;
+                    }
+                }
+
+                spu.flush_dma_fifo();
+                self.channels[Self::CH_SPU].deactivate();
+                log::debug!(
+                    "SPU DMA block transfer complete ({} blocks × {} words = {} words)",
+                    block_count,
+                    block_size,
+                    block_count * block_size
+                );
+                true
+            }
+
+            _ => {
+                log::warn!("SPU DMA sync mode {} not supported", sync_mode);
+                self.channels[Self::CH_SPU].deactivate();
+                false
+            }
+        }
     }
 
     /// Execute OTC (Ordering Table Clear) transfer (channel 6)

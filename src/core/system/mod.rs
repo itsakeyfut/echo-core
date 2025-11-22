@@ -276,12 +276,15 @@ impl System {
         let cpu_cycles = self.cpu.step(&mut self.bus)?;
 
         // Tick DMA controller to process active transfers
-        // DMA gets access to RAM, GPU, and CD-ROM for data transfers
+        // DMA gets access to RAM, GPU, CD-ROM, and SPU for data transfers
         let dma_irq = {
             let ram = self.bus.ram_mut();
             let mut gpu = self.gpu.borrow_mut();
             let mut cdrom = self.cdrom.borrow_mut();
-            self.dma.borrow_mut().tick(ram, &mut gpu, &mut cdrom)
+            let mut spu = self.spu.borrow_mut();
+            self.dma
+                .borrow_mut()
+                .tick(ram, &mut gpu, &mut cdrom, &mut spu)
         };
 
         // Request DMA interrupt if any transfer completed
