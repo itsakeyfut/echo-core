@@ -40,14 +40,8 @@ chrono = { version = "0.4.42", features = ["serde"] }
 # Bitwise operations
 bitflags = "2.10"
 
-# UI framework
-slint = "1.14.1"
-
 # Audio output (optional, not available in all environments)
 cpal = { version = "0.16", optional = true }
-
-[build-dependencies]
-slint-build = "1.14.1"
 
 [dev-dependencies]
 # Testing

@@ -22,9 +22,11 @@ cargo x build --release
 ### Running
 
 ```bash
-# Run the emulator with UI
-./target/release/psrx-ui path/to/SCPH1001.BIN
+# Run the emulator (CLI mode)
+./target/release/psrx path/to/SCPH1001.BIN
 ```
+
+> **Note**: GUI frontend is planned. Currently only CLI mode is available.
 
 ## Configuration
 
@@ -211,7 +213,6 @@ Currently in Phase 2 development. See [docs/05-development/roadmap.md](docs/05-d
 - MIPS R3000A CPU core with full instruction set
 - Memory bus with region mapping
 - GPU core structure with VRAM management
-- Basic Slint-based UI frontend
 - CPU tracing and debugging tools
 
 **In Progress**:
