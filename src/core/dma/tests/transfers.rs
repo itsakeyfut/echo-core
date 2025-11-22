@@ -1,79 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025 itsakeyfut
 
-//! Unit tests for DMA controller
+//! DMA transfer operation tests
 
-use super::*;
-
-#[test]
-fn test_dma_initialization() {
-    let dma = DMA::new();
-
-    // All channels should be inactive initially
-    for i in 0..7 {
-        assert!(!dma.channels[i].is_active());
-        assert_eq!(dma.channels[i].base_address, 0);
-        assert_eq!(dma.channels[i].block_control, 0);
-        assert_eq!(dma.channels[i].channel_control, 0);
-    }
-
-    // Control register should have default priority
-    assert_eq!(dma.read_control(), 0x0765_4321);
-
-    // Interrupt register should be cleared
-    assert_eq!(dma.read_interrupt(), 0);
-}
-
-#[test]
-fn test_channel_register_access() {
-    let mut dma = DMA::new();
-
-    // Test MADR register
-    dma.write_madr(DMA::CH_GPU, 0x8012_3456);
-    assert_eq!(dma.read_madr(DMA::CH_GPU), 0x0012_3456); // Top byte masked
-
-    // Test BCR register
-    dma.write_bcr(DMA::CH_GPU, 0x0010_0020);
-    assert_eq!(dma.read_bcr(DMA::CH_GPU), 0x0010_0020);
-
-    // Test CHCR register
-    dma.write_chcr(DMA::CH_GPU, 0x0100_0201);
-    assert_eq!(dma.read_chcr(DMA::CH_GPU), 0x0100_0201);
-}
-
-#[test]
-fn test_channel_control_bits() {
-    let mut channel = DMAChannel::new(2);
-
-    // Initially inactive
-    assert!(!channel.is_active());
-    assert!(!channel.trigger());
-
-    // Set active bit (bit 24)
-    channel.channel_control = 0x0100_0000;
-    assert!(channel.is_active());
-
-    // Set trigger bit (bit 28)
-    channel.channel_control = 0x1000_0000;
-    assert!(channel.trigger());
-
-    // Test direction
-    channel.channel_control = 0;
-    assert_eq!(channel.direction(), DMAChannel::TRANSFER_TO_RAM);
-
-    channel.channel_control = 1;
-    assert_eq!(channel.direction(), DMAChannel::TRANSFER_FROM_RAM);
-
-    // Test sync modes
-    channel.channel_control = 0 << 9;
-    assert_eq!(channel.sync_mode(), 0);
-
-    channel.channel_control = 1 << 9;
-    assert_eq!(channel.sync_mode(), 1);
-
-    channel.channel_control = 2 << 9;
-    assert_eq!(channel.sync_mode(), 2);
-}
+use super::super::*;
+use crate::core::cdrom::CDROM;
+use crate::core::gpu::GPU;
 
 #[test]
 fn test_otc_transfer() {
@@ -132,102 +64,6 @@ fn test_otc_transfer_single_entry() {
     // Single entry should be end marker
     let entry = dma.read_ram_u32(&ram, 0x1000);
     assert_eq!(entry, 0x00FF_FFFF);
-}
-
-#[test]
-fn test_ram_word_access() {
-    let dma = DMA::new();
-    let mut ram = vec![0u8; 2 * 1024 * 1024];
-
-    // Test write
-    dma.write_ram_u32(&mut ram, 0x1000, 0x12345678);
-
-    // Test read
-    let value = dma.read_ram_u32(&ram, 0x1000);
-    assert_eq!(value, 0x12345678);
-
-    // Verify byte order (little-endian)
-    assert_eq!(ram[0x1000], 0x78);
-    assert_eq!(ram[0x1001], 0x56);
-    assert_eq!(ram[0x1002], 0x34);
-    assert_eq!(ram[0x1003], 0x12);
-}
-
-#[test]
-fn test_ram_word_access_with_masking() {
-    let dma = DMA::new();
-    let mut ram = vec![0u8; 2 * 1024 * 1024];
-
-    // Test that address masking works correctly
-    dma.write_ram_u32(&mut ram, 0xFFFF_FFFF, 0xDEADBEEF);
-
-    // Should write to 0x001F_FFFC (masked address)
-    let value = dma.read_ram_u32(&ram, 0x001F_FFFC);
-    assert_eq!(value, 0xDEADBEEF);
-}
-
-#[test]
-fn test_dpcr_access() {
-    let mut dma = DMA::new();
-
-    // Default value
-    assert_eq!(dma.read_control(), 0x0765_4321);
-
-    // Write new value
-    dma.write_control(0x1234_5678);
-    assert_eq!(dma.read_control(), 0x1234_5678);
-}
-
-#[test]
-fn test_dicr_access() {
-    let mut dma = DMA::new();
-
-    // Initial value
-    assert_eq!(dma.read_interrupt(), 0);
-
-    // Write configuration bits (bits 0-5 are reserved and should be preserved as 0)
-    // Write without setting force flag (bit 15) to avoid triggering master flag (bit 31)
-    dma.write_interrupt(0x00FF_7FC0);
-    assert_eq!(dma.read_interrupt(), 0x00FF_7FC0); // Bits 6-14 and 16-23 are writable
-
-    // Test that force flag (bit 15) causes master flag (bit 31) to be set
-    dma.write_interrupt(0x0000_8000); // Set only force flag
-    assert_eq!(dma.read_interrupt(), 0x8000_8000); // Master flag (bit 31) should be set
-
-    // Clear force flag and verify master flag is cleared
-    dma.write_interrupt(0x0000_0000); // Clear force flag
-    assert_eq!(dma.read_interrupt(), 0x0000_0000);
-
-    // Set up configuration with channel enables and master enable
-    dma.write_interrupt(0x00FF_FFC0); // Set all config bits including force flag
-    assert_eq!(dma.read_interrupt(), 0x80FF_FFC0); // Master flag (bit 31) set due to force flag
-
-    // Test write-1-to-clear for bits 24-30 (interrupt flags)
-    // Note: Since bits 6-23 are always updated, we need to re-write config to preserve it
-    dma.write_interrupt(0x7FFF_FFC0); // Clear all interrupt flags and re-write config
-    assert_eq!(dma.read_interrupt(), 0x80FF_FFC0); // Flags cleared, config preserved, master flag set
-}
-
-#[test]
-fn test_channel_deactivation() {
-    let mut channel = DMAChannel::new(0);
-
-    // Activate channel
-    channel.channel_control = 0x0100_0000;
-    assert!(channel.is_active());
-
-    // Deactivate
-    channel.deactivate();
-    assert!(!channel.is_active());
-
-    // Other bits should remain unchanged
-    channel.channel_control = 0x1100_0201;
-    assert!(channel.is_active());
-    assert!(channel.trigger());
-
-    channel.deactivate();
-    assert!(!channel.is_active());
-    assert!(channel.trigger()); // Trigger bit should remain set
 }
 
 #[test]

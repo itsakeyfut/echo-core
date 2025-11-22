@@ -13,27 +13,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use psrx::core::error::Result;
-use psrx::core::system::System;
+//! Compatibility tests
+//!
+//! Tests that verify compatibility with real PSX BIOS and commercial games.
+//! These tests typically require external files and may be marked as #[ignore].
 
-#[test]
-fn test_basic_initialization() -> Result<()> {
-    // Basic smoke test
-    let system = System::new();
-    assert_eq!(system.cycles(), 0);
-    Ok(())
-}
-
-#[test]
-fn test_system_reset() {
-    let mut system = System::new();
-    system.reset();
-    assert_eq!(system.cycles(), 0);
-}
-
-#[test]
-fn test_cpu_initialization() {
-    let system = System::new();
-    // PC should start at BIOS entry point
-    assert_eq!(system.pc(), 0xBFC00000);
+mod common;
+mod compatibility {
+    mod bios_boot;
 }
