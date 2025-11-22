@@ -28,8 +28,7 @@ fn test_bios_boot() {
     //
     // Note: You must legally own a PlayStation console to use its BIOS.
 
-    let bios_path =
-        std::env::var("PSX_BIOS_PATH").unwrap_or_else(|_| "SCPH1001.BIN".to_string());
+    let bios_path = std::env::var("PSX_BIOS_PATH").unwrap_or_else(|_| "SCPH1001.BIN".to_string());
 
     let mut system = System::new();
 
