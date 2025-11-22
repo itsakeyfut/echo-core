@@ -179,7 +179,8 @@ pub struct CPUState {
 /// Memory state (RAM and scratchpad)
 ///
 /// Contains main RAM and scratchpad data.
-/// BIOS is not saved as it doesn't change during execution.
+/// BIOS is not saved as it doesn't change during execution and should
+/// be loaded from the user's BIOS file when restoring state.
 #[derive(Serialize, Deserialize, Encode, Decode)]
 pub struct MemoryState {
     /// Main RAM (2MB)
@@ -187,10 +188,6 @@ pub struct MemoryState {
 
     /// Scratchpad (1KB fast RAM)
     pub scratchpad: Vec<u8>,
-
-    /// BIOS ROM is not saved (doesn't change during execution)
-    #[serde(skip)]
-    pub bios: Vec<u8>,
 }
 
 /// GPU state (Graphics Processing Unit)
@@ -498,6 +495,14 @@ impl SaveState {
     ///
     /// SaveState containing complete system state
     ///
+    /// # Note
+    ///
+    /// This is currently a stub implementation that returns an empty state.
+    /// The full implementation requires each component (CPU, GPU, SPU, etc.) to
+    /// implement the `StateSave` trait with `to_state()` methods. Once those
+    /// trait implementations are complete, this method will call each component's
+    /// `to_state()` to capture the actual runtime state.
+    ///
     /// # Example
     ///
     /// ```no_run
@@ -532,7 +537,6 @@ impl SaveState {
             memory: MemoryState {
                 ram: Vec::new(),
                 scratchpad: Vec::new(),
-                bios: Vec::new(),
             },
             gpu: GPUState {
                 vram: Vec::new(),
@@ -687,7 +691,9 @@ impl SaveState {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
 
-        let config = config::standard();
+        // Set a 50MB limit to prevent unbounded allocation from corrupted/malicious files
+        // This is well above the expected ~3.6MB for a typical save state
+        let config = config::standard().with_limit::<{ 50 * 1024 * 1024 }>();
         let (state, _): (SaveState, usize) = bincode::decode_from_slice(&buffer, config)?;
 
         // Version check
@@ -761,7 +767,6 @@ impl Default for SaveState {
             memory: MemoryState {
                 ram: vec![0; 2 * 1024 * 1024],
                 scratchpad: vec![0; 1024],
-                bios: Vec::new(),
             },
             gpu: GPUState {
                 vram: vec![0; 1024 * 512],
@@ -986,7 +991,6 @@ mod tests {
             memory: MemoryState {
                 ram: vec![0; 2 * 1024 * 1024],
                 scratchpad: vec![0; 1024],
-                bios: Vec::new(),
             },
             gpu: GPUState {
                 vram: vec![0; 1024 * 512],
