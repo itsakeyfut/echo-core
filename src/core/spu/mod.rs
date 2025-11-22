@@ -702,8 +702,9 @@ impl SPU {
     /// spu.set_transfer_address(0x1000); // Sets address to 0x8000 bytes
     /// ```
     pub fn set_transfer_address(&mut self, addr: u32) {
-        // Address is in 8-byte units, mask to 19 bits (0-0x7FFFF)
-        self.transfer_addr = (addr & 0x3FFFF) * 8;
+        // Address is in 8-byte units; register is 16 bits (0-0xFFFF)
+        // 0xFFFF * 8 = 0x7FFF8, which fits in 512KB SPU RAM.
+        self.transfer_addr = (addr & 0xFFFF) * 8;
         log::debug!("SPU DMA address: 0x{:08X}", self.transfer_addr);
     }
 
@@ -771,7 +772,7 @@ impl SPU {
     ///
     /// Writes all pending data in the DMA FIFO to SPU RAM,
     /// starting at the current transfer address.
-    fn flush_dma_fifo(&mut self) {
+    pub(crate) fn flush_dma_fifo(&mut self) {
         while let Some(value) = self.dma_fifo.pop_front() {
             self.write_ram_word(self.transfer_addr, value);
             self.transfer_addr = (self.transfer_addr + 2) & 0x7FFFE;

@@ -490,6 +490,7 @@ impl DMA {
                     addr = (addr + 4) & 0x001F_FFFC;
                 }
 
+                spu.flush_dma_fifo();
                 self.channels[Self::CH_SPU].deactivate();
                 log::debug!("SPU DMA sync mode 0 transfer complete ({} words)", words);
                 true
@@ -518,6 +519,7 @@ impl DMA {
                     }
                 }
 
+                spu.flush_dma_fifo();
                 self.channels[Self::CH_SPU].deactivate();
                 log::debug!(
                     "SPU DMA block transfer complete ({} blocks × {} words = {} words)",

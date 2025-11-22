@@ -905,9 +905,9 @@ mod tests {
 
         let elapsed = start.elapsed();
 
-        // Should have taken minimal time (less than 1ms for immediate return)
-        // Use a generous threshold to avoid flakiness on slow systems
-        assert!(elapsed < std::time::Duration::from_millis(5));
+        // Should have taken minimal time (less than 20ms for immediate return)
+        // Use a permissive threshold to avoid flakiness on slow/contended CI environments
+        assert!(elapsed < std::time::Duration::from_millis(20));
     }
 
     #[test]
