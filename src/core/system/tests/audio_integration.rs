@@ -15,6 +15,7 @@
 
 //! Audio integration tests
 
+#[cfg(feature = "audio")]
 use super::super::*;
 
 #[test]
