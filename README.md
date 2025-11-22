@@ -180,6 +180,29 @@ cargo x fmt
 cargo x check
 ```
 
+### Code Coverage
+
+This project uses [`cargo-llvm-cov`](https://github.com/taiki-e/cargo-llvm-cov) to measure test coverage.
+
+```bash
+# Install required tools
+rustup component add llvm-tools-preview
+cargo install cargo-llvm-cov
+
+# Generate coverage report
+cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+
+# Generate HTML report (view in browser)
+cargo llvm-cov --all-features --workspace --html
+open target/llvm-cov/html/index.html  # macOS
+# xdg-open target/llvm-cov/html/index.html  # Linux
+# start target/llvm-cov/html/index.html  # Windows
+```
+
+GitHub Actions automatically measures coverage and uploads reports as artifacts. View them in the [Actions tab](../../actions).
+
+**Target coverage: 70%+**
+
 ## Project Status
 
 Currently in Phase 2 development. See [docs/05-development/roadmap.md](docs/05-development/roadmap.md) for the full roadmap.
