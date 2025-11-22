@@ -203,7 +203,7 @@ fn test_vram_to_cpu_transfer_odd_width() {
 fn test_vram_to_cpu_status_flag() {
     let mut gpu = GPU::new();
 
-    // Initially not ready to send
+    // Initially ready to send
     assert!(gpu.status.ready_to_send_vram);
 
     // Start transfer

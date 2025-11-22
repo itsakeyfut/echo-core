@@ -56,8 +56,8 @@ fn test_monochrome_triangle_parsing() {
     // Monochrome triangle command
     gpu.write_gp0(0x20FF0000); // Red triangle
     gpu.write_gp0(0x00640032); // V1: (50, 100)
-    gpu.write_gp0(0x00C80096); // V2: (200, 150)
-    gpu.write_gp0(0x00320064); // V3: (50, 100)
+    gpu.write_gp0(0x00C80096); // V2: (150, 200)
+    gpu.write_gp0(0x00320064); // V3: (100, 50)
 
     // Command should be processed (no crash, FIFO empty)
     assert!(gpu.command_fifo.is_empty());
@@ -83,9 +83,9 @@ fn test_monochrome_quad_parsing() {
 
     gpu.write_gp0(0x2800FF00); // Green quad
     gpu.write_gp0(0x00000000); // V1: (0, 0)
-    gpu.write_gp0(0x00640000); // V2: (100, 0)
+    gpu.write_gp0(0x00640000); // V2: (0, 100)
     gpu.write_gp0(0x00640064); // V3: (100, 100)
-    gpu.write_gp0(0x00000064); // V4: (0, 100)
+    gpu.write_gp0(0x00000064); // V4: (100, 0)
 
     assert!(gpu.command_fifo.is_empty());
 }

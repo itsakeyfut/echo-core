@@ -18,6 +18,6 @@
 //! Tests that verify complete system behavior, including component interactions.
 
 mod common;
-mod system {
-    mod initialization;
-}
+
+#[path = "system/initialization.rs"]
+mod initialization;

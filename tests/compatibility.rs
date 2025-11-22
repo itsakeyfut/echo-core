@@ -19,6 +19,6 @@
 //! These tests typically require external files and may be marked as #[ignore].
 
 mod common;
-mod compatibility {
-    mod bios_boot;
-}
+
+#[path = "compatibility/bios_boot.rs"]
+mod bios_boot;
