@@ -22,7 +22,6 @@
 //! The emulator is organized into the following modules:
 //!
 //! - [`core`]: Core emulation components (CPU, Memory, GPU, SPU, System)
-//! - [`frontend`]: User interface (to be implemented with Slint)
 //!
 //! # Example
 //!
@@ -55,7 +54,6 @@
 //! `Result<T, EmulatorError>`.
 
 pub mod core;
-pub mod frontend;
 
 // Re-export commonly used types
 pub use core::error::{EmulatorError, Result};
